@@ -2,7 +2,7 @@
 name: 버그 리포트
 about: 버그를 발견했을 때 사용해주세요
 title: "[BUG] "
-labels: bug
+labels: "🐛 버그"
 assignees: ''
 ---
 

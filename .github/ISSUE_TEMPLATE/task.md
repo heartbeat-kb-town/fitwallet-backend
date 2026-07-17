@@ -2,7 +2,7 @@
 name: 작업/태스크
 about: 개발 작업이나 태스크를 등록할 때 사용해주세요
 title: "[TASK] "
-labels: task
+labels: "🛠️ 작업"
 assignees: ''
 ---
 
