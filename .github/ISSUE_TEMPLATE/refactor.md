@@ -2,7 +2,7 @@
 name: 리팩토링
 about: 코드 개선이나 리팩토링 작업을 등록할 때 사용해주세요
 title: "[REFACTOR] "
-labels: refactor
+labels: "🧹 리팩터링"
 assignees: ''
 ---
 

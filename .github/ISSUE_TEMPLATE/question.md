@@ -2,7 +2,7 @@
 name: 질문
 about: 코드나 설계에 대해 질문이 있을 때 사용해주세요
 title: "[QUESTION] "
-labels: question
+labels: ''
 assignees: ''
 ---
 

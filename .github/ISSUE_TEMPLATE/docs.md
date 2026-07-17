@@ -2,7 +2,7 @@
 name: 문서 작업
 about: 문서 추가나 수정이 필요할 때 사용해주세요
 title: "[DOCS] "
-labels: documentation
+labels: "📝 문서"
 assignees: ''
 ---
 

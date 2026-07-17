@@ -2,7 +2,7 @@
 name: 학습 기록
 about: 학습한 내용을 기록할 때 사용해주세요
 title: "[LEARN] "
-labels: learn
+labels: ''
 assignees: ''
 ---
 
