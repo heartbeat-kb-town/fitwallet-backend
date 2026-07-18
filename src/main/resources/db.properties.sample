@@ -1,11 +1,14 @@
-# 이 파일을 db.properties 로 복사한 뒤 값을 채워서 사용하세요.
+# 이 파일을 db.properties 로 복사한 뒤 사용하세요.
 # cp src/main/resources/db.properties.sample src/main/resources/db.properties
 #
-# DB 연결은 아직 확정되지 않았습니다 (추후 Docker로 통일 예정).
 # 값이 비어 있거나 db.properties가 없어도 서버 기동 자체는 가능하며,
 # 실제 DB 연결은 MyBatis 쿼리를 호출하는 시점에만 필요합니다.
+#
+# 아래 값은 docker-compose.yml + .env.sample이 만드는 로컬 MySQL 컨테이너의
+# 애플리케이션 전용 계정(MYSQL_USER/MYSQL_PASSWORD/MYSQL_DATABASE)과 짝이 맞습니다.
+# .env.sample을 바꿨다면 이 파일도 같이 맞춰주세요.
 
 jdbc.driver=com.mysql.cj.jdbc.Driver
-jdbc.url=jdbc:mysql://localhost:3306/fitwallet
-jdbc.username=root
-jdbc.password=changeme
+jdbc.url=jdbc:mysql://localhost:3306/fitwallet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8
+jdbc.username=fitwallet
+jdbc.password=fitwallet1234
