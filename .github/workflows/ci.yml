@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    # .env.sample과 동일한 로컬 개발 전용 값 (운영 비밀정보 아님, 팀 공유 기본값)
+    # .env.sample이 바뀌면 이 값도 함께 맞춰야 한다.
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_ROOT_PASSWORD: root1234
+          MYSQL_DATABASE: fitwallet
+          MYSQL_USER: fitwallet
+          MYSQL_PASSWORD: fitwallet1234
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h localhost -uroot -proot1234"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # services는 checkout 이전에 뜨기 때문에 docker-entrypoint-initdb.d 자동 초기화를
+      # 쓸 수 없다. 로컬과 동일한 초기화 SQL을 checkout 이후 직접 실행해 시딩한다.
+      - name: Seed health_check table
+        run: mysql -h 127.0.0.1 -P 3306 -uroot -proot1234 fitwallet < docker/mysql/init/001-health-check.sql
+
+      - name: Prepare local DB config
+        run: cp src/main/resources/db.properties.sample src/main/resources/db.properties
+
+      - name: Build with Gradle (compile + test + package)
+        run: ./gradlew build
+
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-report
+          path: build/reports/tests/test
+          retention-days: 7
