@@ -32,6 +32,8 @@
 
     <resources mapping="/images/**" location="/resources/images/"/>
 
-    <context:component-scan base-package="com.fitwallet.controller"/>
+    <context:component-scan base-package="com.fitwallet" use-default-filters="false">
+        <context:include-filter type="annotation" expression="org.springframework.stereotype.Controller"/>
+    </context:component-scan>
 
 </beans:beans>
