@@ -1,4 +1,4 @@
-package com.fitwallet.domain;
+package com.fitwallet.global.common;
 
 import java.time.LocalDateTime;
 

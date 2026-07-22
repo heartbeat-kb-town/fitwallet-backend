@@ -1,4 +1,4 @@
-package com.fitwallet.mapper;
+package com.fitwallet.global.common.mapper;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -7,7 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 
-import com.fitwallet.domain.HealthCheck;
+import com.fitwallet.global.common.HealthCheck;
 
 @SpringJUnitConfig(locations = "file:src/main/webapp/WEB-INF/spring/root-context.xml")
 class HealthMapperIntegrationTest {

@@ -1,11 +1,11 @@
-package com.fitwallet.controller;
+package com.fitwallet.global.common.controller;
 
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.fitwallet.domain.HealthCheck;
-import com.fitwallet.mapper.HealthMapper;
+import com.fitwallet.global.common.HealthCheck;
+import com.fitwallet.global.common.mapper.HealthMapper;
 
 import lombok.RequiredArgsConstructor;
 
