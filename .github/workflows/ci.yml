@@ -50,8 +50,13 @@ jobs:
 
       # services는 checkout 이전에 뜨기 때문에 docker-entrypoint-initdb.d 자동 초기화를
       # 쓸 수 없다. 로컬과 동일한 초기화 SQL을 checkout 이후 직접 실행해 시딩한다.
-      - name: Seed health_check table
-        run: mysql -h 127.0.0.1 -P 3306 -uroot -proot1234 fitwallet < docker/mysql/init/001-health-check.sql
+      # 파일이 늘어나도 이 스텝을 다시 고칠 필요가 없도록 init 디렉터리 전체를 번호순으로 돌린다.
+      - name: Initialize DB (schema + seed)
+        run: |
+          for f in docker/mysql/init/*.sql; do
+            echo "applying $f"
+            mysql -h 127.0.0.1 -P 3306 -uroot -proot1234 --default-character-set=utf8mb4 fitwallet < "$f"
+          done
 
       - name: Prepare local DB config
         run: cp src/main/resources/db.properties.sample src/main/resources/db.properties

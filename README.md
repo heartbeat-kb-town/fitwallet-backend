@@ -48,6 +48,14 @@ docker compose up -d
 docker compose ps   # mysql 서비스가 healthy 상태인지 확인
 ```
 
+컨테이너를 **처음 띄울 때** `docker/mysql/init/`의 SQL이 번호순으로 자동 실행되어,
+스키마(18개 테이블)와 예시 데이터(카드사 3사·혜택·가맹점·회원·결제내역)가 함께 들어갑니다.
+테이블 구조는 [docs/erd.md](./docs/erd.md)를 참고하세요.
+
+> 이 초기화 스크립트는 **데이터 볼륨이 비어 있을 때만** 실행됩니다. 스키마나 시드가
+> 바뀌었다면 `docker compose down -v && docker compose up -d`로 볼륨을 지우고 다시 띄워야
+> 반영됩니다.
+
 ### 5. 빌드 & 서버 기동
 
 | | macOS / Linux / Git Bash | Windows (cmd) | Windows (PowerShell) |
