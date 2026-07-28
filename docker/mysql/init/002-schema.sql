@@ -41,6 +41,16 @@ CREATE TABLE users (
     -- 가입 조건이라 미저장하고, 선택 동의만 플래그로 보관. 위치정보 동의
     -- (is_location_agreed)와는 별개 항목. 기본 미동의(0).
     is_marketing_agreed TINYINT(1) NOT NULL DEFAULT 0,
+    -- v22: 인증 관련. 리프레시 토큰(로그인 유지)·QR 인증·PIN 실패 카운트.
+    -- refresh_token_hash: 발급된 리프레시 토큰의 해시. 미로그인/미발급이면 NULL.
+    refresh_token_hash        VARCHAR(64) NULL,
+    refresh_token_expires_at  DATETIME NULL,
+    -- qr_auth_id: QR 인증 세션 식별자. auth_expires_at 만료 시각, auth_is_used 사용 여부.
+    qr_auth_id                VARCHAR(64) NULL,
+    auth_expires_at           DATETIME NULL,
+    auth_is_used              TINYINT(1) NOT NULL DEFAULT 0,
+    -- pin_fail_count: 결제 PIN 연속 실패 횟수(잠금 판정용). 성공 시 0으로 초기화.
+    pin_fail_count            INT NOT NULL DEFAULT 0,
     created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_users_login_id (login_id),
@@ -379,6 +389,8 @@ CREATE TABLE payment_transaction (
     store_id                  BIGINT NULL,
     amount                    DECIMAL(15,2) NOT NULL,
     discount_amount           DECIMAL(15,2) NOT NULL DEFAULT 0,
+    -- v22: 최종금액(= amount - discount_amount). 할인 적용 후 실제 결제 금액.
+    final_amount              DECIMAL(15,2) NOT NULL,
     -- 실제 결제(승인) 발생 시각(비즈니스 시각). created_at(레코드 생성)과 분리.
     paid_at                   DATETIME NOT NULL,
     is_used_app               TINYINT(1) NOT NULL DEFAULT 0,
