@@ -4,7 +4,7 @@ import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import com.fitwallet.global.common.HealthCheck;
+import com.fitwallet.global.common.dto.HealthCheckResponse;
 import com.fitwallet.global.common.mapper.HealthMapper;
 
 import lombok.RequiredArgsConstructor;
@@ -19,7 +19,7 @@ public class HomeController {
     public String home() {
         String dbStatus;
         try {
-            HealthCheck healthCheck = healthMapper.findLatest();
+            HealthCheckResponse healthCheck = healthMapper.findLatest();
             dbStatus = "DB 연결 OK — " + healthCheck.getMessage() + " (" + healthCheck.getCheckedAt() + ")";
         } catch (Exception e) {
             dbStatus = "DB 연결 안 됨 — `docker compose up -d`로 로컬 MySQL을 먼저 띄워주세요.";
@@ -42,7 +42,7 @@ public class HomeController {
     }
 
     @GetMapping("/health/db")
-    public HealthCheck healthDb() {
+    public HealthCheckResponse healthDb() {
         return healthMapper.findLatest();
     }
 }

@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fitwallet.domain.card.mapper.CardMapper">
+
+    <!--
+        컬럼을 명시한다 (SELECT * 금지).
+        snake_case 컬럼은 mapUnderscoreToCamelCase 설정이 자동으로 camelCase 필드에 매핑하므로
+        AS 별칭이 필요 없다. 이름이 다른 컬럼만 별칭을 붙인다.
+        1:N 중첩이 없는 단순 조회라 resultMap 대신 resultType을 쓴다.
+    -->
+    <sql id="cardListColumns">
+        uc.user_card_id,
+        uc.first4,
+        uc.last4,
+        uc.expiry_date,
+        uc.display_order,
+        uc.bank_name,
+        uc.balance,
+        uc.credit_limit,
+        uc.scheduled_payment_amount,
+        cp.card_name,
+        cp.card_type,
+        cp.card_image_url,
+        i.card_company_name
+    </sql>
+
+    <select id="findByUserId" resultType="com.fitwallet.domain.card.dto.response.CardListResponse">
+        SELECT
+        <include refid="cardListColumns"/>
+        FROM user_card uc
+                 JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+                 JOIN issuer i ON i.issuer_id = cp.issuer_id
+        WHERE uc.user_id = #{userId}
+          AND uc.is_deleted = 0
+        ORDER BY uc.display_order
+    </select>
+
+    <select id="findByUserIdAndUserCardId"
+            resultType="com.fitwallet.domain.card.dto.response.CardListResponse">
+        SELECT
+        <include refid="cardListColumns"/>
+        FROM user_card uc
+                 JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+                 JOIN issuer i ON i.issuer_id = cp.issuer_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{userCardId}
+          AND uc.is_deleted = 0
+    </select>
+
+    <select id="findByUserIdAndCardProductId"
+            resultType="com.fitwallet.domain.card.dto.response.CardListResponse">
+        SELECT
+        <include refid="cardListColumns"/>
+        FROM user_card uc
+                 JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+                 JOIN issuer i ON i.issuer_id = cp.issuer_id
+        WHERE uc.user_id = #{userId}
+          AND uc.card_product_id = #{cardProductId}
+          AND uc.is_deleted = 0
+    </select>
+
+    <!-- 여기만 is_deleted 필터를 걸지 않는다. 삭제된 행을 찾아내는 것이 목적이다. -->
+    <select id="findDeletedFlag" resultType="java.lang.Boolean">
+        SELECT is_deleted
+        FROM user_card
+        WHERE user_id = #{userId}
+          AND card_product_id = #{cardProductId}
+    </select>
+
+    <select id="findMaxDisplayOrder" resultType="int">
+        SELECT COALESCE(MAX(display_order), 0)
+        FROM user_card
+        WHERE user_id = #{userId}
+          AND is_deleted = 0
+    </select>
+
+    <!-- created_at / updated_at 은 DB DEFAULT가 채우므로 쓰지 않는다 -->
+    <insert id="insertUserCard">
+        INSERT INTO user_card (user_id, card_product_id, first4, last4,
+                               expiry_date, display_order, is_deleted)
+        VALUES (#{userId}, #{request.cardProductId}, #{request.first4}, #{request.last4},
+                #{request.expiryDate}, #{displayOrder}, 0)
+    </insert>
+
+    <update id="reactivateUserCard">
+        UPDATE user_card
+        SET is_deleted    = 0,
+            first4        = #{request.first4},
+            last4         = #{request.last4},
+            expiry_date   = #{request.expiryDate},
+            display_order = #{displayOrder}
+        WHERE user_id = #{userId}
+          AND card_product_id = #{request.cardProductId}
+    </update>
+
+</mapper>
