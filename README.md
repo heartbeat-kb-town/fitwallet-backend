@@ -86,4 +86,9 @@ docker compose down -v    # 데이터까지 완전히 초기화하고 싶을 때
 
 ## 기여 가이드
 
-브랜치 전략, 커밋 컨벤션, PR 규칙, 코드 리뷰 규칙은 [CONTRIBUTING.md](./CONTRIBUTING.md)를 참고하세요.
+브랜치는 두 개를 축으로 씁니다.
+
+- `main` — 배포 브랜치. 배포된 것만 담기며, `develop`에서 올라오는 릴리스 PR로만 갱신됩니다.
+- `develop` — 통합 브랜치이자 기본 브랜치. 모든 작업 브랜치는 여기서 분기하고 여기로 PR합니다.
+
+브랜치 전략 상세, 커밋 컨벤션, PR 규칙, 코드 리뷰 규칙은 [CONTRIBUTING.md](./CONTRIBUTING.md)를 참고하세요.
