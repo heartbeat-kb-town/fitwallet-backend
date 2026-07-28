@@ -130,8 +130,15 @@ public class CardListResponse {
 
 ## 5. 응답 포맷 / 예외 처리
 
-**경로와 응답 형태는 [API 명세](https://app.notion.com/p/3a6a561881a480d0b24afb20e24190ef)를 따른다.**
+**경로와 응답 필드는 [API 명세](https://app.notion.com/p/3a6a561881a480d0b24afb20e24190ef)를 따른다.**
 새 엔드포인트를 만들기 전에 명세에서 해당 행을 먼저 확인한다.
+
+> ⚠️ **봉투 형태만은 예외다.** 명세에 두 가지 형태가 섞여 있다 —
+> `{success, code, message, data}`(로그인·보유 카드 목록)와
+> `{status, success, message, data}`(놓친 혜택·주변 가맹점).
+> **전자로 통일하기로 했다.** `status`는 HTTP 상태코드와 중복이고, `code`가 없으면
+> 프론트가 에러를 구분하려고 `message` 문자열을 비교해야 해서 문구만 다듬어도 깨진다.
+> 명세에서 후자로 적힌 페이지를 보면 그대로 따르지 말고 아래 형태로 구현한다.
 
 `/api` 아래 모든 응답은 `ApiResponse<T>` 봉투에 담긴다. HTTP 상태코드도 의미대로 쓴다.
 
@@ -187,7 +194,21 @@ throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
 - **`${}` 금지, `#{}` 필수.** 동적 정렬 컬럼처럼 불가피하면 화이트리스트로 검증한 뒤 쓴다
 - **`SELECT *` 금지** — 컬럼을 명시한다. 반복되면 `<sql>` + `<include>`로 뺀다
 
-페이징 방식은 아직 정하지 않았다. 목록 API 스펙이 나올 때 정한다.
+### 페이징
+
+명세("주변 가맹점 조회")가 정한 형태를 쓴다. 공통 래퍼 클래스를 만들지 않는다 —
+페이징 필드가 별도 객체가 아니라 `data` 바로 아래에 목록과 나란히 놓이기 때문이다.
+
+```json
+"data": {
+  "page": 0, "size": 20, "totalElements": 12, "hasNext": false,
+  "stores": [ ... ]
+}
+```
+
+- 응답 DTO에 `page` / `size` / `totalElements` / `hasNext` 네 필드를 직접 넣는다
+- 요청 조건은 `{대상}SearchCondition`에 담고 XML에서 `LIMIT #{cond.size} OFFSET #{cond.offset}`
+- 총 개수는 `count*` 메서드로 따로 조회한다
 
 ---
 
