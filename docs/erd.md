@@ -208,6 +208,12 @@ erDiagram
 | `payment_pin_hash` | VARCHAR(255) | 결제 PIN 해시 |
 | `is_location_agreed` | TINYINT(1) | 위치정보 동의 |
 | `is_marketing_agreed` | TINYINT(1) | 마케팅 수신 동의(선택 약관) |
+| `refresh_token_hash` | VARCHAR(64) | 리프레시 토큰 해시 (NULL) |
+| `refresh_token_expires_at` | DATETIME | 리프레시 토큰 만료 (NULL) |
+| `qr_auth_id` | VARCHAR(64) | QR 인증 식별자 (NULL) |
+| `auth_expires_at` | DATETIME | 인증 만료 시각 (NULL) |
+| `auth_is_used` | TINYINT(1) | 인증 사용 여부 (기본 0) |
+| `pin_fail_count` | INT | 결제 PIN 연속 실패 횟수 (기본 0) |
 
 #### `user_card` — 보유 카드
 카드번호는 앞4/뒤4로 분리 저장. 은행 계좌 정보는 이 테이블에 포함.
@@ -248,6 +254,7 @@ erDiagram
 | `store_id` (FK, NULL) | BIGINT | → `store` |
 | `amount` | DECIMAL(15,2) | 결제액 |
 | `discount_amount` | DECIMAL(15,2) | 적용된 혜택값(할인+적립 원환산) |
+| `final_amount` | DECIMAL(15,2) | 최종금액 (= amount − discount_amount) |
 | `paid_at` | DATETIME | 실제 승인 시각 |
 | `is_used_app` / `is_eligible` | TINYINT(1) | 앱 사용 여부 / 혜택 대상 여부 |
 | `applied_benefit_service_id` (FK) | BIGINT | 적용된 혜택. 혜택 0이면 NULL |
