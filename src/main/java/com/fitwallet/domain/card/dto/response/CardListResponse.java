@@ -1,5 +1,6 @@
 package com.fitwallet.domain.card.dto.response;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import com.fitwallet.domain.card.dto.CardType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -10,13 +11,10 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 
 /**
- * 내 카드 목록 한 건.
+ * 보유 카드 목록 한 건. 필드는 API 명세("보유 카드 목록 조회")를 따른다.
  * <p>
- * {@code user_card ⋈ card_product ⋈ issuer} 조인 결과를 MyBatis가 직접 채운다.
+ * {@code user_card ⋈ card_product} 조인 결과를 MyBatis가 직접 채운다.
  * 어떤 테이블의 행도 아니므로 별도 엔티티를 두지 않는다.
- * <p>
- * 필드가 DB 컬럼과 이름만 다르고(snake_case → camelCase) 매핑되는 이유는
- * {@code mybatis-config.xml}의 {@code mapUnderscoreToCamelCase} 설정 때문이다.
  * <p>
  * MyBatis가 리플렉션으로 채우므로 {@code @Setter}는 붙이지 않는다.
  */
@@ -27,18 +25,23 @@ import java.time.LocalDate;
 public class CardListResponse {
 
     private Long userCardId;
+    private Long cardProductId;
     private String cardName;
 
-    /** 카드사명 ({@code issuer.card_company_name}) */
-    private String cardCompanyName;
-
+    /**
+     * 신용/체크 구분. 명세 예시에는 없지만 화면에서 구분 표시가 필요해 추가했다.
+     * (명세 예시가 balance와 creditLimit을 동시에 채우고 있어 예시 자체가 개략적이다)
+     */
     private CardType cardType;
-    private String cardImageUrl;
 
-    private String first4;
-    private String last4;
+    /** 카드번호 앞 4자리 (DB 컬럼 {@code first4}) */
+    private String maskedFrontNumber;
+    /** 카드번호 뒤 4자리 (DB 컬럼 {@code last4}) */
+    private String maskedRearNumber;
+
+    /** DB는 DATE지만 명세와 실제 카드 표기를 따라 연-월로 내린다. */
+    @JsonFormat(pattern = "yyyy-MM")
     private LocalDate expiryDate;
-    private Integer displayOrder;
 
     /** DEBIT 전용. CREDIT이면 null */
     private String bankName;
@@ -49,4 +52,6 @@ public class CardListResponse {
     private BigDecimal creditLimit;
     /** CREDIT 전용. DEBIT이면 null */
     private BigDecimal scheduledPaymentAmount;
+
+    private Integer displayOrder;
 }

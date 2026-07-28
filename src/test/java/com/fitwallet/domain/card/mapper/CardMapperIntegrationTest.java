@@ -60,7 +60,7 @@ class CardMapperIntegrationTest {
 
         assertThat(cards).allSatisfy(card -> {
             assertThat(card.getCardName()).isNotBlank();
-            assertThat(card.getCardCompanyName()).isNotBlank();
+            assertThat(card.getCardProductId()).isNotNull();
             assertThat(card.getCardType()).isNotNull();
         });
     }
@@ -156,7 +156,7 @@ class CardMapperIntegrationTest {
 
         CardListResponse saved = cardMapper.findByUserIdAndCardProductId(SEED_USER_ID, 1L);
         assertThat(saved).isNotNull();
-        assertThat(saved.getFirst4()).isEqualTo("1234");
+        assertThat(saved.getMaskedFrontNumber()).isEqualTo("1234");
         assertThat(saved.getDisplayOrder()).isEqualTo(6);
 
         Timestamp createdAt = jdbcTemplate.queryForObject(
@@ -173,7 +173,7 @@ class CardMapperIntegrationTest {
 
         CardListResponse revived = cardMapper.findByUserIdAndUserCardId(SEED_USER_ID, 1L);
         assertThat(revived).isNotNull();
-        assertThat(revived.getFirst4()).isEqualTo("1234");
+        assertThat(revived.getMaskedFrontNumber()).isEqualTo("1234");
         assertThat(revived.getDisplayOrder()).isEqualTo(6);
     }
 

@@ -1,6 +1,6 @@
 package com.fitwallet.global.exception;
 
-import com.fitwallet.global.common.dto.ErrorResponse;
+import com.fitwallet.global.common.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.MethodArgumentNotValidException;
@@ -21,27 +21,27 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ErrorResponse> handleBusinessException(BusinessException e) {
+    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
         ErrorCode errorCode = e.getErrorCode();
         log.warn("business exception: {} - {}", errorCode.getCode(), errorCode.getMessage());
         return ResponseEntity.status(errorCode.getStatus())
-                .body(ErrorResponse.of(errorCode));
+                .body(ApiResponse.error(errorCode));
     }
 
     /** {@code @Valid} 검증 실패. 어떤 필드가 왜 틀렸는지까지 내려준다. */
     @ExceptionHandler(MethodArgumentNotValidException.class)
-    public ResponseEntity<ErrorResponse> handleValidationException(MethodArgumentNotValidException e) {
+    public ResponseEntity<ApiResponse<Void>> handleValidationException(MethodArgumentNotValidException e) {
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT_VALUE.getStatus())
-                .body(ErrorResponse.of(CommonErrorCode.INVALID_INPUT_VALUE, e.getBindingResult()));
+                .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT_VALUE, e.getBindingResult()));
     }
 
     /**
      * 예상하지 못한 예외. 내부 메시지를 그대로 노출하지 않고 스택트레이스만 로그로 남긴다.
      */
     @ExceptionHandler(Exception.class)
-    public ResponseEntity<ErrorResponse> handleException(Exception e) {
+    public ResponseEntity<ApiResponse<Void>> handleException(Exception e) {
         log.error("unhandled exception", e);
         return ResponseEntity.status(CommonErrorCode.INTERNAL_ERROR.getStatus())
-                .body(ErrorResponse.of(CommonErrorCode.INTERNAL_ERROR));
+                .body(ApiResponse.error(CommonErrorCode.INTERNAL_ERROR));
     }
 }

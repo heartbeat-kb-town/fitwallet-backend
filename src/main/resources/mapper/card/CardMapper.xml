@@ -6,24 +6,23 @@
 
     <!--
         컬럼을 명시한다 (SELECT * 금지).
-        snake_case 컬럼은 mapUnderscoreToCamelCase 설정이 자동으로 camelCase 필드에 매핑하므로
-        AS 별칭이 필요 없다. 이름이 다른 컬럼만 별칭을 붙인다.
+        snake_case → camelCase는 mapUnderscoreToCamelCase가 처리하므로 별칭이 필요 없다.
+        first4/last4만 API 명세의 필드명과 이름 자체가 달라 AS를 붙인다.
         1:N 중첩이 없는 단순 조회라 resultMap 대신 resultType을 쓴다.
     -->
     <sql id="cardListColumns">
         uc.user_card_id,
-        uc.first4,
-        uc.last4,
+        uc.card_product_id,
+        uc.first4 AS maskedFrontNumber,
+        uc.last4  AS maskedRearNumber,
         uc.expiry_date,
-        uc.display_order,
         uc.bank_name,
         uc.balance,
         uc.credit_limit,
         uc.scheduled_payment_amount,
+        uc.display_order,
         cp.card_name,
-        cp.card_type,
-        cp.card_image_url,
-        i.card_company_name
+        cp.card_type
     </sql>
 
     <select id="findByUserId" resultType="com.fitwallet.domain.card.dto.response.CardListResponse">
@@ -31,7 +30,6 @@
         <include refid="cardListColumns"/>
         FROM user_card uc
                  JOIN card_product cp ON cp.card_product_id = uc.card_product_id
-                 JOIN issuer i ON i.issuer_id = cp.issuer_id
         WHERE uc.user_id = #{userId}
           AND uc.is_deleted = 0
         ORDER BY uc.display_order
@@ -43,7 +41,6 @@
         <include refid="cardListColumns"/>
         FROM user_card uc
                  JOIN card_product cp ON cp.card_product_id = uc.card_product_id
-                 JOIN issuer i ON i.issuer_id = cp.issuer_id
         WHERE uc.user_id = #{userId}
           AND uc.user_card_id = #{userCardId}
           AND uc.is_deleted = 0
@@ -55,7 +52,6 @@
         <include refid="cardListColumns"/>
         FROM user_card uc
                  JOIN card_product cp ON cp.card_product_id = uc.card_product_id
-                 JOIN issuer i ON i.issuer_id = cp.issuer_id
         WHERE uc.user_id = #{userId}
           AND uc.card_product_id = #{cardProductId}
           AND uc.is_deleted = 0

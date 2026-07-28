@@ -128,24 +128,45 @@ public class CardListResponse {
 
 ---
 
-## 5. 예외 처리 / 에러 포맷
+## 5. 응답 포맷 / 예외 처리
+
+**경로와 응답 형태는 [API 명세](https://app.notion.com/p/3a6a561881a480d0b24afb20e24190ef)를 따른다.**
+새 엔드포인트를 만들기 전에 명세에서 해당 행을 먼저 확인한다.
+
+`/api` 아래 모든 응답은 `ApiResponse<T>` 봉투에 담긴다. HTTP 상태코드도 의미대로 쓴다.
 
 ```json
-{ "code": "CARD_NOT_FOUND", "message": "카드를 찾을 수 없습니다." }
+// 성공
+{ "success": true, "code": "USER_CARDS_FOUND",
+  "message": "보유 카드 목록을 조회했습니다.", "data": [ ... ] }
 
-{ "code": "INVALID_INPUT_VALUE", "message": "입력값이 올바르지 않습니다.",
-  "errors": [ { "field": "first4", "reason": "4자리여야 합니다." } ] }
+// 실패 — data는 null로 유지된다
+{ "success": false, "code": "CARD_NOT_FOUND",
+  "message": "카드를 찾을 수 없습니다.", "data": null }
+
+// 검증 실패 — errors가 추가된다 (이때만 나온다)
+{ "success": false, "code": "INVALID_INPUT_VALUE",
+  "message": "입력값이 올바르지 않습니다.", "data": null,
+  "errors": [ { "field": "first4", "reason": "..." } ] }
 ```
 
-HTTP 상태코드는 의미대로 쓴다. `errors`는 검증 실패일 때만 내려간다.
+성공/실패 모두 `code`와 `message`를 갖는다. 문자열을 컨트롤러에 흩뿌리지 않도록 **양쪽 다 enum**으로 관리한다.
 
-- `global/exception/ErrorCode` 인터페이스를 **도메인별 enum**이 구현한다
-  (`domain/card/exception/CardErrorCode`). 전역 단일 enum을 쓰지 않는다 — 병렬 작업 시 충돌한다
-- `code`는 enum 상수 이름(`name()`) 그대로
-- 예외는 **`BusinessException` 하나만** 쓴다. 예외 클래스를 새로 만들지 않고 ErrorCode 상수를 추가한다
+| | 인터페이스 | 도메인별 enum |
+|---|---|---|
+| 성공 | `global/common/code/SuccessCode` | `domain/card/dto/CardSuccessCode` |
+| 실패 | `global/exception/ErrorCode` | `domain/card/exception/CardErrorCode` |
+
+- `code`는 enum 상수 이름(`name()`) 그대로. 둘 다 HTTP 상태코드를 함께 들고 있다
+- 전역 단일 enum을 쓰지 않는다 — 6명이 병렬로 개발하면 그 파일에서 계속 충돌한다
+- 예외는 **`BusinessException` 하나만** 쓴다. 새 에러는 예외 클래스가 아니라 ErrorCode 상수를 추가한다
 - **컨트롤러에서 try-catch로 에러 응답을 만들지 않는다.** `GlobalExceptionHandler`가 전부 처리한다
 
 ```java
+// 컨트롤러 — 성공 응답
+return ApiResponse.of(CardSuccessCode.USER_CARDS_FOUND, cardService.findMyCards(userId));
+
+// 서비스 — 실패
 throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
 ```
 
