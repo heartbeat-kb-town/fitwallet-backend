@@ -1,5 +1,5 @@
 -- =========================================================
--- fitwallet 스키마 DDL (확정 ERD v21)
+-- fitwallet 스키마 DDL (확정 ERD v23)
 -- MySQL 8.x / InnoDB / utf8mb4
 --
 -- docker-entrypoint-initdb.d 스크립트. 컨테이너 최초 기동(빈 볼륨) 시
@@ -41,10 +41,9 @@ CREATE TABLE users (
     -- 가입 조건이라 미저장하고, 선택 동의만 플래그로 보관. 위치정보 동의
     -- (is_location_agreed)와는 별개 항목. 기본 미동의(0).
     is_marketing_agreed TINYINT(1) NOT NULL DEFAULT 0,
-    -- v22: 인증 관련. 리프레시 토큰(로그인 유지)·QR 인증·PIN 실패 카운트.
-    -- refresh_token_hash: 발급된 리프레시 토큰의 해시. 미로그인/미발급이면 NULL.
-    refresh_token_hash        VARCHAR(64) NULL,
-    refresh_token_expires_at  DATETIME NULL,
+    -- v22: 인증 관련. QR 인증·PIN 실패 카운트.
+    -- v23: 리프레시 토큰(refresh_token_hash/refresh_token_expires_at)은 별도
+    -- refresh_token 테이블로 분리했다(아래 참고).
     -- qr_auth_id: QR 인증 세션 식별자. auth_expires_at 만료 시각, auth_is_used 사용 여부.
     qr_auth_id                VARCHAR(64) NULL,
     auth_expires_at           DATETIME NULL,
@@ -55,6 +54,20 @@ CREATE TABLE users (
     updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_users_login_id (login_id),
     UNIQUE KEY uk_users_provider_user_id (provider_user_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- v23: 리프레시 토큰을 users 컬럼에서 분리한 전용 테이블. 유저당 활성 리프레시
+-- 토큰은 최대 1개(재로그인 시 갱신)라 user_id를 UNIQUE로 둔다.
+DROP TABLE IF EXISTS refresh_token;
+CREATE TABLE refresh_token (
+    refresh_token_id  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    user_id           BIGINT   NOT NULL,
+    token_hash        CHAR(64) NOT NULL,
+    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_refresh_token_user_id (user_id),
+    CONSTRAINT fk_refresh_token_user
+        FOREIGN KEY (user_id) REFERENCES users (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- =========================================================
@@ -150,11 +163,12 @@ CREATE TABLE store (
     address          VARCHAR(255) NULL,
     kakao_place_id   VARCHAR(50) NULL,
     -- v16: ERDCloud 반영. 가맹점 QR 결제용 QR코드 인코딩 문자열(가맹점당 고유 -> UNIQUE).
-    qr_code_string   VARCHAR(64) NULL,
+    -- v23: qr_code_string -> store_qr_token 으로 컬럼명 변경.
+    store_qr_token   VARCHAR(64) NULL,
     created_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at       DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     UNIQUE KEY uk_store_kakao_place_id (kakao_place_id),
-    UNIQUE KEY uk_store_qr_code_string (qr_code_string),
+    UNIQUE KEY uk_store_qr_token (store_qr_token),
     CONSTRAINT fk_store_category
         FOREIGN KEY (category_id) REFERENCES category (category_id),
     CONSTRAINT fk_store_brand
@@ -447,7 +461,8 @@ DROP TABLE IF EXISTS payment_session;
 CREATE TABLE payment_session (
     payment_session_id     BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_card_id           BIGINT NOT NULL,
-    store_id               BIGINT NOT NULL,
+    -- v23: QR 스캔 전에는 가맹점이 아직 확정되지 않은 세션이 있을 수 있어 NULL 허용으로 변경.
+    store_id               BIGINT NULL,
     session_token          VARCHAR(64) NOT NULL,
     amount                 DECIMAL(12,2) NULL,
     status                 VARCHAR(20) NOT NULL,
@@ -459,9 +474,9 @@ CREATE TABLE payment_session (
         FOREIGN KEY (user_card_id) REFERENCES user_card (user_card_id),
     CONSTRAINT fk_payment_session_store
         FOREIGN KEY (store_id) REFERENCES store (store_id),
-    -- 세션 상태: PENDING -> APPROVED -> COMPLETED, 그 외 EXPIRED/CANCELLED/FAILED.
+    -- v23: 세션 상태: PENDING -> SCANNED -> PROCESSING -> COMPLETED, 그 외 EXPIRED/FAILED.
     CONSTRAINT ck_payment_session_status
-        CHECK (status IN ('PENDING','APPROVED','COMPLETED','EXPIRED','CANCELLED','FAILED'))
+        CHECK (status IN ('PENDING','SCANNED','PROCESSING','COMPLETED','EXPIRED','FAILED'))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_payment_session_user_card_id ON payment_session (user_card_id);
