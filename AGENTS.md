@@ -58,7 +58,7 @@ docker compose up -d      # 로컬 MySQL (스키마 + 시드 자동 적용)
 com.fitwallet
 ├─ domain/{user,card,store,benefit,payment,report}/
 │  ├─ controller/
-│  ├─ service/
+│  ├─ service/                  # 인터페이스 + Default 구현체
 │  ├─ mapper/                   # MyBatis 인터페이스
 │  ├─ dto/
 │  │  ├─ request/
@@ -83,7 +83,8 @@ src/main/resources/mapper/{도메인}/{도메인}Mapper.xml
 | 대상 | 규칙 | 예 |
 |---|---|---|
 | 패키지 | 소문자·단수 | `com.fitwallet.domain.card` |
-| 컨트롤러/서비스/매퍼 | `{도메인}Controller` / `Service` / `Mapper` | `CardController` |
+| 컨트롤러/매퍼 | `{도메인}Controller` / `Mapper` | `CardController` |
+| 서비스 인터페이스/구현체 | `{도메인}Service` / `Default{도메인}Service` | `CardService` / `DefaultCardService` |
 | 매퍼 XML | `resources/mapper/{도메인}/{도메인}Mapper.xml` | `mapper/card/CardMapper.xml` |
 | 요청 DTO | `{동작}{대상}Request` | `CardRegisterRequest` |
 | 응답 DTO | `{대상}{용도}Response` | `CardListResponse` |
@@ -91,10 +92,12 @@ src/main/resources/mapper/{도메인}/{도메인}Mapper.xml
 | 매퍼 메서드 | 조회 `find*`/`count*`/`exists*`, 변경 `insert*`/`update*`/`delete*` | `findByUserId` |
 | enum 상수 | DDL의 CHECK 값 그대로 | `CardType.CREDIT` |
 | DB → 필드 | `snake_case` → `camelCase` | `user_card_id` → `userCardId` |
-| 테스트 클래스 | `{대상}Test` / `{대상}IntegrationTest` | `CardServiceTest` |
+| 테스트 클래스 | `{대상}Test` / `{대상}IntegrationTest` | `DefaultCardServiceTest` |
 | 테스트 메서드 | 한글 + 언더스코어 | `카드_등록시_중복이면_예외를_던진다()` |
 
-**Service는 인터페이스 없이 클래스 하나로 둔다.** `XxxServiceImpl`을 만들지 않는다.
+**Service는 인터페이스 + 구현체 한 쌍으로 둔다.** 구현체는 접미사 `Impl`이 아니라
+**접두사 `Default`**를 쓴다 — `CardServiceImpl`이 아니라 `DefaultCardService`.
+컨트롤러는 인터페이스 타입(`CardService`)만 의존하고 구현체를 직접 참조하지 않는다.
 
 ---
 
@@ -236,6 +239,10 @@ public List<CardListResponse> findMyCards(@LoginUserId Long userId) {
 - `@Transactional`은 **Service에만** 붙인다
 - 조회 메서드는 **`@Transactional(readOnly = true)`**
 - **Controller와 Mapper에는 붙이지 않는다** (아래 함정 참고)
+- **`@Transactional`은 `Default{도메인}Service` 구현체 메서드에 붙인다. 인터페이스 선언에는 붙이지 않는다.**
+  지금은 `<tx:annotation-driven>`이 JDK 동적 프록시라 인터페이스에 붙여도 인식되긴 하지만,
+  나중에 `proxy-target-class="true"`(CGLIB)로 바뀌면 인터페이스의 애너테이션은 조용히 무시된다.
+  구현체에만 붙이는 습관을 들이면 이 전환에 영향받지 않는다.
 
 ---
 

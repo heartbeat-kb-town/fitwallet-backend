@@ -26,15 +26,18 @@ import static org.mockito.Mockito.never;
 
 /**
  * Service 단위 테스트. Mapper를 목킹하므로 DB가 필요 없다.
+ * <p>
+ * {@code @InjectMocks}는 구체 클래스가 있어야 인스턴스를 만들 수 있어
+ * 필드 타입을 인터페이스({@code CardService})가 아니라 구현체로 둔다.
  */
 @ExtendWith(MockitoExtension.class)
-class CardServiceTest {
+class DefaultCardServiceTest {
 
     @Mock
     private CardMapper cardMapper;
 
     @InjectMocks
-    private CardService cardService;
+    private DefaultCardService cardService;
 
     @Test
     void 내_카드_목록을_매퍼가_준_순서_그대로_반환한다() {
