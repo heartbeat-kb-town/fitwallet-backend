@@ -19,7 +19,22 @@
                 <beans:property name="objectMapper" ref="objectMapper"/>
             </beans:bean>
         </message-converters>
+        <argument-resolvers>
+            <beans:bean class="com.fitwallet.global.config.LoginUserIdArgumentResolver"/>
+        </argument-resolvers>
     </annotation-driven>
+
+    <!--
+        인증 컨텍스트 전달 통로.
+        컨트롤러는 @LoginUserId 로만 사용자를 받고, 헤더/세션을 직접 읽지 않는다.
+        JWT 도입 시 AuthInterceptor 내부만 교체하면 컨트롤러는 그대로 둘 수 있다.
+    -->
+    <interceptors>
+        <interceptor>
+            <mapping path="/api/**"/>
+            <beans:bean class="com.fitwallet.global.config.AuthInterceptor"/>
+        </interceptor>
+    </interceptors>
 
     <beans:bean id="objectMapper" class="org.springframework.http.converter.json.Jackson2ObjectMapperFactoryBean">
         <beans:property name="findModulesViaServiceLoader" value="true"/>
@@ -32,8 +47,16 @@
 
     <resources mapping="/images/**" location="/resources/images/"/>
 
+    <!--
+        @ControllerAdvice는 @Controller가 아니라 @Component 계열이라
+        include 필터에 따로 넣지 않으면 GlobalExceptionHandler가 등록되지 않는다.
+        (등록 실패해도 예외가 나지 않고 모든 오류가 조용히 500으로 떨어진다)
+    -->
     <context:component-scan base-package="com.fitwallet" use-default-filters="false">
-        <context:include-filter type="annotation" expression="org.springframework.stereotype.Controller"/>
+        <context:include-filter type="annotation"
+                                expression="org.springframework.stereotype.Controller"/>
+        <context:include-filter type="annotation"
+                                expression="org.springframework.web.bind.annotation.ControllerAdvice"/>
     </context:component-scan>
 
 </beans:beans>

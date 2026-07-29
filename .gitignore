@@ -36,9 +36,9 @@ build/
 .classpath
 .factorypath
 
-# Local DB / env config
-db.properties
-application-local.*
+# Local env config
+# 프로파일 프로퍼티(src/main/resources/config/application-*.properties)는
+# local은 docker 기본값, prod는 환경변수 참조만 담으므로 커밋 대상이다.
 *.env
 .env
 

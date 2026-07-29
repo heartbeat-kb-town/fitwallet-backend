@@ -58,9 +58,8 @@ jobs:
             mysql -h 127.0.0.1 -P 3306 -uroot -proot1234 --default-character-set=utf8mb4 fitwallet < "$f"
           done
 
-      - name: Prepare local DB config
-        run: cp src/main/resources/db.properties.sample src/main/resources/db.properties
-
+      # 프로파일 기본값이 local이라 별도 설정 복사 단계가 필요 없다.
+      # (src/main/resources/config/application-local.properties가 위 서비스와 짝이 맞는다)
       - name: Build with Gradle (compile + test + package)
         run: ./gradlew build
 
