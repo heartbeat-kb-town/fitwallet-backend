@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fitwallet.domain.store.mapper.StoreMapper">
+
+    <!--
+        stores[].category가 1:1 중첩 객체라 resultType 자동 매핑으로는 채울 수 없다.
+        resultType은 컬럼명 → 필드명을 한 단계만 맞추고 중첩 객체 안으로 내려가지 않는다.
+        그리고 갈 곳 없는 컬럼을 예외 없이 버린다(autoMappingUnknownColumnBehavior 기본값 NONE).
+        즉 resultType으로 두면 category_* 세 컬럼이 조용히 사라지고 category가 null이 된다 —
+        쿼리는 성공하므로 테스트가 없으면 눈치채지 못한다. 그래서 <association>을 쓴다.
+
+        <association>이 들어가면 이 resultMap은 자동 매핑이 꺼진다
+        (autoMappingBehavior 기본값 PARTIAL = 중첩 매핑이 있는 resultMap은 자동 매핑 제외).
+        그래서 바깥 컬럼도 전부 <result>로 명시한다 — mapUnderscoreToCamelCase에 기댈 수 없다.
+    -->
+    <resultMap id="storeSummary" type="com.fitwallet.domain.store.dto.response.StoreSummaryResponse">
+        <id     property="storeId"        column="store_id"/>
+        <result property="storeName"      column="store_name"/>
+        <result property="address"        column="address"/>
+        <result property="distanceMeters" column="distance_meters"/>
+        <association property="category"
+                     javaType="com.fitwallet.domain.store.dto.response.StoreCategoryResponse">
+            <id     property="categoryId"       column="category_id"/>
+            <result property="categoryName"     column="category_name"/>
+            <result property="categoryImageUrl" column="category_image_url"/>
+        </association>
+    </resultMap>
+
+    <!--
+        거리 계산은 구면 코사인 법칙이다. 지구를 반지름 6,371,000m 구로 보고
+        cos(중심각) = sin(위도1)sin(위도2) + cos(위도1)cos(위도2)cos(경도차) 로 중심각을 구한 뒤
+        반지름을 곱해 미터로 만든다. MySQL 삼각함수가 라디안을 받으므로 RADIANS로 변환한다.
+
+        LEAST(1, ...)는 없으면 안 된다. 거리가 가까우면 cos값이 1에 붙는데 double 오차로
+        1을 넘길 수 있고, ACOS의 정의역이 [-1,1]이라 넘으면 NULL이 나온다. 시드 244건 중 9건이
+        자기 좌표와 비교했을 때 1.0000000000000002가 된다 — 클램프가 없으면 사용자가 가맹점에
+        서 있을 때 그 매장의 distanceMeters가 null로 내려간다.
+
+        키워드/카테고리/반경은 NULL 허용 바인딩으로 두 모드(키워드 검색 / 카테고리 주변 조회)를
+        한 쿼리로 처리한다. 파라미터가 NULL이면 "X IS NULL"이 TRUE가 되어 조건 자체가 사라진다.
+
+        HAVING을 쓰는 이유는 distance_meters가 SELECT 목록의 별칭이라서다. WHERE는 SELECT보다
+        먼저 평가되므로 별칭을 볼 수 없다(Unknown column 에러). MySQL은 집계 함수가 없으면
+        HAVING을 GROUP BY 없이 행 단위 필터로 적용해 준다(ONLY_FULL_GROUP_BY가 켜져 있어도 동작).
+
+        ORDER BY의 (s.store_rank IS NULL)은 boolean이 0/1로 평가되는 성질을 이용한다. MySQL은
+        ASC 정렬에서 NULL을 맨 앞에 놓으므로, store_rank만 쓰면 순위 없는 매장이 앞으로 온다.
+        값이 있으면 0, NULL이면 1이 되어 값 있는 행이 앞선다. 고정 표현식이라 ${} 금지에 걸리지 않는다.
+
+        category는 store.category_id가 NOT NULL이라 INNER JOIN이다. brand는 응답에서 브랜드를
+        내리지 않으므로 조인하지 않는다. store 테이블에는 is_deleted가 없어 소프트 삭제 조건도 없다.
+
+        LIMIT 5만 쓰고 OFFSET은 쓰지 않는다. 전체 건수를 내리지 않으므로 COUNT(*) 조회도 없다.
+
+        성능: LIKE '%키워드%'는 선행 와일드카드라, HAVING의 거리 필터는 계산식이라 둘 다 인덱스를
+        못 탄다. 키워드 검색은 store 전체를 훑으며 거리를 계산한다. 시드 244행에서는 무관하고,
+        규모가 커지면 FULLTEXT 또는 SPATIAL 인덱스 도입을 검토한다(이번 범위에서는 추가하지 않는다).
+    -->
+    <select id="findStores" resultMap="storeSummary">
+        SELECT s.store_id,
+               s.store_name,
+               s.address,
+               c.category_id,
+               c.category_name,
+               c.category_image_url,
+               ROUND(6371000 * ACOS(LEAST(1,
+                     COS(RADIANS(#{cond.latitude})) * COS(RADIANS(s.latitude))
+                   * COS(RADIANS(s.longitude) - RADIANS(#{cond.longitude}))
+                   + SIN(RADIANS(#{cond.latitude})) * SIN(RADIANS(s.latitude))))) AS distance_meters
+        FROM store s
+                 JOIN category c ON c.category_id = s.category_id
+        WHERE s.latitude IS NOT NULL
+          AND s.longitude IS NOT NULL
+          AND (#{cond.keyword} IS NULL OR s.store_name LIKE CONCAT('%', #{cond.keyword}, '%'))
+          AND (#{cond.categoryId} IS NULL OR s.category_id = #{cond.categoryId})
+        HAVING (#{cond.radiusMeters} IS NULL OR distance_meters &lt;= #{cond.radiusMeters})
+        ORDER BY distance_meters, (s.store_rank IS NULL), s.store_rank, s.store_name
+        LIMIT 5
+    </select>
+
+    <select id="existsCategory" resultType="boolean">
+        SELECT EXISTS (SELECT 1
+                       FROM category
+                       WHERE category_id = #{categoryId})
+    </select>
+
+    <!-- 없는 사용자면 행이 없어 null이 반환된다. 서비스가 null과 false를 같게 취급한다. -->
+    <select id="findLocationAgreed" resultType="java.lang.Boolean">
+        SELECT is_location_agreed
+        FROM users
+        WHERE user_id = #{userId}
+    </select>
+
+</mapper>
