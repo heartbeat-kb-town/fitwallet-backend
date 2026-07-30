@@ -55,6 +55,7 @@ erDiagram
     store             ||--o{ payment_session     : "가맹점"
     benefit_service   ||--o{ payment_transaction : "적용 혜택"
     benefit_tier      ||--o{ payment_transaction : "적용 한도구간"
+    payment_session   ||--o| payment_transaction : "결제 확정"
 ```
 
 ---
@@ -209,7 +210,7 @@ erDiagram
 | `payment_pin_hash` | VARCHAR(255) | 결제 PIN 해시 |
 | `is_location_agreed` | TINYINT(1) | 위치정보 동의 |
 | `is_marketing_agreed` | TINYINT(1) | 마케팅 수신 동의(선택 약관) |
-| `qr_auth_id` | VARCHAR(64) | QR 인증 식별자 (NULL) |
+| `pin_auth_id` | VARCHAR(64) | 결제 PIN 인증 세션 식별자 (NULL) |
 | `auth_expires_at` | DATETIME | 인증 만료 시각 (NULL) |
 | `auth_is_used` | TINYINT(1) | 인증 사용 여부 (기본 0) |
 | `pin_fail_count` | INT | 결제 PIN 연속 실패 횟수 (기본 0) |
@@ -287,6 +288,7 @@ erDiagram
 | `payment_transaction_id` (PK) | BIGINT | |
 | `user_card_id` (FK) | BIGINT | → `user_card` |
 | `store_id` (FK, NULL) | BIGINT | → `store` |
+| `payment_session_id` (FK, UNIQUE, NULL) | BIGINT | → `payment_session`. 이 거래로 확정된 결제 세션. 앱을 거치지 않은 거래는 NULL |
 | `amount` | DECIMAL(15,2) | 결제액 |
 | `discount_amount` | DECIMAL(15,2) | 적용된 혜택값(할인+적립 원환산) |
 | `final_amount` | DECIMAL(15,2) | 최종금액 (= amount − discount_amount) |
@@ -298,6 +300,10 @@ erDiagram
 | `alternative_discount_amount` | DECIMAL(15,2) | 그 카드였다면 받았을 혜택값 |
 | `missed_amount` | DECIMAL(15,2) | 놓친 금액(= alternative − discount) |
 
+> **`payment_session_id`는 UNIQUE다** — 세션 1건은 거래 최대 1건으로 확정된다(1:1).
+> MySQL UNIQUE는 NULL을 중복 허용하므로 앱을 거치지 않은 거래 다수와 공존한다.
+> 이 UNIQUE 키가 `fk_pt_session`의 인덱스를 겸해 별도 인덱스를 두지 않았다.
+
 #### `payment_session` — 결제 세션
 QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상태.
 
@@ -306,10 +312,32 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 | `payment_session_id` (PK) | BIGINT | |
 | `user_card_id` (FK) | BIGINT | → `user_card` |
 | `store_id` (FK, NULL) | BIGINT | → `store`. QR 스캔 전 가맹점 미확정 세션은 NULL |
-| `session_token` | VARCHAR(64) | UNIQUE |
+| `session_token` | VARCHAR(64) | 세션 열쇠 (UNIQUE). QR 생성 시점 발급 |
+| `payment_id` | VARCHAR(64) | 결제 건 식별자 (UNIQUE, NULL). 가맹점 스캔 시점 발급 |
 | `amount` | DECIMAL(12,2) | 결제 예정액 (NULL 허용) |
 | `status` | VARCHAR(20) | **`PENDING`→`SCANNED`→`PROCESSING`→`COMPLETED`, 그 외 `EXPIRED`/`FAILED`** |
+| `fail_reason` | VARCHAR(50) | 실패 사유 (NULL). `status = FAILED`일 때만 채운다 |
 | `expires_at` | DATETIME | 만료 시각 |
+
+> **식별자가 두 개인 이유 — 발급 시점이 다르다.**
+>
+> | | `session_token` | `payment_id` |
+> |---|---|---|
+> | 발급 시점 | QR 생성 (세션 시작) | 가맹점이 QR을 스캔 |
+> | 정체 | 세션 자체의 열쇠 | 그 결제 건의 식별자 |
+> | NULL | 불가 (`NOT NULL`) | 스캔 전에는 NULL |
+>
+> 스캔 이후의 결제 요청들은 `payment_id`로 세션을 조회한다. 따라서 `PENDING` 세션과
+> 스캔 전에 만료된 `EXPIRED` 세션은 `payment_id`가 NULL이다. UNIQUE가 걸려 있지만
+> MySQL은 NULL을 중복 허용하므로 그런 세션이 여럿 있어도 충돌하지 않는다.
+>
+> **`fail_reason`은 `status = 'FAILED'`일 때만 채운다.** 만료는 `status = 'EXPIRED'`가
+> 이미 표현하므로 값 집합(§4)에 넣지 않았다 — 넣으면 `status`와 `fail_reason`이 서로
+> 어긋난 상태가 표현 가능해진다. `status`와 마찬가지로 CHECK 제약으로 값을 고정해,
+> 자유 텍스트가 섞여 실패 유형 집계가 깨지는 것을 막는다.
+>
+> 세션이 승인으로 끝나면 `payment_transaction` 행이 생기고 그쪽
+> `payment_session_id`가 이 세션을 가리킨다. 실패·만료 세션에는 대응하는 거래가 없다.
 
 ---
 
@@ -324,6 +352,7 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 | `benefit_limit.limit_basis` | `COUNT`, `AMOUNT`, `POINT` |
 | `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR` |
 | `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED` |
+| `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR` (NULL 허용) |
 
 ---
 *스키마 변경 시 `docker/mysql/init/002-schema.sql`과 이 문서를 함께 갱신하세요.*

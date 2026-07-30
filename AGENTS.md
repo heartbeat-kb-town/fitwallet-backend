@@ -192,8 +192,9 @@ throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
 
 ## 6. MyBatis 매퍼 규칙
 
-**커스텀 TypeHandler를 만들지 않는다.** DDL의 CHECK 제약 값 7종
-(`card_type`, `benefit_type`, `value_type`, `scope_type`, `limit_basis`, `limit_period`, `payment_session.status`)이
+**커스텀 TypeHandler를 만들지 않는다.** DDL의 CHECK 제약 값 8종
+(`card_type`, `benefit_type`, `value_type`, `scope_type`, `limit_basis`, `limit_period`,
+`payment_session.status`, `payment_session.fail_reason`)이
 모두 자바 enum 상수 이름 규칙과 일치해 기본 `EnumTypeHandler`가 `name()` 기준으로 자동 변환한다.
 `TINYINT(1)`↔`Boolean`, `DECIMAL`↔`BigDecimal`, `DATETIME`↔`LocalDateTime`도 기본 핸들러가 처리한다.
 정말 필요해지면 `global/config/typehandler/`에 만들고 `mybatis-config.xml`에 등록한다.
