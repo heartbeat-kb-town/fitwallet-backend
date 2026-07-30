@@ -4,7 +4,7 @@
 > 예시 데이터는 [`docker/mysql/init/003-seed.sql`](../docker/mysql/init/003-seed.sql)에 있고, 두 파일 모두 컨테이너 최초 기동 시 자동 적용됩니다.
 >
 > - **엔진/문자셋**: InnoDB / `utf8mb4` (테이블 콜레이션 `utf8mb4_0900_ai_ci`, MySQL 8.0+)
-> - **테이블 수**: 18개
+> - **테이블 수**: 19개
 > - 모든 테이블은 `created_at` / `updated_at`(자동 갱신)을 공통으로 가지며, 아래 컬럼 표에서는 생략합니다.
 
 ---
@@ -16,7 +16,7 @@
 | **카드 마스터** | `issuer`, `card_product` |
 | **카드 혜택 · 이벤트** | `point_currency`, `benefit_plan_group`, `benefit_service`, `benefit_tier`, `benefit_limit`, `service_brand`, `service_category`, `card_event` |
 | **가맹점 분류** | `category`, `brand`, `store` |
-| **사용자** | `users`, `user_card`, `search_history` |
+| **사용자** | `users`, `refresh_token`, `user_card`, `search_history` |
 | **결제** | `payment_transaction`, `payment_session` |
 
 ---
@@ -46,6 +46,7 @@ erDiagram
     benefit_service   ||--o{ service_brand       : "브랜드 매칭"
     benefit_service   ||--o{ service_category    : "업종 매칭"
 
+    users             ||--o| refresh_token       : "리프레시 토큰"
     users             ||--o{ user_card           : "보유"
     users             ||--o{ search_history      : "검색"
     user_card         ||--o{ payment_transaction : "결제"
@@ -187,7 +188,7 @@ erDiagram
 | `latitude` / `longitude` | DECIMAL(10,8)/(11,8) | 좌표 (거리 계산·거리순 정렬) |
 | `address` | VARCHAR(255) | 도로명 주소 |
 | `kakao_place_id` | VARCHAR(50) | 카카오 장소 ID (UNIQUE) |
-| `qr_code_string` | VARCHAR(64) | QR 결제용 고유 문자열 (UNIQUE) |
+| `store_qr_token` | VARCHAR(64) | QR 결제용 고유 문자열 (UNIQUE) |
 | `store_rank` | INT | 정렬 순위 (NULL 허용) |
 
 ---
@@ -208,12 +209,19 @@ erDiagram
 | `payment_pin_hash` | VARCHAR(255) | 결제 PIN 해시 |
 | `is_location_agreed` | TINYINT(1) | 위치정보 동의 |
 | `is_marketing_agreed` | TINYINT(1) | 마케팅 수신 동의(선택 약관) |
-| `refresh_token_hash` | VARCHAR(64) | 리프레시 토큰 해시 (NULL) |
-| `refresh_token_expires_at` | DATETIME | 리프레시 토큰 만료 (NULL) |
 | `qr_auth_id` | VARCHAR(64) | QR 인증 식별자 (NULL) |
 | `auth_expires_at` | DATETIME | 인증 만료 시각 (NULL) |
 | `auth_is_used` | TINYINT(1) | 인증 사용 여부 (기본 0) |
 | `pin_fail_count` | INT | 결제 PIN 연속 실패 횟수 (기본 0) |
+
+#### `refresh_token` — 리프레시 토큰
+`users`에서 분리한 전용 테이블. 유저당 활성 토큰은 최대 1개(재로그인 시 갱신)라 `user_id`가 UNIQUE.
+
+| 컬럼 | 타입 | 설명 |
+|---|---|---|
+| `refresh_token_id` (PK) | BIGINT | |
+| `user_id` (FK, UNIQUE) | BIGINT | → `users`. 유저당 활성 토큰 1개 |
+| `token_hash` | CHAR(64) | 발급된 리프레시 토큰의 해시 |
 
 #### `user_card` — 보유 카드
 카드번호는 앞4/뒤4로 분리 저장. 은행 계좌 정보는 이 테이블에 포함.
@@ -270,10 +278,10 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 |---|---|---|
 | `payment_session_id` (PK) | BIGINT | |
 | `user_card_id` (FK) | BIGINT | → `user_card` |
-| `store_id` (FK) | BIGINT | → `store` |
+| `store_id` (FK, NULL) | BIGINT | → `store`. QR 스캔 전 가맹점 미확정 세션은 NULL |
 | `session_token` | VARCHAR(64) | UNIQUE |
 | `amount` | DECIMAL(12,2) | 결제 예정액 (NULL 허용) |
-| `status` | VARCHAR(20) | **`PENDING`→`APPROVED`→`COMPLETED`, 그 외 `EXPIRED`/`CANCELLED`/`FAILED`** |
+| `status` | VARCHAR(20) | **`PENDING`→`SCANNED`→`PROCESSING`→`COMPLETED`, 그 외 `EXPIRED`/`FAILED`** |
 | `expires_at` | DATETIME | 만료 시각 |
 
 ---
@@ -288,7 +296,7 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 | `benefit_service.scope_type` | `BRAND`, `INDUSTRY` |
 | `benefit_limit.limit_basis` | `COUNT`, `AMOUNT`, `POINT` |
 | `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR` |
-| `payment_session.status` | `PENDING`, `APPROVED`, `COMPLETED`, `EXPIRED`, `CANCELLED`, `FAILED` |
+| `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED` |
 
 ---
 *스키마 변경 시 `docker/mysql/init/002-schema.sql`과 이 문서를 함께 갱신하세요.*
