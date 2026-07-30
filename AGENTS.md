@@ -136,12 +136,20 @@ public class CardListResponse {
 **경로와 응답 필드는 [API 명세](https://app.notion.com/p/3a6a561881a480d0b24afb20e24190ef)를 따른다.**
 새 엔드포인트를 만들기 전에 명세에서 해당 행을 먼저 확인한다.
 
-> ⚠️ **봉투 형태만은 예외다.** 명세에 두 가지 형태가 섞여 있다 —
-> `{success, code, message, data}`(로그인·보유 카드 목록)와
-> `{status, success, message, data}`(놓친 혜택·주변 가맹점).
-> **전자로 통일하기로 했다.** `status`는 HTTP 상태코드와 중복이고, `code`가 없으면
-> 프론트가 에러를 구분하려고 `message` 문자열을 비교해야 해서 문구만 다듬어도 깨진다.
-> 명세에서 후자로 적힌 페이지를 보면 그대로 따르지 말고 아래 형태로 구현한다.
+> ⚠️ **`code` 값만은 명세를 그대로 따르지 않는다.** 봉투 형태는 명세도 이미
+> `{success, code, message, data}`로 통일됐다(「응답 포맷 통일 보고서」). 남은 차이는 `code` **값**이다 —
+> 명세엔 `STORE_400_01` / `REPORT_200_01` 같은 **번호식**으로 적힌 페이지가 있는데, 그대로 쓰지 않고
+> 아래 규칙대로 **enum 상수 이름**을 쓴다.
+>
+> 번호식은 **한 상태코드에 발생 조건이 여러 개일 때 무너진다.** 「가맹점 조회」는 400 발생 조건이
+> 6가지인데 명세 code는 `STORE_400_01` 하나다. 프론트가 구분하려면 결국 `message` 문자열을
+> 비교해야 하고 문구만 다듬어도 깨진다 — `code` 필드를 도입한 이유가 바로 그 문제였다.
+> `message`는 명세 문구를 그대로 쓰고, `code`만 의미 이름으로 바꾼다.
+>
+> **401은 도메인 ErrorCode에 만들지 않는다.** `AuthInterceptor`가 `/api/**` 전체에 하나만 걸려
+> 도메인을 구분하지 않으므로, 도메인별 401을 만들면 그걸 던질 자리가 없다(인증 관심사에 도메인
+> 지식을 넣게 된다). 공통 `CommonErrorCode.UNAUTHORIZED`를 쓴다. 명세에 `STORE_401_01` 같은
+> 도메인별 401이 적혀 있어도 만들지 않는다.
 
 `/api` 아래 모든 응답은 `ApiResponse<T>` 봉투에 담긴다. HTTP 상태코드도 의미대로 쓴다.
 
@@ -193,25 +201,30 @@ throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
 - 전역 설정은 `src/main/resources/mybatis-config.xml` — `mapUnderscoreToCamelCase`, `jdbcTypeForNull`
 - **`AS` 별칭을 수동으로 붙이지 않는다.** `mapUnderscoreToCamelCase`가 처리한다
 - `<select>`의 `id`는 인터페이스 메서드명과 같아야 한다
-- 단순 조회는 `resultType` 자동 매핑, **1:N 중첩만 `resultMap` + `<collection>`**
+- **응답 DTO가 평면이면 `resultType` 자동 매핑, 중첩 객체가 있으면 `resultMap`**
+  판단 축은 "1:1 vs 1:N"이 아니라 **"평면 vs 중첩"**이다. 1:1 중첩(객체 하나)은 `<association>`,
+  1:N 중첩(목록)은 `<collection>`
+- `resultType`은 컬럼명 → 필드명을 **한 단계만** 맞춘다. 중첩 객체 안으로 내려가지 않고,
+  갈 곳 없는 컬럼은 **예외 없이 버린다**(`autoMappingUnknownColumnBehavior` 기본값 `NONE`).
+  중첩인데 `resultType`을 쓰면 쿼리는 성공하고 그 필드만 **조용히 `null`**이 된다 —
+  예를 들어 `stores[].category`를 `resultType`으로 받으면 `category_*` 컬럼 세 개가 그냥 버려진다
+- `resultMap`에 중첩 매핑이 하나라도 있으면 그 resultMap은 **자동 매핑이 꺼진다**
+  (`autoMappingBehavior` 기본값 `PARTIAL`). `<association>`을 넣는 순간 바깥 컬럼도
+  `<result>`로 전부 명시해야 한다 — `mapUnderscoreToCamelCase`에 기댈 수 없다
 - **`${}` 금지, `#{}` 필수.** 동적 정렬 컬럼처럼 불가피하면 화이트리스트로 검증한 뒤 쓴다
 - **`SELECT *` 금지** — 컬럼을 명시한다. 반복되면 `<sql>` + `<include>`로 뺀다
 
 ### 페이징
 
-명세("주변 가맹점 조회")가 정한 형태를 쓴다. 공통 래퍼 클래스를 만들지 않는다 —
-페이징 필드가 별도 객체가 아니라 `data` 바로 아래에 목록과 나란히 놓이기 때문이다.
+**현재 페이징이 필요한 엔드포인트가 없다.** 이 절의 근거였던 「주변 가맹점 조회」 명세는 폐기되고
+「가맹점 조회」(`GET /api/store/search`)로 통합됐는데, 통합 명세는 거리순 **최대 5건 고정**이라
+`page` / `size` / `totalElements` / `hasNext`를 내려주지 않는다. 명세 본문도 "`LIMIT 5`만 쓰고
+`OFFSET`은 쓰지 않으며, 전체 건수를 내리지 않으므로 `COUNT(*)` 별도 조회도 필요 없습니다"라고 못박았다.
 
-```json
-"data": {
-  "page": 0, "size": 20, "totalElements": 12, "hasNext": false,
-  "stores": [ ... ]
-}
-```
-
-- 응답 DTO에 `page` / `size` / `totalElements` / `hasNext` 네 필드를 직접 넣는다
-- 요청 조건은 `{대상}SearchCondition`에 담고 XML에서 `LIMIT #{cond.size} OFFSET #{cond.offset}`
-- 총 개수는 `count*` 메서드로 따로 조회한다
+- **미리 공통 래퍼 클래스를 만들지 않는다.** 페이징이 필요한 엔드포인트가 생기면 그때 명세에서
+  응답 형태를 확인하고 정한다
+- `{대상}SearchCondition`(§3) 네이밍은 **그대로 쓴다.** 페이징과 무관하게 조회 조건 묶음에 쓰는 규칙이다
+  — `StoreSearchCondition`이 `keyword` / `categoryId` / 좌표 / `radiusMeters`를 담는다
 
 ---
 
