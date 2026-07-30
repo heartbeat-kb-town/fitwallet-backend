@@ -1,5 +1,5 @@
 -- =========================================================
--- fitwallet 스키마 DDL (확정 ERD v23)
+-- fitwallet 스키마 DDL (확정 ERD v24)
 -- MySQL 8.x / InnoDB / utf8mb4
 --
 -- docker-entrypoint-initdb.d 스크립트. 컨테이너 최초 기동(빈 볼륨) 시
@@ -443,17 +443,33 @@ CREATE INDEX idx_pt_card_tier_paid_at ON payment_transaction (user_card_id, appl
 -- =========================================================
 
 -- 사용자별 최근 검색어 기록.
+-- v24: (user_id, keyword) 유일 제약을 애플리케이션에서 DB로 내렸다. 같은 키워드를
+-- 재검색하면 행을 추가하지 않고 searched_at만 갱신하는 것이 명세인데, 제약이 없어
+-- 애플리케이션이 "UPDATE -> 0행이면 INSERT"로 막고 있었다. 그 패턴은 동시 요청 둘이
+-- 모두 UPDATE에서 0행을 받고 둘 다 INSERT하면 중복이 생기는 경쟁 조건이 있고,
+-- 실제로 시드가 이 불변식을 위반한 상태였다(40행 중 13개 키워드 중복 -> v24 직전 16행 정리).
+-- 제약이 있으면 INSERT ... ON DUPLICATE KEY UPDATE 한 문장으로 원자적으로 끝난다.
+--
+-- v24: 검색어 보존 정책이 "사용자당 최대 5개 저장"에서 "전부 보관 + 화면에 최신 5개 표시"로
+-- 바뀌면서(요구사항 LOCATION-003 개정) 이 테이블에 남은 불변식은 이 유일 제약 하나다.
+-- 5개 상한은 CHECK가 서브쿼리를 못 쓰고 트리거가 자기 테이블을 수정할 수 없어 애초에
+-- DB로 표현할 수 없는 보존 정책이었는데, 정책이 바뀌면서 그 문제 자체가 없어졌다.
+--
+-- v24: idx_search_history_user_id 삭제. 새 UNIQUE 키의 좌측 프리픽스가 user_id라
+-- WHERE user_id = ? 조회를 그대로 커버해 중복이었다.
+--
+-- keyword 콜레이션은 utf8mb4_0900_ai_ci(대소문자·악센트 무시)라 'CU'와 'cu'가 같은 키다.
+-- 재검색 시 기존 항목이 갱신되고 검색어 칩이 둘로 갈라지지 않으므로 의도된 동작이다.
 DROP TABLE IF EXISTS search_history;
 CREATE TABLE search_history (
     search_history_id  BIGINT AUTO_INCREMENT PRIMARY KEY,
     user_id            BIGINT NOT NULL,
     keyword            VARCHAR(100) NOT NULL,
     searched_at        DATETIME NOT NULL,
+    UNIQUE KEY uk_search_history_user_id_keyword (user_id, keyword),
     CONSTRAINT fk_search_history_user
         FOREIGN KEY (user_id) REFERENCES users (user_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
-CREATE INDEX idx_search_history_user_id ON search_history (user_id);
 
 -- 결제 세션. 사용자 등록 카드로 특정 가맹점에서 (QR 등) 결제를 진행하는 동안의 세션
 -- 상태를 추적한다.

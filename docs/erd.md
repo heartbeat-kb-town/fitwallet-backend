@@ -250,8 +250,16 @@ erDiagram
 
 > **불변식은 하나다 — `(user_id, keyword)` 유일.** 같은 키워드를 재검색하면 행을 추가하지 않고
 > `searched_at`만 갱신한다. 따라서 **행 수 = 그 사용자가 검색한 서로 다른 키워드 개수**이고
-> 상한이 없다. 스키마에 UNIQUE 제약이 없어 현재는 `GET /api/store/search`가 보장한다
-> (`UNIQUE (user_id, keyword)`로 DB에 내릴 수 있는 제약이다 — 인덱스 키 408바이트로 InnoDB 상한 안).
+> 상한이 없다. v24부터 **DB가 보장한다** — `UNIQUE (user_id, keyword)`
+> (`uk_search_history_user_id_keyword`, 인덱스 키 408바이트로 InnoDB 상한 3072바이트 안).
+> 애플리케이션의 `INSERT … ON DUPLICATE KEY UPDATE searched_at = NOW()` 한 문장이 이 제약에
+> 얹혀 원자적으로 동작하므로, "UPDATE 후 0행이면 INSERT" 분기와 그 경쟁 조건이 없다.
+>
+> 인덱스는 이 UNIQUE 키 하나뿐이다. v24에서 `idx_search_history_user_id`를 지웠다 —
+> UNIQUE 키의 좌측 프리픽스가 `user_id`라 `WHERE user_id = ?` 조회를 그대로 커버해 중복이었다.
+> `recent`(`WHERE user_id = ? ORDER BY searched_at DESC LIMIT 5`)에는 `searched_at` filesort가
+> 붙지만, 행 수가 사용자당 검색 키워드 수(수십~수백)라 비용이 무의미해 `(user_id, searched_at)`
+> 인덱스를 두지 않았다. **한 사용자의 행이 수천 단위로 늘면 그때 추가한다.**
 >
 > **검색어는 삭제하지 않고 전부 보관한다.** LOCATION-003의 "최대 5개"는 저장 한도가 아니라
 > **화면 표시 개수**다. `GET /api/store/keywords`의 `recent`가 `searched_at` 내림차순 5개만
