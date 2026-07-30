@@ -1,0 +1,116 @@
+package com.fitwallet.domain.user.service;
+
+import com.fitwallet.domain.user.dto.request.SignUpRequest;
+import com.fitwallet.domain.user.exception.UserErrorCode;
+import com.fitwallet.domain.user.mapper.UserMapper;
+import com.fitwallet.global.exception.BusinessException;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.security.crypto.password.PasswordEncoder;
+import org.springframework.test.util.ReflectionTestUtils;
+
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.never;
+
+/**
+ * Service 단위 테스트
+ */
+@ExtendWith(MockitoExtension.class)
+class DefaultUserServiceTest {
+
+    @Mock
+    private UserMapper userMapper;
+
+    @Mock
+    private PasswordEncoder passwordEncoder;
+
+    @InjectMocks
+    private DefaultUserService userService;
+
+    @Test
+    void 비밀번호와_비밀번호확인이_다르면_PASSWORD_MISMATCH_예외를_던진다() {
+        SignUpRequest request = signUpRequest(
+                "test-user",
+                "password123",
+                "different123"
+        );
+
+        assertThatThrownBy(() -> userService.signUp(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.PASSWORD_MISMATCH);
+
+        then(userMapper).shouldHaveNoInteractions();
+        then(passwordEncoder).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void 아이디가_중복이면_DUPLICATE_LOGIN_ID_예외를_던진다() {
+        SignUpRequest request = signUpRequest(
+                "duplicate-user",
+                "password123",
+                "password123"
+        );
+        given(userMapper.existsByLoginId("duplicate-user")).willReturn(true);
+
+        assertThatThrownBy(() -> userService.signUp(request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.DUPLICATE_LOGIN_ID);
+
+        then(passwordEncoder).shouldHaveNoInteractions();
+        then(userMapper).should(never()).insertUser(
+                org.mockito.ArgumentMatchers.any(),
+                org.mockito.ArgumentMatchers.anyString()
+        );
+    }
+
+    @Test
+    void 회원가입시_비밀번호를_암호화해_저장한다() {
+        SignUpRequest request = signUpRequest(
+                "new-user",
+                "password123",
+                "password123"
+        );
+
+        given(userMapper.existsByLoginId("new-user")).willReturn(false);
+        given(passwordEncoder.encode("password123"))
+                .willReturn("encoded-password");
+
+        userService.signUp(request);
+
+        then(passwordEncoder).should().encode("password123");
+        then(userMapper).should()
+                .insertUser(request, "encoded-password");
+    }
+
+    private SignUpRequest signUpRequest(
+            String loginId,
+            String password,
+            String passwordConfirm
+    ) {
+        SignUpRequest request = new SignUpRequest();
+
+        ReflectionTestUtils.setField(request, "name", "테스트회원");
+        ReflectionTestUtils.setField(request, "loginId", loginId);
+        ReflectionTestUtils.setField(request, "phone", "01012345678");
+        ReflectionTestUtils.setField(request, "password", password);
+        ReflectionTestUtils.setField(
+                request,
+                "passwordConfirm",
+                passwordConfirm
+        );
+        ReflectionTestUtils.setField(
+                request,
+                "marketingAgreed",
+                false
+        );
+
+        return request;
+    }
+}

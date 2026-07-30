@@ -32,6 +32,7 @@
     <interceptors>
         <interceptor>
             <mapping path="/api/**"/>
+            <exclude-mapping path="/api/user/signup"/>
             <beans:bean class="com.fitwallet.global.config.AuthInterceptor"/>
         </interceptor>
     </interceptors>
