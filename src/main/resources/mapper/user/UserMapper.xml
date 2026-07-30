@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fitwallet.domain.user.mapper.UserMapper">
+
+    <!-- 회원가입 요청 시 동일한 로그인 아이디가 존재하는지 확인한다. -->
+    <select id="existsByLoginId" resultType="boolean">
+        SELECT EXISTS (
+            SELECT 1
+            FROM users
+            WHERE login_id = #{loginId}
+        )
+    </select>
+
+    <!--
+        password_confirm은 비밀번호 일치 검증에만 사용하므로 저장하지 않는다.
+        password에는 서비스에서 암호화한 encodedPassword를 저장한다.
+        created_at / updated_at은 DB DEFAULT가 채우므로 명시하지 않는다.
+    -->
+    <insert id="insertUser">
+        INSERT INTO users (
+            name,
+            login_id,
+            phone,
+            password_hash,
+            is_marketing_agreed
+        )
+        VALUES (
+            #{request.name},
+            #{request.loginId},
+            #{request.phone},
+            #{encodedPassword},
+            #{request.marketingAgreed}
+        )
+    </insert>
+
+</mapper>
