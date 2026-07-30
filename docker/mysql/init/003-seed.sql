@@ -1664,7 +1664,8 @@ INSERT INTO `user_card` (`user_card_id`, `user_id`, `card_product_id`, `first4`,
 --
 -- 불변식은 하나다: (user_id, keyword) 유일. 같은 키워드를 재검색하면 행이 늘지 않고
 -- searched_at만 갱신된다. 따라서 행 수 = 그 사용자가 검색한 서로 다른 키워드 개수이고,
--- 상한이 없다. 스키마에 UNIQUE 제약이 없어 현재는 애플리케이션이 보장한다.
+-- 상한이 없다. v24부터 DB가 보장한다(uk_search_history_user_id_keyword).
+-- 따라서 이 시드에 중복 키워드가 하나라도 있으면 적재 자체가 실패한다.
 --
 -- LOCATION-003의 "최대 5개"는 저장 한도가 아니라 화면 표시 개수다. 검색어는 전부 보관하고
 -- GET /api/store/keywords 의 recent가 최신 5개만 내려준다. 저장 한도로 두면 오래된 인기
