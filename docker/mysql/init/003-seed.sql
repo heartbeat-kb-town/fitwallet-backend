@@ -1661,47 +1661,36 @@ INSERT INTO `user_card` (`user_card_id`, `user_id`, `card_product_id`, `first4`,
 
 -- ---------------------------------------------------------
 -- search_history — 검색 기록
+--
+-- 불변식은 하나다: (user_id, keyword) 유일. 같은 키워드를 재검색하면 행이 늘지 않고
+-- searched_at만 갱신된다. 따라서 행 수 = 그 사용자가 검색한 서로 다른 키워드 개수이고,
+-- 상한이 없다. 스키마에 UNIQUE 제약이 없어 현재는 애플리케이션이 보장한다.
+--
+-- LOCATION-003의 "최대 5개"는 저장 한도가 아니라 화면 표시 개수다. 검색어는 전부 보관하고
+-- GET /api/store/keywords 의 recent가 최신 5개만 내려준다. 저장 한도로 두면 오래된 인기
+-- 검색어가 누군가의 6번째 검색에 밀려 삭제되면서 인기 검색어 집계에서 빠지기 때문이다.
+--
+-- 픽스처 설계: 16개 키워드 중 상위 4건만 최근(2026-07-24 ~ 07-29)에 둔다.
+-- recent(기간 제한 없음, LIMIT 5 -> 16행 중 5건)와 popular(최근 7일 -> 4건)이 서로 다른
+-- 결과를 내야 LIMIT과 7일 컷이 각각 검증된다. searched_at이 고정값이라 2026-08-06 이후에는
+-- 전부 7일 창 밖으로 나가 popular이 빈 배열이 된다 — 고정 시드의 성질이지 버그가 아니다.
 -- ---------------------------------------------------------
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (1,1,'스타벅스','2026-03-20 12:53:23');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (2,1,'빽다방','2026-03-16 17:55:18');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (3,1,'점심 할인','2026-04-16 16:41:36');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (4,1,'점심 할인','2026-06-04 11:57:08');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (5,1,'점심 할인','2026-06-18 16:57:27');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (6,1,'건대 맛집','2026-04-09 11:30:16');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (7,1,'청춘대로 톡톡','2026-05-11 13:29:22');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (8,1,'스타벅스','2026-04-08 15:15:30');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (9,1,'이디야커피','2026-05-21 18:31:21');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (10,1,'커피 할인','2026-07-17 17:57:46');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (11,1,'스타벅스','2026-04-21 11:59:53');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (12,1,'커피 할인 카드','2026-04-29 15:53:38');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (13,1,'메가MGC커피','2026-06-09 13:18:50');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (14,1,'커피 할인','2026-05-15 09:50:59');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (15,1,'이디야커피','2026-07-24 17:12:25');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (16,1,'스타벅스 혜택','2026-06-01 11:49:40');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (17,1,'공차','2026-07-14 19:16:12');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (18,1,'메가MGC커피','2026-05-18 09:31:09');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (19,1,'청춘대로 톡톡','2026-04-21 20:07:12');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (20,1,'이마트','2026-06-10 15:47:22');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (21,1,'청춘대로 톡톡','2026-03-12 16:43:10');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (22,1,'투썸플레이스','2026-07-02 18:41:36');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (23,1,'공차','2026-06-24 16:19:17');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (24,1,'투썸플레이스','2026-06-09 16:17:59');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (25,1,'빽다방','2026-06-19 15:15:45');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (26,1,'카페','2026-05-26 18:11:43');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (27,1,'공차','2026-04-07 10:22:43');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (28,1,'투썸플레이스','2026-07-09 12:05:48');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (29,1,'스타벅스 혜택','2026-05-05 12:20:18');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (30,1,'빽다방','2026-03-16 14:13:02');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (31,1,'군자동 병원','2026-04-27 19:08:53');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (32,1,'점심 할인','2026-05-13 17:03:25');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (33,1,'메가MGC커피','2026-03-06 14:26:46');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (34,1,'군자동 병원','2026-03-16 18:14:03');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (35,1,'군자동 병원','2026-04-08 12:34:22');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (36,1,'커피 할인 카드','2026-06-08 18:10:50');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (37,1,'이디야커피','2026-06-08 10:01:33');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (38,1,'점심','2026-05-04 14:53:39');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (39,1,'건대 맛집','2026-03-25 09:50:07');
-INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (40,1,'공차','2026-03-20 14:34:05');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (1,1,'이디야커피','2026-07-29 17:12:25');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (2,1,'커피 할인','2026-07-28 17:57:46');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (3,1,'공차','2026-07-26 19:16:12');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (4,1,'투썸플레이스','2026-07-24 12:05:48');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (5,1,'빽다방','2026-06-19 15:15:45');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (6,1,'점심 할인','2026-06-18 16:57:27');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (7,1,'이마트','2026-06-10 15:47:22');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (8,1,'메가MGC커피','2026-06-09 13:18:50');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (9,1,'커피 할인 카드','2026-06-08 18:10:50');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (10,1,'스타벅스 혜택','2026-06-01 11:49:40');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (11,1,'카페','2026-05-26 18:11:43');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (12,1,'청춘대로 톡톡','2026-05-11 13:29:22');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (13,1,'점심','2026-05-04 14:53:39');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (14,1,'군자동 병원','2026-04-27 19:08:53');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (15,1,'스타벅스','2026-04-21 11:59:53');
+INSERT INTO `search_history` (`search_history_id`, `user_id`, `keyword`, `searched_at`) VALUES (16,1,'건대 맛집','2026-04-09 11:30:16');
 
 -- ---------------------------------------------------------
 -- payment_transaction — 결제 내역 (적용/놓친 혜택 인라인)

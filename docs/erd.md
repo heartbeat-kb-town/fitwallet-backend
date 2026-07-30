@@ -243,10 +243,29 @@ erDiagram
 #### `search_history` — 검색 기록
 | 컬럼 | 타입 | 설명 |
 |---|---|---|
-| `search_history_id` (PK) | BIGINT | |
+| `search_history_id` (PK) | BIGINT | 최근 검색어 개별 삭제용 식별자 |
 | `user_id` (FK) | BIGINT | → `users` |
-| `keyword` | VARCHAR(100) | |
-| `searched_at` | DATETIME | |
+| `keyword` | VARCHAR(100) | 검색창에 직접 입력한 상호명. 카테고리 탭 조회는 기록하지 않는다 |
+| `searched_at` | DATETIME | 마지막으로 검색한 시각 (최근 검색어 정렬 근거) |
+
+> **불변식은 하나다 — `(user_id, keyword)` 유일.** 같은 키워드를 재검색하면 행을 추가하지 않고
+> `searched_at`만 갱신한다. 따라서 **행 수 = 그 사용자가 검색한 서로 다른 키워드 개수**이고
+> 상한이 없다. 스키마에 UNIQUE 제약이 없어 현재는 `GET /api/store/search`가 보장한다
+> (`UNIQUE (user_id, keyword)`로 DB에 내릴 수 있는 제약이다 — 인덱스 키 408바이트로 InnoDB 상한 안).
+>
+> **검색어는 삭제하지 않고 전부 보관한다.** LOCATION-003의 "최대 5개"는 저장 한도가 아니라
+> **화면 표시 개수**다. `GET /api/store/keywords`의 `recent`가 `searched_at` 내림차순 5개만
+> 내려준다. 저장 한도로 두면 오래된 인기 검색어가 누군가의 6번째 검색에 밀려 삭제되면서
+> 인기 검색어 집계에서 빠지는 문제가 생겨 표시 개수로 바꿨다.
+>
+> 사용자가 직접 지우는 경로는 `DELETE /api/store/keywords/recent/{searchHistoryId}`(개별)와
+> `DELETE /api/store/keywords/recent`(전체) 두 개다. 하드 삭제이고 소프트 삭제 컬럼은 없다.
+>
+> `keyword` 콜레이션이 `utf8mb4_0900_ai_ci`(대소문자·악센트 무시)라 `CU`와 `cu`는 같은 키워드로
+> 취급된다. 재검색 시 기존 항목이 갱신되고 칩이 둘로 갈라지지 않으므로 의도된 동작이다.
+>
+> 「검색어 조회(최근·인기)」의 인기 검색어가 `COUNT(*)`를 "검색 횟수"가 아니라 "그 키워드를 검색한
+> 사용자 수"로 세는 이유가 이 유일 불변식이다. 한 사람이 반복 검색해 순위를 올릴 수 없다(1인 1표).
 
 ---
 
