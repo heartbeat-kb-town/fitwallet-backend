@@ -9,12 +9,10 @@
 
 ```bash
 docker compose up -d      # 로컬 MySQL (스키마 + 시드 자동 적용)
-./gradlew build           # 컴파일 + 테스트 + war 패키징
+./gradlew build           # 컴파일 + 테스트 + war 패키징 — MySQL 필요
 ./gradlew appRun          # http://localhost:8080 (Gretty)
-./gradlew test            # 테스트만
+./gradlew test            # 테스트만 — MySQL 필요
 ```
-
-테스트에는 로컬 MySQL이 떠 있어야 한다 (Mapper 통합 테스트가 실제 DB를 쓴다).
 
 ---
 
@@ -48,7 +46,6 @@ docker compose up -d      # 로컬 MySQL (스키마 + 시드 자동 적용)
 ## 2. 패키지 / 도메인 구조
 
 도메인은 6개다: `user`, `card`, `store`, `benefit`, `payment`, `report`.
-`auth`는 별도 도메인으로 두지 않는다 (인증 컬럼이 `users` 테이블에 있어 `user` 도메인이 담당한다).
 
 **도메인은 테이블을 소유하지 않는다.** 각 도메인의 Mapper가 필요한 여러 테이블을 조인해 접근한다.
 따라서 테이블과 1:1 대응하는 `entity`나 `vo`를 만들지 않고, **Mapper가 Response DTO를 직접 반환**한다.
@@ -61,8 +58,9 @@ com.fitwallet
 │  ├─ service/                  # 인터페이스 + Default 구현체
 │  ├─ mapper/                   # MyBatis 인터페이스
 │  ├─ dto/
+│  │  ├─ *.java                 # enum, SuccessCode (CardType, CardSuccessCode 등)
 │  │  ├─ request/
-│  │  └─ response/              # enum도 dto/ 바로 아래에 선언
+│  │  └─ response/
 │  └─ exception/                # {도메인}ErrorCode
 └─ global/
    ├─ common/{annotation,dto}/
@@ -95,15 +93,22 @@ src/main/resources/mapper/{도메인}/{도메인}Mapper.xml
 | 테스트 클래스 | `{대상}Test` / `{대상}IntegrationTest` | `DefaultCardServiceTest` |
 | 테스트 메서드 | 한글 + 언더스코어 | `카드_등록시_중복이면_예외를_던진다()` |
 
-**Service는 인터페이스 + 구현체 한 쌍으로 둔다.** 구현체는 접미사 `Impl`이 아니라
-**접두사 `Default`**를 쓴다 — `CardServiceImpl`이 아니라 `DefaultCardService`.
-컨트롤러는 인터페이스 타입(`CardService`)만 의존하고 구현체를 직접 참조하지 않는다.
-
 ---
 
 ## 4. DTO 규칙
 
 `record`를 쓰지 않는다. Request·Response 모두 **class + Lombok**으로 통일한다.
+
+Request·Response는 HTTP 바디 전용이 아니다. **Mapper 파라미터·반환 타입으로 그대로 쓰인다** —
+Controller에서 끝나지 않고 Service·Mapper·XML까지 같은 객체가 관통한다.
+
+```
+Request   Controller ──▶ Service ──▶ Mapper ──▶ XML(SQL) ──▶ DB
+          (CardRegisterRequest가 Mapper 파라미터까지 그대로 전달된다)
+
+Response  Controller ◀── Service ◀── Mapper ◀── XML(SQL) ◀── DB
+          (CardListResponse는 Mapper가 SQL 결과를 바로 채워 반환한다)
+```
 
 ```java
 // Request
@@ -136,20 +141,8 @@ public class CardListResponse {
 **경로와 응답 필드는 [API 명세](https://app.notion.com/p/3a6a561881a480d0b24afb20e24190ef)를 따른다.**
 새 엔드포인트를 만들기 전에 명세에서 해당 행을 먼저 확인한다.
 
-> ⚠️ **`code` 값만은 명세를 그대로 따르지 않는다.** 봉투 형태는 명세도 이미
-> `{success, code, message, data}`로 통일됐다(「응답 포맷 통일 보고서」). 남은 차이는 `code` **값**이다 —
-> 명세엔 `STORE_400_01` / `REPORT_200_01` 같은 **번호식**으로 적힌 페이지가 있는데, 그대로 쓰지 않고
-> 아래 규칙대로 **enum 상수 이름**을 쓴다.
->
-> 번호식은 **한 상태코드에 발생 조건이 여러 개일 때 무너진다.** 「가맹점 조회」는 400 발생 조건이
-> 6가지인데 명세 code는 `STORE_400_01` 하나다. 프론트가 구분하려면 결국 `message` 문자열을
-> 비교해야 하고 문구만 다듬어도 깨진다 — `code` 필드를 도입한 이유가 바로 그 문제였다.
-> `message`는 명세 문구를 그대로 쓰고, `code`만 의미 이름으로 바꾼다.
->
-> **401은 도메인 ErrorCode에 만들지 않는다.** `AuthInterceptor`가 `/api/**` 전체에 하나만 걸려
-> 도메인을 구분하지 않으므로, 도메인별 401을 만들면 그걸 던질 자리가 없다(인증 관심사에 도메인
-> 지식을 넣게 된다). 공통 `CommonErrorCode.UNAUTHORIZED`를 쓴다. 명세에 `STORE_401_01` 같은
-> 도메인별 401이 적혀 있어도 만들지 않는다.
+> ⚠️ `code`는 명세가 번호식(`STORE_400_01`)이어도 **enum 상수 이름**으로 쓰고(`message`는 명세
+> 문구 그대로), 401은 도메인 ErrorCode를 만들지 않고 공통 `CommonErrorCode.UNAUTHORIZED`를 쓴다.
 
 `/api` 아래 모든 응답은 `ApiResponse<T>` 봉투에 담긴다. HTTP 상태코드도 의미대로 쓴다.
 
@@ -192,44 +185,41 @@ throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
 
 ## 6. MyBatis 매퍼 규칙
 
-**커스텀 TypeHandler를 만들지 않는다.** DDL의 CHECK 제약 값 8종
-(`card_type`, `benefit_type`, `value_type`, `scope_type`, `limit_basis`, `limit_period`,
-`payment_session.status`, `payment_session.fail_reason`)이
-모두 자바 enum 상수 이름 규칙과 일치해 기본 `EnumTypeHandler`가 `name()` 기준으로 자동 변환한다.
-`TINYINT(1)`↔`Boolean`, `DECIMAL`↔`BigDecimal`, `DATETIME`↔`LocalDateTime`도 기본 핸들러가 처리한다.
-정말 필요해지면 `global/config/typehandler/`에 만들고 `mybatis-config.xml`에 등록한다.
+**커스텀 TypeHandler를 만들지 않는다.** DDL의 CHECK 값이 자바 enum 상수 이름과 일치해 기본
+`EnumTypeHandler`가 자동 변환하고, `TINYINT(1)`↔`Boolean`·`DECIMAL`↔`BigDecimal`·
+`DATETIME`↔`LocalDateTime`도 기본 핸들러가 처리한다. 정말 필요해지면
+`global/config/typehandler/`에 만들고 `mybatis-config.xml`에 등록한다.
 
 - 전역 설정은 `src/main/resources/mybatis-config.xml` — `mapUnderscoreToCamelCase`, `jdbcTypeForNull`
 - **`AS` 별칭을 수동으로 붙이지 않는다.** `mapUnderscoreToCamelCase`가 처리한다
 - `<select>`의 `id`는 인터페이스 메서드명과 같아야 한다
-- **응답 DTO가 평면이면 `resultType` 자동 매핑, 중첩 객체가 있으면 `resultMap`**
-  판단 축은 "1:1 vs 1:N"이 아니라 **"평면 vs 중첩"**이다. 1:1 중첩(객체 하나)은 `<association>`,
-  1:N 중첩(목록)은 `<collection>`
-- `resultType`은 컬럼명 → 필드명을 **한 단계만** 맞춘다. 중첩 객체 안으로 내려가지 않고,
-  갈 곳 없는 컬럼은 **예외 없이 버린다**(`autoMappingUnknownColumnBehavior` 기본값 `NONE`).
-  중첩인데 `resultType`을 쓰면 쿼리는 성공하고 그 필드만 **조용히 `null`**이 된다 —
-  예를 들어 `stores[].category`를 `resultType`으로 받으면 `category_*` 컬럼 세 개가 그냥 버려진다
-- `resultMap`에 중첩 매핑이 하나라도 있으면 그 resultMap은 **자동 매핑이 꺼진다**
-  (`autoMappingBehavior` 기본값 `PARTIAL`). `<association>`을 넣는 순간 바깥 컬럼도
-  `<result>`로 전부 명시해야 한다 — `mapUnderscoreToCamelCase`에 기댈 수 없다
+- **응답 DTO 모양에 따라 매핑 방식을 고른다:**
+
+  | DTO 모양 | 매핑 | 비고 |
+  |---|---|---|
+  | 평면 | `resultType` | 못 채운 컬럼은 에러 없이 조용히 버려진다 |
+  | 중첩 1:1(객체 하나) | `resultMap` + `<association>` | |
+  | 중첩 1:N(목록) | `resultMap` + `<collection>` | |
+
+  `<association>`/`<collection>`이 들어가면 그 resultMap은 자동 매핑이 꺼지므로
+  (`autoMappingBehavior` 기본값 `PARTIAL`) 바깥 컬럼도 `<result>`로 전부 명시해야 한다
 - **`${}` 금지, `#{}` 필수.** 동적 정렬 컬럼처럼 불가피하면 화이트리스트로 검증한 뒤 쓴다
 - **`SELECT *` 금지** — 컬럼을 명시한다. 반복되면 `<sql>` + `<include>`로 뺀다
 
-### 페이징
+---
 
-**현재 페이징이 필요한 엔드포인트가 없다.** 이 절의 근거였던 「주변 가맹점 조회」 명세는 폐기되고
-「가맹점 조회」(`GET /api/store/search`)로 통합됐는데, 통합 명세는 거리순 **최대 5건 고정**이라
-`page` / `size` / `totalElements` / `hasNext`를 내려주지 않는다. 명세 본문도 "`LIMIT 5`만 쓰고
-`OFFSET`은 쓰지 않으며, 전체 건수를 내리지 않으므로 `COUNT(*)` 별도 조회도 필요 없습니다"라고 못박았다.
+## 7. 페이징
 
-- **미리 공통 래퍼 클래스를 만들지 않는다.** 페이징이 필요한 엔드포인트가 생기면 그때 명세에서
-  응답 형태를 확인하고 정한다
-- `{대상}SearchCondition`(§3) 네이밍은 **그대로 쓴다.** 페이징과 무관하게 조회 조건 묶음에 쓰는 규칙이다
-  — `StoreSearchCondition`이 `keyword` / `categoryId` / 좌표 / `radiusMeters`를 담는다
+현재 명세에 이용 실적 상세 조회(`GET /api/card/{cardId}/usage`)가
+`page`/`size`/`totalElements`/`hasNext`를 쓰는 페이징 응답을 가진다(미구현).
+이 API를 구현할 때 명세의 필드를 그대로 따른다.
+
+- 공통 래퍼 클래스는 미리 만들지 않는다 — 다른 페이징이 필요해질 때 모양이 같은지 그때 확인한다
+- `{대상}SearchCondition`(§3) 네이밍은 그대로 쓴다
 
 ---
 
-## 7. 인증 컨텍스트 전달
+## 8. 인증 컨텍스트 전달
 
 컨트롤러가 사용자 식별자를 얻는 경로는 하나뿐이다.
 
@@ -248,19 +238,18 @@ public List<CardListResponse> findMyCards(@LoginUserId Long userId) {
 
 ---
 
-## 8. 트랜잭션 경계
+## 9. 트랜잭션 경계
 
 - `@Transactional`은 **Service에만** 붙인다
 - 조회 메서드는 **`@Transactional(readOnly = true)`**
-- **Controller와 Mapper에는 붙이지 않는다** (아래 함정 참고)
-- **`@Transactional`은 `Default{도메인}Service` 구현체 메서드에 붙인다. 인터페이스 선언에는 붙이지 않는다.**
-  지금은 `<tx:annotation-driven>`이 JDK 동적 프록시라 인터페이스에 붙여도 인식되긴 하지만,
-  나중에 `proxy-target-class="true"`(CGLIB)로 바뀌면 인터페이스의 애너테이션은 조용히 무시된다.
-  구현체에만 붙이는 습관을 들이면 이 전환에 영향받지 않는다.
+- **Controller와 Mapper에는 붙이지 않는다** — Controller에 붙여도 걸리지 않는다.
+  `<tx:annotation-driven>`이 루트 컨텍스트에만 있어 웹 컨텍스트에서 스캔되는 Controller엔
+  프록시가 안 걸리기 때문이다(`DefaultCardService` 클래스 주석 참고)
+- **`@Transactional`은 `Default{도메인}Service` 구현체 메서드에 붙인다. 인터페이스 선언에는 붙이지 않는다**
 
 ---
 
-## 9. 스키마 유래 공통 규칙
+## 10. 스키마 유래 공통 규칙
 
 - **소프트 삭제**: `is_deleted` 컬럼이 있는 테이블은 조회 시 **항상 `is_deleted = 0`** 조건을 건다.
   물리 `DELETE`를 쓰지 않는다 (`payment_transaction`이 `user_card`를 FK 참조한다)
@@ -271,7 +260,7 @@ public List<CardListResponse> findMyCards(@LoginUserId Long userId) {
 
 ---
 
-## 10. 테스트 규칙
+## 11. 테스트 규칙
 
 | 계층 | 도구 | DB | 의무 |
 |---|---|---|---|
@@ -284,15 +273,12 @@ public List<CardListResponse> findMyCards(@LoginUserId Long userId) {
 - 단언은 **AssertJ `assertThat`으로 통일**한다. JUnit `Assertions.*`를 쓰지 않는다
 - 시드 데모 페르소나는 `user_id = 1` (카드 5건, 거래 355건)
 
-> ⚠️ **한 테스트 안에서 "조회 → 변경 → 다시 같은 조회"를 하지 않는다.**
-> 같은 트랜잭션은 같은 SqlSession이라 MyBatis 1차 캐시가 첫 결과를 그대로 돌려준다.
-> 특히 `JdbcTemplate`으로 바꾼 데이터는 MyBatis가 알 수 없어 캐시가 비워지지 않는다.
-> 변경 전 상태와 변경 후 상태는 **테스트를 나눠서** 검증한다.
-> (운영 코드에서도 한 트랜잭션 안에서 같은 조회를 반복하면 같은 값이 온다는 뜻이다)
+> ⚠️ **한 테스트 안에서 "조회 → 변경 → 다시 같은 조회"를 하지 않는다.** 변경 전 상태와
+> 변경 후 상태는 **테스트를 나눠서** 검증한다(운영 코드도 마찬가지다).
 
 ---
 
-## 11. 환경 / 프로파일
+## 12. 환경 / 프로파일
 
 Boot가 아니라 `application-{profile}.yml` 자동 로딩이 없다. 시스템 프로퍼티 `-Denv`로 파일을 고른다.
 
@@ -309,50 +295,11 @@ src/main/resources/config/
 - 로컬에서 포트·계정을 바꾸려면 `.env`만 고치면 된다. `build.gradle`이 `.env`를 읽어
   시스템 프로퍼티로 넘겨주므로 `application-local.properties`의 기본값을 덮어쓴다
 
-### 타임존
-
-§9의 "타임존 `Asia/Seoul`"은 **설정 세 곳이 함께 보장한다.** 하나라도 빠지면 시각 소스가 갈라진다.
-
-| 대상 | 설정 | 위치 |
-|---|---|---|
-| 로컬 MySQL | `command: --default-time-zone=+09:00` | `docker-compose.yml` |
-| CI MySQL | `SET GLOBAL time_zone = '+09:00'` (시딩 직전 스텝) | `.github/workflows/ci.yml` |
-| JVM (테스트·Gretty) | `-Duser.timezone=Asia/Seoul` | `build.gradle` |
-
-- 이름(`Asia/Seoul`) 대신 **오프셋(`+09:00`)을 쓴다.** 이름을 쓰려면 `mysql.time_zone_*` 테이블이
-  적재돼 있어야 하는데 공식 이미지는 비워 두므로 mysqld가 기동에 실패한다. 한국은 서머타임이 없어
-  오프셋이 항상 정확하다
-- JDBC URL의 `serverTimezone=Asia/Seoul`은 **드라이버의 값 해석만** 바꾼다. 서버 세션의 `time_zone`은
-  건드리지 않으므로(`forceConnectionTimeZoneToSession` 기본 `false`) 이것만으로는 위 문제가 안 풀린다.
-  게다가 시간 컬럼을 전부 `LocalDateTime`(타임존 없는 타입)으로 받으므로 **서버가 뱉는 벽시계 값이 정본**이다
-- CI가 `SET GLOBAL`을 쓰는 건 GitHub Actions `services:`에 `command` 키가 없기 때문이다.
-  방식은 달라도 결과 상태(`@@global.time_zone = '+09:00'`)는 로컬과 같다
-- `docker-compose.yml`의 타임존을 바꿔도 **기존 컨테이너에는 반영되지 않는다.**
-  `docker compose down -v && docker compose up -d`로 재생성한다
-
 ---
 
-## 12. XML 설정 함정 (읽지 않으면 반드시 걸린다)
+## 13. Git / GitHub 워크플로우
 
-루트 컨텍스트(`root-context.xml`)와 웹 컨텍스트(`servlet-context.xml`)가 분리돼 있어서
-빈이 어느 쪽에 등록되는지에 따라 조용히 동작하지 않는 경우가 있다.
-
-1. **`@ControllerAdvice`는 `@Controller`가 아니다.**
-   `servlet-context.xml`의 component-scan이 `use-default-filters="false"`라
-   include 필터에 `@ControllerAdvice`가 없으면 `GlobalExceptionHandler`가 등록되지 않는다.
-   등록에 실패해도 예외가 나지 않고 **모든 오류가 500으로 떨어진다.**
-
-2. **Controller의 `@Transactional`은 무시된다.**
-   `<tx:annotation-driven>`은 루트 컨텍스트에 있고 Controller는 웹 컨텍스트에서 스캔되므로
-   프록시가 걸리지 않는다. 예외도 나지 않는다. 그래서 트랜잭션은 Service에만 건다.
-
-3. **웹 계층 빈을 양쪽에서 스캔하지 않는다.**
-   `root-context.xml`은 `@Controller`와 `@ControllerAdvice`를 exclude하고,
-   `servlet-context.xml`이 그 둘만 include한다. 새 스테레오타입을 추가할 때 양쪽을 함께 확인한다.
-
----
-
-## Git 컨벤션
+### Git 컨벤션
 
 원본 규칙은 [CONTRIBUTING.md](./CONTRIBUTING.md)에 있다.
 
@@ -363,12 +310,12 @@ src/main/resources/config/
 - 브랜치: `{type}/{설명}` — **영어 소문자 + 하이픈** (`feat`, `fix`, `docs`, `chore`, `style`, `refactor`, `test`, `perf`, `ci`)
 - 커밋: `type: 한국어 설명` (Conventional Commits)
 
-## GitHub 작업 플로우 (이슈 → PR)
+### GitHub 작업 플로우 (이슈 → PR)
 
 새 작업은 아래 순서를 **사용자 확인 없이 연속으로** 진행한다 (`gh` CLI, 이미 인증돼 있음).
 이슈 등록부터 PR 생성까지는 이 문서로 사전 승인된 자동화 범위다.
 
-### 1. 이슈 등록 (`gh issue create --repo heartbeat-kb-town/fitwallet-backend`)
+#### 1. 이슈 등록 (`gh issue create --repo heartbeat-kb-town/fitwallet-backend`)
 
 제목은 `[TYPE] 한국어 설명`. **타입 라벨은 제목 접두사와 1:1로 반드시 매칭**한다.
 
@@ -390,28 +337,28 @@ src/main/resources/config/
 
 관련 마일스톤이 있으면 `--milestone`으로 연결한다.
 
-### 2. 브랜치 생성
+#### 2. 브랜치 생성
 
 ```bash
 git checkout develop && git pull origin develop
 git checkout -b {type}/{설명}
 ```
 
-### 3. 구현 + 검증
+#### 3. 구현 + 검증
 
 `./gradlew build`로 컴파일과 테스트 통과를 확인한다. 위 컨벤션(1~12)을 지킨다.
 
-### 4. 커밋
+#### 4. 커밋
 
 `type: 한국어 설명` 형식. 이 작업과 무관한 미추적 파일은 같이 add하지 않는다.
 
-### 5. push
+#### 5. push
 
 ```bash
 git push -u origin {브랜치명}
 ```
 
-### 6. PR 생성 (`gh pr create --repo heartbeat-kb-town/fitwallet-backend --base develop`)
+#### 6. PR 생성 (`gh pr create --repo heartbeat-kb-town/fitwallet-backend --base develop`)
 
 - 제목: `[#이슈번호] type: 작업 내용`
 - 본문: 관련 이슈(`closes #N`) / 작업 내용 / 변경 유형(체크박스) / 체크리스트 / 리뷰어에게 전달할 내용
@@ -419,7 +366,7 @@ git push -u origin {브랜치명}
 
 이슈가 여러 개로 쪼개지는 큰 작업은 먼저 상위 이슈나 마일스톤으로 묶고, 하위 작업 단위로 이 플로우를 반복한다.
 
-### 릴리스 플로우 (develop → main)
+#### 릴리스 플로우 (develop → main)
 
 배포 시점에 **사용자가 명시적으로 요청할 때만** 실행한다.
 
