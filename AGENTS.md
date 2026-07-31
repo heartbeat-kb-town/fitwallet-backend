@@ -309,6 +309,27 @@ src/main/resources/config/
 - 로컬에서 포트·계정을 바꾸려면 `.env`만 고치면 된다. `build.gradle`이 `.env`를 읽어
   시스템 프로퍼티로 넘겨주므로 `application-local.properties`의 기본값을 덮어쓴다
 
+### 타임존
+
+§9의 "타임존 `Asia/Seoul`"은 **설정 세 곳이 함께 보장한다.** 하나라도 빠지면 시각 소스가 갈라진다.
+
+| 대상 | 설정 | 위치 |
+|---|---|---|
+| 로컬 MySQL | `command: --default-time-zone=+09:00` | `docker-compose.yml` |
+| CI MySQL | `SET GLOBAL time_zone = '+09:00'` (시딩 직전 스텝) | `.github/workflows/ci.yml` |
+| JVM (테스트·Gretty) | `-Duser.timezone=Asia/Seoul` | `build.gradle` |
+
+- 이름(`Asia/Seoul`) 대신 **오프셋(`+09:00`)을 쓴다.** 이름을 쓰려면 `mysql.time_zone_*` 테이블이
+  적재돼 있어야 하는데 공식 이미지는 비워 두므로 mysqld가 기동에 실패한다. 한국은 서머타임이 없어
+  오프셋이 항상 정확하다
+- JDBC URL의 `serverTimezone=Asia/Seoul`은 **드라이버의 값 해석만** 바꾼다. 서버 세션의 `time_zone`은
+  건드리지 않으므로(`forceConnectionTimeZoneToSession` 기본 `false`) 이것만으로는 위 문제가 안 풀린다.
+  게다가 시간 컬럼을 전부 `LocalDateTime`(타임존 없는 타입)으로 받으므로 **서버가 뱉는 벽시계 값이 정본**이다
+- CI가 `SET GLOBAL`을 쓰는 건 GitHub Actions `services:`에 `command` 키가 없기 때문이다.
+  방식은 달라도 결과 상태(`@@global.time_zone = '+09:00'`)는 로컬과 같다
+- `docker-compose.yml`의 타임존을 바꿔도 **기존 컨테이너에는 반영되지 않는다.**
+  `docker compose down -v && docker compose up -d`로 재생성한다
+
 ---
 
 ## 12. XML 설정 함정 (읽지 않으면 반드시 걸린다)

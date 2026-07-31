@@ -48,6 +48,21 @@ jobs:
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
+      # 서버 타임존을 KST로 맞춘다 (AGENTS.md §9). docker-compose.yml은
+      # `command: --default-time-zone=+09:00`으로 같은 일을 하는데, GitHub Actions의
+      # services:에는 command 키가 없어(options:는 이미지 이름 앞에 붙는 docker create 옵션이라
+      # mysqld 인자가 되지 못한다) 런타임에 설정한다. 결과 상태(@@global.time_zone = '+09:00')는
+      # 로컬과 동일하며, 갈라지면 CI만 통과하는 상황이 생기므로 값을 찍어 확인한다.
+      #
+      # 아래 시딩보다 반드시 먼저 와야 한다 — SET GLOBAL은 이후 새로 맺는 커넥션에만 적용되고,
+      # 001-health-check.sql의 checked_at이 DEFAULT CURRENT_TIMESTAMP라 순서가 결과를 바꾼다.
+      - name: Set MySQL timezone to KST
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot1234 \
+            -e "SET GLOBAL time_zone = '+09:00';"
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot1234 \
+            -e "SELECT @@global.time_zone AS tz, NOW() AS now_kst;"
+
       # services는 checkout 이전에 뜨기 때문에 docker-entrypoint-initdb.d 자동 초기화를
       # 쓸 수 없다. 로컬과 동일한 초기화 SQL을 checkout 이후 직접 실행해 시딩한다.
       # 파일이 늘어나도 이 스텝을 다시 고칠 필요가 없도록 init 디렉터리 전체를 번호순으로 돌린다.

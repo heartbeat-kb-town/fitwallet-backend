@@ -60,6 +60,17 @@ docker compose ps   # mysql 서비스가 healthy 상태인지 확인
 > 바뀌었다면 `docker compose down -v && docker compose up -d`로 볼륨을 지우고 다시 띄워야
 > 반영됩니다.
 
+> ⚠️ **이미 컨테이너를 띄워 둔 상태에서 이 저장소를 pull 했다면 한 번 재생성하세요.**
+> MySQL 서버 타임존을 KST로 고정(`--default-time-zone=+09:00`)했는데, `docker-compose.yml`
+> 변경은 기존 컨테이너에 반영되지 않습니다. 그 전에 쌓인 `created_at` 등은 UTC 값이라
+> 시드(KST)와 9시간 어긋나 있으므로 볼륨까지 지우고 다시 띄우는 편이 깔끔합니다.
+>
+> ```bash
+> docker compose down -v && docker compose up -d
+> docker exec fitwallet-mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" \
+>   -e "SELECT @@global.time_zone, NOW();"   # +09:00 / 현재 KST 시각
+> ```
+
 ### 5. 빌드 & 서버 기동
 
 | | macOS / Linux / Git Bash | Windows (cmd) | Windows (PowerShell) |
