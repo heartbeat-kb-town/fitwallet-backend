@@ -3,13 +3,16 @@ services:
     image: mysql:8.4
     container_name: fitwallet-mysql
     restart: unless-stopped
-    # 서버 타임존을 KST로 고정한다 (AGENTS.md §9 "타임존 Asia/Seoul").
+    # 서버 타임존을 KST로 고정한다 (AGENTS.md §10 "타임존 Asia/Seoul").
     # 지정하지 않으면 time_zone=SYSTEM -> UTC라 NOW()/CURRENT_TIMESTAMP가 KST 시드보다 9시간 이르다.
     # JDBC URL의 serverTimezone=Asia/Seoul은 드라이버의 값 해석만 바꿀 뿐 서버 세션을 바꾸지 않는다.
     #
     # 이름(Asia/Seoul) 대신 오프셋(+09:00)을 쓰는 이유: 이름을 쓰려면 mysql.time_zone_* 테이블이
     # 적재돼 있어야 하는데 공식 이미지는 비워 두므로 mysqld가 기동에 실패한다.
     # 한국은 서머타임이 없어 +09:00이 항상 정확하다.
+    #
+    # 이 값을 바꿔도 이미 떠 있는 컨테이너에는 반영되지 않는다.
+    # `docker compose down -v && docker compose up -d`로 재생성해야 한다.
     command: --default-time-zone=+09:00
     environment:
       # 컨테이너 OS 시각(에러 로그 타임스탬프)도 맞춘다. 서버 time_zone은 위 플래그가 결정한다.

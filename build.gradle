@@ -80,7 +80,7 @@ dependencies {
     implementation 'org.springframework.security:spring-security-crypto:5.7.1'
 }
 
-// JVM 기본 타임존을 KST로 고정한다 (AGENTS.md §9).
+// JVM 기본 타임존을 KST로 고정한다 (AGENTS.md §10).
 // MySQL 컨테이너를 KST로 맞춰도(docker-compose.yml) 자바 쪽이 러너 기본값을 쓰면
 // CI(UTC 러너)에서만 LocalDateTime.now()가 DB 시각과 9시간 어긋난다. 시각 소스를 하나로 둔다.
 def timezoneJvmArg = '-Duser.timezone=Asia/Seoul'
