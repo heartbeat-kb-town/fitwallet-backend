@@ -19,6 +19,7 @@ repositories {
 
 ext {
     springVersion = '5.3.39'
+    jjwtVersion = '0.13.0'
 }
 
 // docker-compose.yml이 읽는 .env를 애플리케이션도 같이 보게 한다.
@@ -78,6 +79,11 @@ dependencies {
 
     // Spring Security
     implementation 'org.springframework.security:spring-security-crypto:5.7.1'
+
+    // JWT
+    implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
+    runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
+    runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
 }
 
 // JVM 기본 타임존을 KST로 고정한다 (AGENTS.md §10).
