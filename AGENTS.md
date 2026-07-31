@@ -134,6 +134,11 @@ public class CardListResponse {
 - **`@Setter` 금지** (양쪽 모두)
 - Mapper 파라미터가 2개 이상이면 **`@Param` 필수**
 - 인증 컨텍스트(`userId`)는 Request DTO에 넣지 않고 **항상 별도 파라미터**로 전달
+- **`{대상}SearchCondition`을 `@ModelAttribute`로 바인딩할 때는 컨트롤러에 `@InitBinder`로
+  `binder.initDirectFieldAccess()`를 설정한다.** POST 바디(Jackson)는 `@Setter` 없이도
+  역직렬화되지만, GET 쿼리 파라미터를 객체로 묶는 `WebDataBinder`는 기본값이 JavaBean
+  프로퍼티(setter) 접근이라 `@Setter` 금지와 충돌한다 — 설정하지 않으면 예외 없이 필드가
+  전부 `null`로 조용히 남는다(`StoreController` 참고)
 
 ---
 
