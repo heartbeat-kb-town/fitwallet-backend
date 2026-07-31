@@ -80,10 +80,16 @@ dependencies {
     implementation 'org.springframework.security:spring-security-crypto:5.7.1'
 }
 
+// JVM 기본 타임존을 KST로 고정한다 (AGENTS.md §9).
+// MySQL 컨테이너를 KST로 맞춰도(docker-compose.yml) 자바 쪽이 러너 기본값을 쓰면
+// CI(UTC 러너)에서만 LocalDateTime.now()가 DB 시각과 9시간 어긋난다. 시각 소스를 하나로 둔다.
+def timezoneJvmArg = '-Duser.timezone=Asia/Seoul'
+
 test {
     useJUnitPlatform()
     // 프로파일 미지정 시 local. CI도 이 기본값으로 동작한다.
     systemProperty 'env', System.getProperty('env', 'local')
+    jvmArgs timezoneJvmArg
     dotenv.each { k, v -> systemProperty(k.toString(), v.toString()) }
 }
 
@@ -91,5 +97,5 @@ gretty {
     contextPath = '/'
     servletContainer = 'tomcat9'
     httpPort = 8080
-    jvmArgs = ['-Denv=local'] + dotenvJvmArgs
+    jvmArgs = ['-Denv=local', timezoneJvmArg] + dotenvJvmArgs
 }
