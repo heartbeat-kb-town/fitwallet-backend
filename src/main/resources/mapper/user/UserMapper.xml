@@ -36,4 +36,22 @@
         )
     </insert>
 
+    <!-- 로그인 검증과 토큰 subject 생성에 필요한 값만 조회한다. -->
+    <select id="findLoginInfoByLoginId"
+            resultType="com.fitwallet.domain.user.dto.response.UserLoginInfoResponse">
+        SELECT
+            user_id,
+            password_hash
+        FROM users
+        WHERE login_id = #{loginId}
+    </select>
+
+    <!-- refresh_token.user_id가 UNIQUE라 유저당 활성 토큰이 하나뿐이다. 재로그인하면 갱신한다. -->
+    <insert id="saveOrUpdateRefreshToken">
+        INSERT INTO refresh_token (user_id, token_hash)
+        VALUES (#{userId}, #{tokenHash})
+        ON DUPLICATE KEY UPDATE
+            token_hash = #{tokenHash}
+    </insert>
+
 </mapper>

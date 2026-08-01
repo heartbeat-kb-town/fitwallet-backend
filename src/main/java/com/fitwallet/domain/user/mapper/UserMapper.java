@@ -1,6 +1,7 @@
 package com.fitwallet.domain.user.mapper;
 
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
+import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -25,4 +26,15 @@ public interface UserMapper {
      */
     void insertUser(@Param("request") SignUpRequest request,
                     @Param("encodedPassword") String encodedPassword);
+
+    /** 로그인 아이디로 사용자 식별자와 비밀번호 해시를 조회한다. */
+    UserLoginInfoResponse findLoginInfoByLoginId(@Param("loginId") String loginId);
+
+    /**
+     * 유저의 리프레시 토큰 해시를 저장한다.
+     * 유저당 활성 토큰은 하나뿐이라({@code refresh_token.user_id} UNIQUE),
+     * 이미 있으면 갱신하고 없으면 새로 만든다.
+     */
+    void saveOrUpdateRefreshToken(@Param("userId") Long userId, @Param("tokenHash") String tokenHash);
+
 }

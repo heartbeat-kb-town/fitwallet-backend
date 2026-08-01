@@ -58,6 +58,11 @@ public class JwtProvider {
         );
     }
 
+    /** Refresh Token 만료 시간을 초 단위로 반환한다. */
+    public long getRefreshTokenExpirationSeconds() {
+        return refreshTokenExpirationMillis / 1000;
+    }
+
     /** Access Token을 검증하고 subject의 사용자 식별자를 반환한다. */
     public Long getUserIdFromAccessToken(String token) {
         Claims claims = parseClaims(token);
