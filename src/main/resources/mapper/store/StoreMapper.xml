@@ -128,25 +128,14 @@
     </select>
 
     <!--
-        GET /api/store/keywords의 popular. 실행 순서를 따라가면 읽기 쉽다.
+        GET /api/store/keywords의 popular. search_count는 (user_id, keyword) UNIQUE 덕분에
+        "검색 횟수"가 아니라 "그 키워드를 최근 7일 안에 마지막으로 검색한 사용자 수"다(1인 1표).
 
-        1) WHERE로 최근 7일 행만 남긴다. INTERVAL 7 DAY는 클라이언트가 조정할 수 없는 고정
-           정책값 리터럴이라 #{} 바인딩 대상이 아니고 ${} 금지(§6)에도 해당하지 않는다.
-        2) GROUP BY keyword로 키워드당 한 행으로 묶는다. search_count(COUNT(*))는
-           (user_id, keyword) UNIQUE 덕분에 "검색 횟수"가 아니라 "그 키워드를 최근 7일 안에
-           마지막으로 검색한 사용자 수"다(재검색은 새 행이 아니라 searched_at 갱신이라서, 1인 1표).
-        3) ROW_NUMBER() OVER (...)가 그 묶인 행들에 순번을 매긴다. COUNT(*) 내림차순이 1순위,
-           동점이면 MAX(searched_at) 내림차순(가장 최근에 검색된 쪽)이 2순위다.
+        INTERVAL 7 DAY는 클라이언트가 조정할 수 없는 고정 정책값 리터럴이라 #{} 바인딩 대상이
+        아니고 ${} 금지(§6)에도 해당하지 않는다.
 
-        바깥 ORDER BY가 OVER(...)와 똑같은 기준을 한 번 더 쓰는 건 중복이 아니라 필수다.
-        OVER(ORDER BY ...)는 "각 행에 매길 순번 값"을 계산하는 기준일 뿐, 그 행들이 실제로 그
-        순서로 반환된다는 보장이 아니다 — rank 컬럼 값 자체는 1,2,3...으로 맞아도 행이 물리적으로
-        3,1,4,2,5 순서로 나올 수 있다는 뜻이다. LIMIT은 마지막에 "지금 눈앞의 물리적 순서" 그대로
-        앞 5개를 자르므로, 바깥 ORDER BY 없이는 rank 6번이 잘리지 않고 rank 3번이 잘리는 사고가
-        날 수 있다. 그래서 순위를 매긴 기준과 최종 정렬 기준을 동일하게 맞춰야 한다.
-
-        rank는 MySQL 8.0.2+ 예약어(RANK() 윈도우 함수)라 컬럼 별칭으로 그냥 쓰면 문법 에러가 나서
-        백틱으로 감싼다.
+        rank는 MySQL 8.0.2+ 예약어라 백틱이 필요하다. ROW_NUMBER() OVER (...)의 정렬 기준과
+        바깥 ORDER BY를 동일하게 맞춘다 — GROUP BY만으로는 결과 순서가 보장되지 않는다.
     -->
     <select id="findPopularKeywords" resultType="com.fitwallet.domain.store.dto.response.PopularKeywordResponse">
         SELECT ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, MAX(searched_at) DESC) AS `rank`,
