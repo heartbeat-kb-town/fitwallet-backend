@@ -1,7 +1,10 @@
 package com.fitwallet.domain.store.service;
 
 import com.fitwallet.domain.store.dto.request.StoreSearchCondition;
+import com.fitwallet.domain.store.dto.response.PopularKeywordResponse;
+import com.fitwallet.domain.store.dto.response.RecentKeywordResponse;
 import com.fitwallet.domain.store.dto.response.StoreCategoryResponse;
+import com.fitwallet.domain.store.dto.response.StoreKeywordsResponse;
 import com.fitwallet.domain.store.dto.response.StoreSearchResponse;
 import com.fitwallet.domain.store.dto.response.StoreSummaryResponse;
 import com.fitwallet.domain.store.exception.StoreErrorCode;
@@ -303,6 +306,53 @@ class DefaultStoreServiceTest {
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
         assertThat(response.getStores()).isEmpty();
+    }
+
+    @Test
+    void recent와_popular이_모두_있으면_그대로_조립된_응답을_반환한다() {
+        List<RecentKeywordResponse> recent = List.of(
+                RecentKeywordResponse.builder().searchHistoryId(1L).keyword("스타벅스").build());
+        List<PopularKeywordResponse> popularKeywords = List.of(
+                PopularKeywordResponse.builder().rank(1).keyword("다이소").searchCount(10L).build());
+        given(storeMapper.findRecentKeywords(1L)).willReturn(recent);
+        given(storeMapper.findPopularKeywords()).willReturn(popularKeywords);
+
+        StoreKeywordsResponse response = storeService.findKeywords(1L);
+
+        assertThat(response.getRecent()).isEqualTo(recent);
+        assertThat(response.getPopular().getKeywords()).isEqualTo(popularKeywords);
+    }
+
+    @Test
+    void recent가_비어도_빈_배열로_채워진다() {
+        given(storeMapper.findRecentKeywords(1L)).willReturn(List.of());
+        given(storeMapper.findPopularKeywords()).willReturn(List.of());
+
+        StoreKeywordsResponse response = storeService.findKeywords(1L);
+
+        assertThat(response.getRecent()).isEmpty();
+    }
+
+    @Test
+    void popular_keywords가_비어도_periodDays는_7이다() {
+        given(storeMapper.findRecentKeywords(1L)).willReturn(List.of());
+        given(storeMapper.findPopularKeywords()).willReturn(List.of());
+
+        StoreKeywordsResponse response = storeService.findKeywords(1L);
+
+        assertThat(response.getPopular().getPeriodDays()).isEqualTo(7);
+        assertThat(response.getPopular().getKeywords()).isEmpty();
+    }
+
+    @Test
+    void 매퍼_메서드가_각각_한_번씩만_호출된다() {
+        given(storeMapper.findRecentKeywords(1L)).willReturn(List.of());
+        given(storeMapper.findPopularKeywords()).willReturn(List.of());
+
+        storeService.findKeywords(1L);
+
+        then(storeMapper).should().findRecentKeywords(1L);
+        then(storeMapper).should().findPopularKeywords();
     }
 
     private StoreSummaryResponse store(Long storeId) {

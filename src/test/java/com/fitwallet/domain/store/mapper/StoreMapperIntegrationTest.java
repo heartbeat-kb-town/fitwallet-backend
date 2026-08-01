@@ -1,6 +1,8 @@
 package com.fitwallet.domain.store.mapper;
 
 import com.fitwallet.domain.store.dto.request.StoreSearchCondition;
+import com.fitwallet.domain.store.dto.response.PopularKeywordResponse;
+import com.fitwallet.domain.store.dto.response.RecentKeywordResponse;
 import com.fitwallet.domain.store.dto.response.StoreCategoryResponse;
 import com.fitwallet.domain.store.dto.response.StoreSummaryResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -8,11 +10,15 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
@@ -300,6 +306,125 @@ class StoreMapperIntegrationTest {
     void 존재하지_않는_사용자로_기록하면_예외가_난다() {
         assertThatThrownBy(() -> storeMapper.upsertSearchHistory(9999L, "없는사용자"))
                 .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void 최근_검색어는_searched_at_내림차순_최대_5건이다() {
+        List<RecentKeywordResponse> keywords = storeMapper.findRecentKeywords(SEED_USER_ID);
+
+        assertThat(keywords)
+                .hasSize(5)
+                .isSortedAccordingTo(Comparator.comparing(RecentKeywordResponse::getSearchedAt).reversed());
+    }
+
+    @Test
+    void 검색_기록이_없는_사용자는_빈_리스트를_반환한다() {
+        // FK 제약이 걸린 쓰기와 달리 조회라 존재하지 않는 사용자 ID를 그대로 써도 안전하다.
+        List<RecentKeywordResponse> keywords = storeMapper.findRecentKeywords(9999L);
+
+        assertThat(keywords).isEmpty();
+    }
+
+    @Test
+    void 인기_검색어는_최대_5건이다() {
+        // 시드(7일 이내 3건: 이디야커피/커피 할인/공차)에 서로 다른 키워드 6개를 더해 8건으로 만든다.
+        Long userId = insertUser();
+        for (int i = 1; i <= 6; i++) {
+            insertSearchHistory(userId, "인기검증키워드" + i, "0 SECOND");
+        }
+
+        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+
+        assertThat(popular).hasSize(5);
+    }
+
+    @Test
+    void 인기_검색어는_search_count_내림차순이다() {
+        Long user1 = insertUser();
+        Long user2 = insertUser();
+        Long user3 = insertUser();
+        insertSearchHistory(user1, "정렬검증다수", "0 SECOND");
+        insertSearchHistory(user2, "정렬검증다수", "0 SECOND");
+        insertSearchHistory(user3, "정렬검증다수", "0 SECOND");
+        Long user4 = insertUser();
+        insertSearchHistory(user4, "정렬검증소수", "0 SECOND");
+
+        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+
+        assertThat(popular)
+                .extracting(PopularKeywordResponse::getKeyword)
+                .contains("정렬검증다수", "정렬검증소수")
+                .containsSequence("정렬검증다수", "정렬검증소수");
+    }
+
+    @Test
+    void 인기_검색어가_동점이면_최근에_검색된_키워드가_앞선다() {
+        Long oldUser1 = insertUser();
+        Long oldUser2 = insertUser();
+        insertSearchHistory(oldUser1, "동점오래됨", "5 DAY");
+        insertSearchHistory(oldUser2, "동점오래됨", "5 DAY");
+        Long newUser1 = insertUser();
+        Long newUser2 = insertUser();
+        insertSearchHistory(newUser1, "동점최근", "1 DAY");
+        insertSearchHistory(newUser2, "동점최근", "1 DAY");
+
+        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+
+        assertThat(popular)
+                .extracting(PopularKeywordResponse::getKeyword)
+                .containsSequence("동점최근", "동점오래됨");
+    }
+
+    @Test
+    void 인기_검색어_집계는_7일보다_오래된_기록을_제외한다() {
+        Long userId = insertUser();
+        insertSearchHistory(userId, "기간밖키워드", "8 DAY");
+
+        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+
+        assertThat(popular).extracting(PopularKeywordResponse::getKeyword).doesNotContain("기간밖키워드");
+    }
+
+    @Test
+    void 인기_검색어_순위는_1부터_순서대로_매겨진다() {
+        Long userId = insertUser();
+        insertSearchHistory(userId, "순위검증키워드", "0 SECOND");
+
+        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+
+        assertThat(popular)
+                .extracting(PopularKeywordResponse::getRank)
+                .containsExactlyElementsOf(java.util.stream.IntStream.rangeClosed(1, popular.size())
+                        .boxed().toList());
+    }
+
+    /**
+     * 인기 검색어 집계는 다중 사용자 데이터가 필요한데 시드는 user_id=1 하나뿐이다(§10 시드 재사용
+     * 원칙과 별개로, 이 케이스는 시드에 없는 데이터 모양이라 합성 사용자를 만든다).
+     * {@code users.name}만 NOT NULL이라 최소 컬럼만 채운다. 클래스 레벨 {@code @Transactional}이
+     * 롤백하므로 생성한 사용자도 테스트 종료 시 함께 사라진다.
+     */
+    private Long insertUser() {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO users (name, is_location_agreed) VALUES ('검증용', 0)",
+                    Statement.RETURN_GENERATED_KEYS);
+            return ps;
+        }, keyHolder);
+        return keyHolder.getKey().longValue();
+    }
+
+    /**
+     * {@code intervalLiteral}은 테스트 내부 고정 상수만 받는다(예: {@code "3 DAY"}) — 사용자
+     * 입력이 섞이지 않으므로 문자열 결합이 §6의 {@code ${}} 금지에 해당하지 않는다. MySQL 서버의
+     * {@code NOW()} 기준으로 상대 시각을 계산해야 컨테이너 시간대(UTC)와 무관하게 정확하다.
+     */
+    private void insertSearchHistory(Long userId, String keyword, String intervalLiteral) {
+        jdbcTemplate.update(
+                "INSERT INTO search_history (user_id, keyword, searched_at) "
+                        + "VALUES (?, ?, NOW() - INTERVAL " + intervalLiteral + ")",
+                userId, keyword);
     }
 
     /** 시드 페르소나의 검색어 행 수. 시드 16행은 전부 user_id = 1이다. */

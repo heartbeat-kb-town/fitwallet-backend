@@ -1,6 +1,7 @@
 package com.fitwallet.domain.store.service;
 
 import com.fitwallet.domain.store.dto.request.StoreSearchCondition;
+import com.fitwallet.domain.store.dto.response.StoreKeywordsResponse;
 import com.fitwallet.domain.store.dto.response.StoreSearchResponse;
 
 /**
@@ -9,4 +10,6 @@ import com.fitwallet.domain.store.dto.response.StoreSearchResponse;
 public interface StoreService {
 
     StoreSearchResponse searchStores(Long userId, StoreSearchCondition cond);
+
+    StoreKeywordsResponse findKeywords(Long userId);
 }

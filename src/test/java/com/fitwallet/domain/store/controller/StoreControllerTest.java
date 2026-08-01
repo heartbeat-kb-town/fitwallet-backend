@@ -1,6 +1,8 @@
 package com.fitwallet.domain.store.controller;
 
 import com.fitwallet.domain.store.dto.request.StoreSearchCondition;
+import com.fitwallet.domain.store.dto.response.PopularKeywordsResponse;
+import com.fitwallet.domain.store.dto.response.StoreKeywordsResponse;
 import com.fitwallet.domain.store.dto.response.StoreSearchResponse;
 import com.fitwallet.domain.store.service.StoreService;
 import com.fitwallet.global.config.AuthInterceptor;
@@ -107,5 +109,19 @@ class StoreControllerTest {
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT_VALUE"));
 
         then(storeService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void 검색어_조회_정상_호출이_200과_SEARCH_KEYWORDS_FOUND를_반환한다() throws Exception {
+        given(storeService.findKeywords(1L)).willReturn(
+                StoreKeywordsResponse.builder()
+                        .recent(List.of())
+                        .popular(PopularKeywordsResponse.builder().periodDays(7).keywords(List.of()).build())
+                        .build());
+
+        mockMvc.perform(get("/api/store/keywords").header("X-User-Id", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("SEARCH_KEYWORDS_FOUND"));
     }
 }

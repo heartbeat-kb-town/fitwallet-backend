@@ -118,4 +118,34 @@
         ON DUPLICATE KEY UPDATE searched_at = NOW()
     </insert>
 
+    <!-- GET /api/store/keywords의 recent. 평면 DTO라 resultType으로 충분하다(§6). -->
+    <select id="findRecentKeywords" resultType="com.fitwallet.domain.store.dto.response.RecentKeywordResponse">
+        SELECT search_history_id, keyword, searched_at
+        FROM search_history
+        WHERE user_id = #{userId}
+        ORDER BY searched_at DESC
+        LIMIT 5
+    </select>
+
+    <!--
+        GET /api/store/keywords의 popular. search_count는 (user_id, keyword) UNIQUE 덕분에
+        "검색 횟수"가 아니라 "그 키워드를 최근 7일 안에 마지막으로 검색한 사용자 수"다(1인 1표).
+
+        INTERVAL 7 DAY는 클라이언트가 조정할 수 없는 고정 정책값 리터럴이라 #{} 바인딩 대상이
+        아니고 ${} 금지(§6)에도 해당하지 않는다.
+
+        rank는 MySQL 8.0.2+ 예약어라 백틱이 필요하다. ROW_NUMBER() OVER (...)의 정렬 기준과
+        바깥 ORDER BY를 동일하게 맞춘다 — GROUP BY만으로는 결과 순서가 보장되지 않는다.
+    -->
+    <select id="findPopularKeywords" resultType="com.fitwallet.domain.store.dto.response.PopularKeywordResponse">
+        SELECT ROW_NUMBER() OVER (ORDER BY COUNT(*) DESC, MAX(searched_at) DESC) AS `rank`,
+               keyword,
+               COUNT(*) AS search_count
+        FROM search_history
+        WHERE searched_at >= (NOW() - INTERVAL 7 DAY)
+        GROUP BY keyword
+        ORDER BY search_count DESC, MAX(searched_at) DESC
+        LIMIT 5
+    </select>
+
 </mapper>

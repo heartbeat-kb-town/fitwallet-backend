@@ -2,6 +2,7 @@ package com.fitwallet.domain.store.controller;
 
 import com.fitwallet.domain.store.dto.StoreSuccessCode;
 import com.fitwallet.domain.store.dto.request.StoreSearchCondition;
+import com.fitwallet.domain.store.dto.response.StoreKeywordsResponse;
 import com.fitwallet.domain.store.dto.response.StoreSearchResponse;
 import com.fitwallet.domain.store.service.StoreService;
 import com.fitwallet.global.common.annotation.LoginUserId;
@@ -43,5 +44,10 @@ public class StoreController {
 
         return ApiResponse.of(StoreSuccessCode.STORE_SEARCH_FOUND,
                 storeService.searchStores(userId, cond));
+    }
+
+    @GetMapping("/store/keywords")
+    public ResponseEntity<ApiResponse<StoreKeywordsResponse>> findKeywords(@LoginUserId Long userId) {
+        return ApiResponse.of(StoreSuccessCode.SEARCH_KEYWORDS_FOUND, storeService.findKeywords(userId));
     }
 }
