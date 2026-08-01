@@ -4,10 +4,12 @@ import com.fitwallet.domain.store.dto.request.StoreSearchCondition;
 import com.fitwallet.domain.store.dto.response.PopularKeywordsResponse;
 import com.fitwallet.domain.store.dto.response.StoreKeywordsResponse;
 import com.fitwallet.domain.store.dto.response.StoreSearchResponse;
+import com.fitwallet.domain.store.exception.StoreErrorCode;
 import com.fitwallet.domain.store.service.StoreService;
 import com.fitwallet.global.config.AuthInterceptor;
 import com.fitwallet.global.config.JwtProvider;
 import com.fitwallet.global.config.LoginUserIdArgumentResolver;
+import com.fitwallet.global.exception.BusinessException;
 import com.fitwallet.global.exception.GlobalExceptionHandler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -25,6 +27,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -124,5 +128,44 @@ class StoreControllerTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.code").value("SEARCH_KEYWORDS_FOUND"));
+    }
+
+    @Test
+    void 개별_삭제_정상_호출이_200과_SEARCH_HISTORY_DELETED를_반환한다() throws Exception {
+        mockMvc.perform(delete("/api/store/keywords/recent/10").header("X-User-Id", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("SEARCH_HISTORY_DELETED"));
+
+        then(storeService).should().deleteKeyword(1L, 10L);
+    }
+
+    @Test
+    void 개별_삭제시_서비스가_SEARCH_HISTORY_NOT_FOUND를_던지면_404를_반환한다() throws Exception {
+        willThrow(new BusinessException(StoreErrorCode.SEARCH_HISTORY_NOT_FOUND))
+                .given(storeService).deleteKeyword(1L, 999L);
+
+        mockMvc.perform(delete("/api/store/keywords/recent/999").header("X-User-Id", "1"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.code").value("SEARCH_HISTORY_NOT_FOUND"));
+    }
+
+    @Test
+    void 전체_삭제_정상_호출이_200과_SEARCH_HISTORY_ALL_DELETED를_반환한다() throws Exception {
+        mockMvc.perform(delete("/api/store/keywords/recent").header("X-User-Id", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("SEARCH_HISTORY_ALL_DELETED"));
+
+        then(storeService).should().deleteAllKeywords(1L);
+    }
+
+    @Test
+    void searchHistoryId가_숫자가_아니면_500이_아니라_400을_반환한다() throws Exception {
+        mockMvc.perform(delete("/api/store/keywords/recent/abc").header("X-User-Id", "1"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT_VALUE"));
+
+        then(storeService).shouldHaveNoInteractions();
     }
 }

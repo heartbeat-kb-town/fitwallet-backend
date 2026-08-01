@@ -80,4 +80,13 @@ public interface StoreMapper {
      * 검색한 사용자 수다((user_id, keyword) UNIQUE라서). 동점이면 가장 최근에 검색된 쪽이 앞선다.
      */
     List<PopularKeywordResponse> findPopularKeywords();
+
+    /**
+     * 검색 기록 하나를 삭제한다. 소유권 검증까지 WHERE 절에서 끝낸다 — 남의 기록이면 영향 행 0.
+     * 영향 받은 행 수를 그대로 반환한다. 서비스가 0이면 404로 판단한다.
+     */
+    int deleteSearchHistory(@Param("searchHistoryId") Long searchHistoryId, @Param("userId") Long userId);
+
+    /** 사용자의 검색 기록을 전부 삭제한다. 멱등적이라 반환값이 필요 없다(0건 삭제도 정상). */
+    void deleteAllSearchHistory(@Param("userId") Long userId);
 }

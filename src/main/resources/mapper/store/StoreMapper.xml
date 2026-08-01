@@ -148,4 +148,22 @@
         LIMIT 5
     </select>
 
+    <!--
+        검색 기록 개별 삭제. 소유권 검증까지 WHERE 절에서 끝낸다 — search_history_id가 존재해도
+        user_id가 다르면 조건에 안 걸려 영향 행 0. "존재하지 않음"과 "남의 기록"을 SQL 단계에서부터
+        구분하지 않는 게 의도다 — 서비스가 그 사실 자체를 노출하지 않고 둘 다 404로 통일한다(명세).
+        DELETE의 반환 타입을 int로 두면 MyBatis가 영향 행 수를 자동으로 채운다.
+    -->
+    <delete id="deleteSearchHistory">
+        DELETE FROM search_history
+        WHERE search_history_id = #{searchHistoryId}
+          AND user_id = #{userId}
+    </delete>
+
+    <!-- 검색 기록 전체 삭제. 멱등적이라 영향 행 수를 서비스가 확인할 필요가 없어 void로 둔다. -->
+    <delete id="deleteAllSearchHistory">
+        DELETE FROM search_history
+        WHERE user_id = #{userId}
+    </delete>
+
 </mapper>

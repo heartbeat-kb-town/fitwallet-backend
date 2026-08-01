@@ -355,6 +355,32 @@ class DefaultStoreServiceTest {
         then(storeMapper).should().findPopularKeywords();
     }
 
+    @Test
+    void 검색_기록_삭제시_매퍼가_1을_반환하면_예외_없이_끝난다() {
+        given(storeMapper.deleteSearchHistory(10L, 1L)).willReturn(1);
+
+        storeService.deleteKeyword(1L, 10L);
+
+        then(storeMapper).should().deleteSearchHistory(10L, 1L);
+    }
+
+    @Test
+    void 검색_기록_삭제시_매퍼가_0을_반환하면_SEARCH_HISTORY_NOT_FOUND_예외를_던진다() {
+        given(storeMapper.deleteSearchHistory(10L, 1L)).willReturn(0);
+
+        assertThatThrownBy(() -> storeService.deleteKeyword(1L, 10L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(StoreErrorCode.SEARCH_HISTORY_NOT_FOUND);
+    }
+
+    @Test
+    void 검색_기록_전체_삭제는_매퍼를_한_번_호출하고_예외가_없다() {
+        storeService.deleteAllKeywords(1L);
+
+        then(storeMapper).should().deleteAllSearchHistory(1L);
+    }
+
     private StoreSummaryResponse store(Long storeId) {
         return StoreSummaryResponse.builder()
                 .storeId(storeId)
