@@ -11,30 +11,43 @@ import javax.servlet.http.HttpServletResponse;
  * 요청에서 인증 주체를 꺼내 요청 속성에 담는다.
  * {@code servlet-context.xml}의 {@code <interceptors>}에서 {@code /api/**}에 등록된다.
  *
- * <p><b>임시 구현이다.</b> 인증(JWT)이 아직 없어 {@code X-User-Id} 헤더를 그대로 신뢰한다.
- * 인증 도입 시 이 클래스 내부만 토큰 검증으로 교체하면 되고,
- * 컨트롤러와 {@link com.fitwallet.global.common.annotation.LoginUserId}는 손대지 않는다.
+ * <p>{@code Authorization: Bearer {Access Token}} 헤더를 검증해 사용자 식별자를 꺼낸다.
+ * 서명·만료·토큰 타입 검증은 {@link JwtProvider}가 담당하며, 검증에 실패하면
+ * {@link BusinessException}을 던져 {@code GlobalExceptionHandler}가 401로 응답한다.
  */
 public class AuthInterceptor implements HandlerInterceptor {
 
     public static final String LOGIN_USER_ID_ATTRIBUTE = "loginUserId";
 
-    private static final String USER_ID_HEADER = "X-User-Id";
+    private static final String AUTHORIZATION_HEADER = "Authorization";
+    private static final String BEARER_PREFIX = "Bearer ";
+
+    private final JwtProvider jwtProvider;
+
+    public AuthInterceptor(JwtProvider jwtProvider) {
+        this.jwtProvider = jwtProvider;
+    }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
-        request.setAttribute(LOGIN_USER_ID_ATTRIBUTE, parseUserId(request.getHeader(USER_ID_HEADER)));
+        Long userId = jwtProvider.getUserIdFromAccessToken(extractAccessToken(request));
+        request.setAttribute(LOGIN_USER_ID_ATTRIBUTE, userId);
         return true;
     }
 
-    private Long parseUserId(String rawUserId) {
-        if (rawUserId == null || rawUserId.isBlank()) {
+    private String extractAccessToken(HttpServletRequest request) {
+        String authorizationHeader = request.getHeader(AUTHORIZATION_HEADER);
+
+        if (authorizationHeader == null || !authorizationHeader.startsWith(BEARER_PREFIX)) {
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
-        try {
-            return Long.valueOf(rawUserId.trim());
-        } catch (NumberFormatException e) {
+
+        String accessToken = authorizationHeader.substring(BEARER_PREFIX.length()).trim();
+
+        if (accessToken.isBlank()) {
             throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
         }
+
+        return accessToken;
     }
 }
