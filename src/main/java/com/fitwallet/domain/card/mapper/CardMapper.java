@@ -1,10 +1,14 @@
 package com.fitwallet.domain.card.mapper;
 
+import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
+import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -17,6 +21,27 @@ import java.util.List;
  */
 @Mapper
 public interface CardMapper {
+
+    /**
+     * 로그인 사용자가 보유한 카드의 결제 내역 조회용 내부 정보를 조회한다.
+     * 카드가 없거나 삭제됐거나 다른 사용자의 카드이면 null을 반환한다.
+     */
+    CardTransactionCardInfo findTransactionCardInfo(@Param("userId") Long userId,
+                                                    @Param("cardId") Long cardId);
+
+    /**
+     * 카드 유형별 조회 기간에 발생한 결제 완료 건의 금액을 합산한다.
+     * 결제 내역이 없으면 0을 반환한다.
+     */
+    BigDecimal sumTransactionAmount(@Param("userId") Long userId,
+                                    @Param("cardId") Long cardId,
+                                    @Param("condition") CardTransactionSearchCondition condition);
+
+    /** 카드 유형별 조회 기간의 결제 완료 내역을 커서 기준 최신순으로 조회한다. */
+    List<CardTransactionItemResponse> findTransactions(
+            @Param("userId") Long userId,
+            @Param("cardId") Long cardId,
+            @Param("condition") CardTransactionSearchCondition condition);
 
     /** 사용자의 카드 목록을 {@code display_order} 순으로 조회한다. 삭제된 카드는 제외된다. */
     List<CardListResponse> findByUserId(@Param("userId") Long userId);

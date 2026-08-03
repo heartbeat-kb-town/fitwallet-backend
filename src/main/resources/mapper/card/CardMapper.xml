@@ -25,6 +25,90 @@
         cp.card_type
     </sql>
 
+    <resultMap id="cardTransactionCardInfoMap"
+               type="com.fitwallet.domain.card.dto.CardTransactionCardInfo">
+        <id column="user_card_id" property="cardId"/>
+        <result column="card_product_id" property="cardProductId"/>
+        <result column="card_name" property="cardName"/>
+        <result column="card_company_name" property="issuerName"/>
+        <result column="card_image_url" property="cardImageUrl"/>
+        <result column="card_type" property="cardType"/>
+        <result column="last4" property="maskedRearNumber"/>
+        <result column="scheduled_payment_amount" property="scheduledPaymentAmount"/>
+    </resultMap>
+
+    <resultMap id="cardTransactionItemMap"
+               type="com.fitwallet.domain.card.dto.response.CardTransactionItemResponse">
+        <id column="payment_transaction_id" property="transactionId"/>
+        <result column="store_name" property="storeName"/>
+        <result column="category_name" property="categoryName"/>
+        <result column="category_image_url" property="categoryImageUrl"/>
+        <result column="amount" property="paymentAmount"/>
+        <result column="paid_at" property="paidAt"/>
+        <result column="is_eligible" property="performanceIncluded"/>
+    </resultMap>
+
+    <select id="findTransactionCardInfo"
+            resultMap="cardTransactionCardInfoMap">
+        SELECT uc.user_card_id,
+               uc.card_product_id,
+               cp.card_name,
+               i.card_company_name,
+               cp.card_image_url,
+               cp.card_type,
+               uc.last4,
+               uc.scheduled_payment_amount
+        FROM user_card uc
+                 JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+                 JOIN issuer i ON i.issuer_id = cp.issuer_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+    </select>
+
+    <select id="sumTransactionAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(pt.amount), 0)
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+          AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
+          AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
+    </select>
+
+    <select id="findTransactions"
+            resultMap="cardTransactionItemMap">
+        SELECT pt.payment_transaction_id,
+               s.store_name,
+               c.category_name,
+               c.category_image_url,
+               pt.amount,
+               pt.paid_at,
+               pt.is_eligible
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+                 LEFT JOIN store s ON s.store_id = pt.store_id
+                 LEFT JOIN category c ON c.category_id = s.category_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+          AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
+          AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
+        <if test="condition.cursorPaidAt != null and condition.cursorTransactionId != null">
+          AND (
+                pt.paid_at <![CDATA[<]]> #{condition.cursorPaidAt}
+                OR (
+                    pt.paid_at = #{condition.cursorPaidAt}
+                    AND pt.payment_transaction_id <![CDATA[<]]> #{condition.cursorTransactionId}
+                )
+              )
+        </if>
+        ORDER BY pt.paid_at DESC,
+                 pt.payment_transaction_id DESC
+        LIMIT #{condition.limit}
+    </select>
+
     <select id="findByUserId" resultType="com.fitwallet.domain.card.dto.response.CardListResponse">
         SELECT
         <include refid="cardListColumns"/>

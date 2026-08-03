@@ -18,6 +18,10 @@
     <context:property-placeholder
             location="classpath:config/application-#{systemProperties['env'] ?: 'local'}.properties"/>
 
+    <bean id="clock" class="com.fitwallet.global.config.ClockFactory" factory-method="create">
+        <constructor-arg value="${clock.fixed-date:}"/>
+    </bean>
+
     <bean id="dataSource" class="com.zaxxer.hikari.HikariDataSource" destroy-method="close">
         <property name="driverClassName" value="${jdbc.driver}"/>
         <property name="jdbcUrl" value="${jdbc.url}"/>
