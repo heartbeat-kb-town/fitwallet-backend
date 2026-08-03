@@ -68,6 +68,16 @@ public class ApiResponse<T> {
                 .build();
     }
 
+    /** 실패 응답에 부가 데이터(예: 남은 시도 횟수)를 실어야 할 때 쓴다. data가 null이면 위 오버로드와 동일하다. */
+    public static <T> ApiResponse<T> error(ErrorCode errorCode, T data) {
+        return ApiResponse.<T>builder()
+                .success(false)
+                .code(errorCode.getCode())
+                .message(errorCode.getMessage())
+                .data(data)
+                .build();
+    }
+
     public static ApiResponse<Void> error(ErrorCode errorCode, BindingResult bindingResult) {
         return ApiResponse.<Void>builder()
                 .success(false)
