@@ -35,9 +35,7 @@ public class DefaultPaymentService implements PaymentService {
         if(!matched){
             paymentMapper.incrementPinFailCount(userId);
             int remainingAttempts = Math.max(MAX_PIN_ATTEMPTS - (userPinInfo.getPinFailCount() + 1), 0);
-            throw new BusinessException(PaymentErrorCode.PIN_MISMATCH);
-            //throw new BusinessException(PaymentErrorCode.PIN_MISMATCH, PinMismatchResponse.builder().remainingAttempts(remainingAttempts).build());
-            // BusinessException 다른 버전 필요 (추후 확정 후 수정)
+            throw new BusinessException(PaymentErrorCode.PIN_MISMATCH, PinMismatchResponse.builder().remainingAttempts(remainingAttempts).build());
         }
 
         String pinAuthId = "auth_" + UUID.randomUUID().toString().replace("-","");
