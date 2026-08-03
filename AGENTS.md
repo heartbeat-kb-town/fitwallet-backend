@@ -197,6 +197,58 @@ throw new BusinessException(PaymentErrorCode.PIN_MISMATCH,
         PinMismatchResponse.builder().remainingAttempts(remainingAttempts).build());
 ```
 
+### API 문서 (Swagger / OpenAPI)
+
+Springfox 3.0.0이 컨트롤러를 읽어 **`/v3/api-docs`(OpenAPI 3.0 JSON)**와
+**`/swagger-ui/index.html`**을 만든다. 프론트엔드가 이 JSON을 그대로 AI 코딩 도구에 물리므로,
+어노테이션을 빠뜨린 엔드포인트는 프론트 입장에서 "설명 없는 API"가 된다.
+
+> 노션 API 명세를 대체하지 않는다. **노션은 "왜/무엇을"의 정본, Swagger는 "실제 계약"의 정본**이다.
+> 둘이 어긋나면 코드가 맞고 노션을 고친다.
+
+설정은 `global/config/SwaggerConfig`에 있다 — **이 저장소의 유일한 자바 `@Configuration`**이며
+§1의 "설정은 전부 XML" 관례에 대한 의도된 예외다(Docket은 빌더 체인이라 XML로 옮기면 더 읽기 어렵다).
+새 컨트롤러를 만들 때 설정은 건드릴 필요가 없다. 아래 네 가지만 지킨다.
+
+```java
+@Api(tags = "혜택")                                    // ① 컨트롤러 클래스
+public class BenefitController {
+
+    @ApiOperation(value = "예상 혜택 조회", notes = """  // ② 메서드
+            가맹점 기준으로 내 카드별 예상 혜택을 판정한다.
+
+            | HTTP | code | message |
+            |---|---|---|
+            | 400 | STORE_ID_REQUIRED | 가맹점 ID가 필요합니다. |
+            | 404 | STORE_NOT_FOUND | 가맹점을 찾을 수 없습니다. |
+            """)
+    @GetMapping("/benefit/expected")
+    public ResponseEntity<ApiResponse<ExpectedBenefitResponse>> findExpectedBenefits(
+            @LoginUserId Long userId,                                        // ④ 아무것도 달지 않는다
+            @ApiParam(value = "가맹점 ID(숫자 문자열)", example = "1")          // ③ 파라미터
+            @RequestParam(required = false) String storeId) { ... }
+}
+```
+
+- **`@ApiResponses` / `io.swagger.annotations.ApiResponse`를 쓰지 않는다.** 응답 봉투
+  `global/common/dto/ApiResponse`와 클래스명이 정면 충돌해 풀 패키지명을 써야 한다.
+  에러 응답은 위처럼 `@ApiOperation(notes)`에 **마크다운 표**로 적는다(Swagger UI가 렌더링해준다).
+  표의 `code`/`message`는 도메인 `ErrorCode` enum 상수와 메시지를 그대로 옮긴다 — **정본은 enum이다**
+- Request·Response DTO 필드에는 `@ApiModelProperty(value = "...", example = "...")`.
+  중첩 응답은 안쪽 DTO까지 내려간다 (프론트에 값이 가장 큰 부분이다)
+- **`@LoginUserId` 파라미터에는 아무것도 달지 않는다.** Docket이 통째로 무시한다 —
+  클라이언트가 보내는 값이 아니라 `AuthInterceptor`가 넣어준 값이라 문서에 뜨면 안 된다.
+  `HttpServletResponse`도 같은 이유로 무시된다
+- 문서에 나오는 범위는 **`com.fitwallet.domain` 패키지 + `/api/**` 경로**뿐이다.
+  그 밖에 두면 문서에서 조용히 빠진다(`HomeController`가 그래서 빠져 있다)
+- 401은 `securitySchemes`가 자동으로 표시하므로 에러 표에 적지 않아도 된다.
+  인증이 필요 없는 엔드포인트는 `SwaggerConfig.PUBLIC_PATHS`에 추가한다
+  (`servlet-context.xml`의 `AuthInterceptor` exclude-mapping과 **같은 목록을 유지한다**)
+
+⚠️ **XML 배선을 잡아주는 자동 테스트가 없다.** 컨트롤러 테스트가 전부 `standaloneSetup`이라 XML을
+안 탄다 — `./gradlew build`가 green이어도 Swagger는 깨져 있을 수 있다. 설정을 건드렸으면
+`./gradlew appStart` 후 `/v3/api-docs`와 `/swagger-ui/index.html`을 직접 확인한다.
+
 ---
 
 ## 6. MyBatis 매퍼 규칙

@@ -17,9 +17,13 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
  * 주의: 이 클래스는 {@code @Controller}가 아니라 {@code @Component} 계열이라
  * {@code servlet-context.xml}의 component-scan include 필터에
  * {@code @ControllerAdvice}가 들어 있어야 등록된다.
+ * <p>
+ * {@code basePackages}로 범위를 좁힌 이유: 범위를 안 주면 springfox가 등록하는 컨트롤러
+ * ({@code /v3/api-docs}, {@code /swagger-resources/**})의 예외까지 잡아 아래 catch-all이
+ * {@code INTERNAL_ERROR} JSON으로 삼킨다. Swagger 배선이 틀렸을 때 원인이 안 보이게 된다.
  */
 @Slf4j
-@RestControllerAdvice
+@RestControllerAdvice(basePackages = "com.fitwallet")
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
