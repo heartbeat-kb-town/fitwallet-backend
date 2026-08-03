@@ -11,7 +11,9 @@ import java.util.List;
  * 가맹점 도메인 조회.
  * <p>
  * 도메인은 테이블을 소유하지 않는다(§2). 이 매퍼는 {@code store}, {@code category}를 조인해
- * 화면이 필요한 모양으로 바로 반환하고, 위치 동의 확인을 위해 {@code users}도 읽는다.
+ * 화면이 필요한 모양으로 바로 반환하고, 위치 동의 확인을 위해 {@code users}도 읽으며,
+ * 검색어 기록을 위해 {@code search_history}에 쓴다. 매퍼는 도메인당 하나라(§3)
+ * {@code SearchHistoryMapper}를 따로 만들지 않는다.
  * SQL은 {@code resources/mapper/store/StoreMapper.xml}에 있고,
  * {@code <select>}의 id는 여기 메서드명과 같아야 한다.
  */
@@ -42,4 +44,27 @@ public interface StoreMapper {
      * {@code false}를 같게(거부) 취급한다.
      */
     Boolean findLocationAgreed(@Param("userId") Long userId);
+
+    /**
+     * 검색어를 기록한다. 같은 {@code (user_id, keyword)} 행이 있으면 새 행을 넣지 않고
+     * {@code searched_at}만 현재 시각으로 갱신한다.
+     * <p>
+     * 중복 방지는 애플리케이션이 아니라 <b>DB가 한다</b> — ERD v24부터
+     * {@code uk_search_history_user_id_keyword} UNIQUE 제약이 있어
+     * {@code INSERT ... ON DUPLICATE KEY UPDATE} 한 문장으로 끝난다. "SELECT로 있는지 보고 분기"나
+     * "UPDATE 해보고 0행이면 INSERT" 같은 왕복이 없고, 동시 요청 둘이 모두 새 키워드로 판단해
+     * 각각 INSERT하는 경쟁 조건도 생기지 않는다.
+     * <p>
+     * {@code searched_at}은 감사 컬럼이 아니라 <b>도메인 값</b>이다. DDL에 DEFAULT가 없으므로
+     * §9의 "{@code created_at}/{@code updated_at}은 INSERT 문에 쓰지 않는다"와 반대로
+     * 여기서는 명시해야 한다.
+     * <p>
+     * <b>반환값을 두지 않는다.</b> {@code ON DUPLICATE KEY UPDATE}의 영향 행 수는
+     * 신규 1 / 갱신 2 / <b>값이 그대로면 0</b>이라(같은 초에 재검색하면 0이 나온다)
+     * "기록됐는가"의 판단 근거로 쓸 수 없다.
+     * <p>
+     * 이름이 {@code insert*}가 아닌 이유는 문장은 INSERT지만 실제 효과가 UPDATE일 수 있어
+     * 호출부를 오도하기 때문이다(§3 접두사 목록 개정 제안 중).
+     */
+    void upsertSearchHistory(@Param("userId") Long userId, @Param("keyword") String keyword);
 }
