@@ -7,6 +7,7 @@ import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 /**
  * 모든 예외를 응답으로 바꾸는 단일 지점.
@@ -45,6 +46,17 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> handleBindException(BindException e) {
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT_VALUE.getStatus())
                 .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT_VALUE, e.getBindingResult()));
+    }
+
+    /**
+     * 경로 변수·쿼리 파라미터의 타입 변환 실패(예: {@code /keywords/recent/abc}의 {@code Long}
+     * 변환 실패). {@link BindException}의 하위 타입이 아니라서 별도 핸들러가 필요하다 — 없으면
+     * 마지막 {@link Exception} 핸들러가 삼켜 500이 나간다.
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<ApiResponse<Void>> handleTypeMismatchException(MethodArgumentTypeMismatchException e) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT_VALUE.getStatus())
+                .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT_VALUE));
     }
 
     /**

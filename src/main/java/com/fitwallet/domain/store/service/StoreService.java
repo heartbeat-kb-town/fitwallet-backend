@@ -12,4 +12,8 @@ public interface StoreService {
     StoreSearchResponse searchStores(Long userId, StoreSearchCondition cond);
 
     StoreKeywordsResponse findKeywords(Long userId);
+
+    void deleteKeyword(Long userId, Long searchHistoryId);
+
+    void deleteAllKeywords(Long userId);
 }

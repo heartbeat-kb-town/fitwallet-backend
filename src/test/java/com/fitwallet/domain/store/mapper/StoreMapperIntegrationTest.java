@@ -68,6 +68,9 @@ class StoreMapperIntegrationTest {
     /** 시드의 search_history는 16행이고 전부 user_id = 1이다(users 테이블에 1번 한 명뿐). */
     private static final int SEED_SEARCH_HISTORY_COUNT = 16;
 
+    /** 시드에 이미 있는 검색 기록 id(이디야커피, user_id=1). 삭제 대상 존재 확인용. */
+    private static final Long EXISTING_SEARCH_HISTORY_ID = 1L;
+
     /**
      * 시드에 이미 있는 검색어. searched_at 갱신 검증의 기준값이다.
      * <p>
@@ -396,6 +399,55 @@ class StoreMapperIntegrationTest {
                 .extracting(PopularKeywordResponse::getRank)
                 .containsExactlyElementsOf(java.util.stream.IntStream.rangeClosed(1, popular.size())
                         .boxed().toList());
+    }
+
+    @Test
+    void 본인_소유_검색_기록을_삭제하면_영향_행이_1이고_실제로_사라진다() {
+        int affected = storeMapper.deleteSearchHistory(EXISTING_SEARCH_HISTORY_ID, SEED_USER_ID);
+
+        assertThat(affected).isEqualTo(1);
+        assertThat(countSearchHistory()).isEqualTo(SEED_SEARCH_HISTORY_COUNT - 1);
+    }
+
+    @Test
+    void 존재하지_않는_검색_기록_id면_영향_행이_0이다() {
+        int affected = storeMapper.deleteSearchHistory(999999L, SEED_USER_ID);
+
+        assertThat(affected).isZero();
+    }
+
+    @Test
+    void 다른_사용자의_검색_기록은_지우려_해도_영향_행이_0이고_행이_그대로_남는다() {
+        Long otherUserId = insertUser();
+        insertSearchHistory(otherUserId, "다른유저키워드", "0 SECOND");
+        Long otherSearchHistoryId = jdbcTemplate.queryForObject(
+                "SELECT search_history_id FROM search_history WHERE user_id = ? AND keyword = ?",
+                Long.class, otherUserId, "다른유저키워드");
+
+        int affected = storeMapper.deleteSearchHistory(otherSearchHistoryId, SEED_USER_ID);
+
+        assertThat(affected).isZero();
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM search_history WHERE search_history_id = ?",
+                Integer.class, otherSearchHistoryId)).isEqualTo(1);
+    }
+
+    @Test
+    void 검색_기록_전체_삭제시_시드_사용자의_기록이_전부_사라진다() {
+        storeMapper.deleteAllSearchHistory(SEED_USER_ID);
+
+        assertThat(countSearchHistory()).isZero();
+    }
+
+    @Test
+    void 지울_기록이_없는_사용자에게_전체_삭제를_호출해도_예외가_없다() {
+        Long emptyUserId = insertUser();
+
+        storeMapper.deleteAllSearchHistory(emptyUserId);
+
+        assertThat(jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM search_history WHERE user_id = ?",
+                Integer.class, emptyUserId)).isZero();
     }
 
     /**

@@ -10,9 +10,11 @@ import com.fitwallet.global.common.dto.ApiResponse;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.WebDataBinder;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.InitBinder;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -49,5 +51,18 @@ public class StoreController {
     @GetMapping("/store/keywords")
     public ResponseEntity<ApiResponse<StoreKeywordsResponse>> findKeywords(@LoginUserId Long userId) {
         return ApiResponse.of(StoreSuccessCode.SEARCH_KEYWORDS_FOUND, storeService.findKeywords(userId));
+    }
+
+    @DeleteMapping("/store/keywords/recent/{searchHistoryId}")
+    public ResponseEntity<ApiResponse<Void>> deleteKeyword(
+            @LoginUserId Long userId, @PathVariable Long searchHistoryId) {
+        storeService.deleteKeyword(userId, searchHistoryId);
+        return ApiResponse.of(StoreSuccessCode.SEARCH_HISTORY_DELETED, null);
+    }
+
+    @DeleteMapping("/store/keywords/recent")
+    public ResponseEntity<ApiResponse<Void>> deleteAllKeywords(@LoginUserId Long userId) {
+        storeService.deleteAllKeywords(userId);
+        return ApiResponse.of(StoreSuccessCode.SEARCH_HISTORY_ALL_DELETED, null);
     }
 }

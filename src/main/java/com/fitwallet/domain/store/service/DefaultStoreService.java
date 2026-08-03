@@ -111,6 +111,21 @@ public class DefaultStoreService implements StoreService {
                 .build();
     }
 
+    @Override
+    @Transactional
+    public void deleteKeyword(Long userId, Long searchHistoryId) {
+        int affected = storeMapper.deleteSearchHistory(searchHistoryId, userId);
+        if (affected == 0) {
+            throw new BusinessException(StoreErrorCode.SEARCH_HISTORY_NOT_FOUND);
+        }
+    }
+
+    @Override
+    @Transactional
+    public void deleteAllKeywords(Long userId) {
+        storeMapper.deleteAllSearchHistory(userId);
+    }
+
     private String normalizeKeyword(String keyword) {
         if (keyword == null || keyword.isBlank()) {
             return null;

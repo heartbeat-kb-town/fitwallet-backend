@@ -15,7 +15,8 @@ public enum StoreErrorCode implements ErrorCode {
     CATEGORY_NOT_FOUND(HttpStatus.BAD_REQUEST, "존재하지 않는 카테고리입니다."),
     RADIUS_EXCEEDED(HttpStatus.BAD_REQUEST, "주변 조회 반경은 최대 3km까지입니다."),
     INVALID_RADIUS(HttpStatus.BAD_REQUEST, "검색 반경이 올바르지 않습니다."),
-    LOCATION_AGREEMENT_REQUIRED(HttpStatus.FORBIDDEN, "위치 정보 이용에 동의해주세요.");
+    LOCATION_AGREEMENT_REQUIRED(HttpStatus.FORBIDDEN, "위치 정보 이용에 동의해주세요."),
+    SEARCH_HISTORY_NOT_FOUND(HttpStatus.NOT_FOUND, "존재하지 않는 검색 기록입니다.");
 
     private final HttpStatus status;
     private final String message;
