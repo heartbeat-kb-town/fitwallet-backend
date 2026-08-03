@@ -3,6 +3,7 @@ package com.fitwallet.global.exception;
 import com.fitwallet.global.common.dto.ApiResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.validation.BindException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -31,6 +32,17 @@ public class GlobalExceptionHandler {
     /** {@code @Valid} 검증 실패. 어떤 필드가 왜 틀렸는지까지 내려준다. */
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiResponse<Void>> handleValidationException(MethodArgumentNotValidException e) {
+        return ResponseEntity.status(CommonErrorCode.INVALID_INPUT_VALUE.getStatus())
+                .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT_VALUE, e.getBindingResult()));
+    }
+
+    /**
+     * 쿼리 파라미터 바인딩 실패(예: {@code ?latitude=abc}의 타입 변환 실패).
+     * {@link MethodArgumentNotValidException}이 이 타입의 하위 타입이라, Spring이 예외 계층에서
+     * 더 구체적인 핸들러를 알아서 고른다 — 이 메서드가 {@code @Valid} 검증 실패 응답을 가로채지 않는다.
+     */
+    @ExceptionHandler(BindException.class)
+    public ResponseEntity<ApiResponse<Void>> handleBindException(BindException e) {
         return ResponseEntity.status(CommonErrorCode.INVALID_INPUT_VALUE.getStatus())
                 .body(ApiResponse.error(CommonErrorCode.INVALID_INPUT_VALUE, e.getBindingResult()));
     }
