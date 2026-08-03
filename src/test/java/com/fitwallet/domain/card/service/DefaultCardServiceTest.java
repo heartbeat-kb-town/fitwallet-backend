@@ -1,25 +1,40 @@
 package com.fitwallet.domain.card.service;
 
+import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
+import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
+import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
+import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
+import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.card.mapper.CardMapper;
 import com.fitwallet.global.exception.BusinessException;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
-import org.mockito.InjectMocks;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.util.ReflectionTestUtils;
 
+import java.math.BigDecimal;
+import java.nio.charset.StandardCharsets;
+import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.ZoneId;
+import java.util.Base64;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.Mockito.never;
@@ -36,8 +51,15 @@ class DefaultCardServiceTest {
     @Mock
     private CardMapper cardMapper;
 
-    @InjectMocks
     private DefaultCardService cardService;
+
+    @BeforeEach
+    void setUp() {
+        Clock clock = Clock.fixed(
+                Instant.parse("2026-07-23T15:00:00Z"),
+                ZoneId.of("Asia/Seoul"));
+        cardService = new DefaultCardService(cardMapper, clock);
+    }
 
     @Test
     void 내_카드_목록을_매퍼가_준_순서_그대로_반환한다() {
@@ -75,6 +97,191 @@ class DefaultCardServiceTest {
 
         assertThatThrownBy(() -> cardService.findMyCard(2L, 10L))
                 .isInstanceOf(BusinessException.class);
+    }
+
+    @Test
+    void 현재월_신용카드는_전날까지_조회하고_저장된_결제이용금액을_반환한다() {
+        given(cardMapper.findTransactionCardInfo(1L, 10L))
+                .willReturn(transactionCard(CardType.CREDIT, new BigDecimal("89800.00")));
+        given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
+                .willReturn(List.of());
+
+        CardTransactionDetailResponse response =
+                cardService.getCardTransactions(1L, 10L, searchRequest(null, null, null));
+
+        assertThat(response.getYearMonth()).isEqualTo("2026-07");
+        assertThat(response.getAvailableYearMonths())
+                .containsExactly("2026-07", "2026-06", "2026-05");
+        assertThat(response.getPaymentSummary().getSummaryType())
+                .isEqualTo(CardTransactionSummaryType.SCHEDULED_PAYMENT);
+        assertThat(response.getPaymentSummary().getAmount()).isEqualByComparingTo("89800.00");
+        assertThat(response.getTransactions().getSize()).isZero();
+        assertThat(response.getTransactions().getHasNext()).isFalse();
+        assertThat(response.getTransactions().getNextCursor()).isNull();
+
+        ArgumentCaptor<CardTransactionSearchCondition> captor =
+                ArgumentCaptor.forClass(CardTransactionSearchCondition.class);
+        then(cardMapper).should().findTransactions(eq(1L), eq(10L), captor.capture());
+        assertThat(captor.getValue().getStartAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+        assertThat(captor.getValue().getEndAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 24, 0, 0));
+        assertThat(captor.getValue().getLimit()).isEqualTo(21);
+        then(cardMapper).should(never()).sumTransactionAmount(any(), any(), any());
+    }
+
+    @Test
+    void 현재월_체크카드는_오늘까지_조회하고_거래금액을_합산한다() {
+        given(cardMapper.findTransactionCardInfo(1L, 10L))
+                .willReturn(transactionCard(CardType.DEBIT, null));
+        given(cardMapper.sumTransactionAmount(eq(1L), eq(10L), any()))
+                .willReturn(new BigDecimal("178400.00"));
+        given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
+                .willReturn(List.of());
+
+        CardTransactionDetailResponse response =
+                cardService.getCardTransactions(1L, 10L, searchRequest("2026-07", 10, null));
+
+        assertThat(response.getPaymentSummary().getSummaryType())
+                .isEqualTo(CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT);
+        assertThat(response.getPaymentSummary().getAmount()).isEqualByComparingTo("178400.00");
+
+        ArgumentCaptor<CardTransactionSearchCondition> captor =
+                ArgumentCaptor.forClass(CardTransactionSearchCondition.class);
+        then(cardMapper).should().sumTransactionAmount(eq(1L), eq(10L), captor.capture());
+        assertThat(captor.getValue().getEndAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 25, 0, 0));
+        assertThat(captor.getValue().getLimit()).isEqualTo(11);
+    }
+
+    @Test
+    void 과거월_신용카드는_다음달_시작전까지_조회하고_거래금액을_합산한다() {
+        given(cardMapper.findTransactionCardInfo(1L, 10L))
+                .willReturn(transactionCard(CardType.CREDIT, new BigDecimal("89800.00")));
+        given(cardMapper.sumTransactionAmount(eq(1L), eq(10L), any()))
+                .willReturn(new BigDecimal("306800.00"));
+        given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
+                .willReturn(List.of());
+
+        CardTransactionDetailResponse response =
+                cardService.getCardTransactions(1L, 10L, searchRequest("2026-06", null, null));
+
+        assertThat(response.getPaymentSummary().getSummaryType())
+                .isEqualTo(CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT);
+        assertThat(response.getPaymentSummary().getAmount()).isEqualByComparingTo("306800.00");
+
+        ArgumentCaptor<CardTransactionSearchCondition> captor =
+                ArgumentCaptor.forClass(CardTransactionSearchCondition.class);
+        then(cardMapper).should().sumTransactionAmount(eq(1L), eq(10L), captor.capture());
+        assertThat(captor.getValue().getStartAt())
+                .isEqualTo(LocalDateTime.of(2026, 6, 1, 0, 0));
+        assertThat(captor.getValue().getEndAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+    }
+
+    @Test
+    void 결제내역_조회시_카드를_찾을수_없으면_CARD_NOT_FOUND_예외를_던진다() {
+        given(cardMapper.findTransactionCardInfo(1L, 999L)).willReturn(null);
+
+        assertErrorCode(
+                () -> cardService.getCardTransactions(1L, 999L, searchRequest(null, null, null)),
+                CardErrorCode.CARD_NOT_FOUND);
+    }
+
+    @Test
+    void 현재월_신용카드의_저장금액이_null이면_정합성_예외를_던진다() {
+        given(cardMapper.findTransactionCardInfo(1L, 10L))
+                .willReturn(transactionCard(CardType.CREDIT, null));
+
+        assertErrorCode(
+                () -> cardService.getCardTransactions(1L, 10L, searchRequest(null, null, null)),
+                CardErrorCode.INVALID_CARD_PAYMENT_DATA);
+    }
+
+    @Test
+    void 조회연월_형식과_최근3개월_범위를_검증한다() {
+        given(cardMapper.findTransactionCardInfo(1L, 10L))
+                .willReturn(transactionCard(CardType.CREDIT, BigDecimal.ZERO));
+
+        assertErrorCode(
+                () -> cardService.getCardTransactions(
+                        1L, 10L, searchRequest("2026-7", null, null)),
+                CardErrorCode.INVALID_YEAR_MONTH);
+        assertErrorCode(
+                () -> cardService.getCardTransactions(
+                        1L, 10L, searchRequest("2026-04", null, null)),
+                CardErrorCode.YEAR_MONTH_OUT_OF_RANGE);
+        assertErrorCode(
+                () -> cardService.getCardTransactions(
+                        1L, 10L, searchRequest("2026-08", null, null)),
+                CardErrorCode.YEAR_MONTH_OUT_OF_RANGE);
+    }
+
+    @Test
+    void 조회개수는_1부터_100까지만_허용한다() {
+        given(cardMapper.findTransactionCardInfo(1L, 10L))
+                .willReturn(transactionCard(CardType.CREDIT, BigDecimal.ZERO));
+
+        assertErrorCode(
+                () -> cardService.getCardTransactions(
+                        1L, 10L, searchRequest(null, 0, null)),
+                CardErrorCode.INVALID_TRANSACTION_PAGE_SIZE);
+        assertErrorCode(
+                () -> cardService.getCardTransactions(
+                        1L, 10L, searchRequest(null, 101, null)),
+                CardErrorCode.INVALID_TRANSACTION_PAGE_SIZE);
+    }
+
+    @Test
+    void size보다_한건_더_조회되면_마지막_응답거래로_다음커서를_만든다() {
+        given(cardMapper.findTransactionCardInfo(1L, 10L))
+                .willReturn(transactionCard(CardType.CREDIT, new BigDecimal("89800.00")));
+        List<CardTransactionItemResponse> fetched = List.of(
+                transaction(103L, LocalDateTime.of(2026, 7, 23, 12, 0)),
+                transaction(102L, LocalDateTime.of(2026, 7, 22, 11, 0)),
+                transaction(101L, LocalDateTime.of(2026, 7, 21, 10, 0)));
+        given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
+                .willReturn(fetched, List.of());
+
+        CardTransactionDetailResponse firstResponse =
+                cardService.getCardTransactions(1L, 10L, searchRequest(null, 2, null));
+
+        assertThat(firstResponse.getTransactions().getContent())
+                .extracting(CardTransactionItemResponse::getTransactionId)
+                .containsExactly(103L, 102L);
+        assertThat(firstResponse.getTransactions().getSize()).isEqualTo(2);
+        assertThat(firstResponse.getTransactions().getHasNext()).isTrue();
+        assertThat(firstResponse.getTransactions().getNextCursor()).isNotBlank();
+
+        cardService.getCardTransactions(
+                1L, 10L,
+                searchRequest(null, 2, firstResponse.getTransactions().getNextCursor()));
+
+        ArgumentCaptor<CardTransactionSearchCondition> captor =
+                ArgumentCaptor.forClass(CardTransactionSearchCondition.class);
+        then(cardMapper).should(org.mockito.Mockito.times(2))
+                .findTransactions(eq(1L), eq(10L), captor.capture());
+        CardTransactionSearchCondition secondCondition = captor.getAllValues().get(1);
+        assertThat(secondCondition.getCursorPaidAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 22, 11, 0));
+        assertThat(secondCondition.getCursorTransactionId()).isEqualTo(102L);
+    }
+
+    @Test
+    void 다른_카드나_조회월의_커서는_허용하지_않는다() {
+        given(cardMapper.findTransactionCardInfo(1L, 10L))
+                .willReturn(transactionCard(CardType.CREDIT, BigDecimal.ZERO));
+        String otherCardCursor = encodeCursor("11|2026-07|2026-07-22T11:00:00|102");
+        String otherMonthCursor = encodeCursor("10|2026-06|2026-06-22T11:00:00|102");
+
+        assertErrorCode(
+                () -> cardService.getCardTransactions(
+                        1L, 10L, searchRequest(null, 20, otherCardCursor)),
+                CardErrorCode.INVALID_TRANSACTION_CURSOR);
+        assertErrorCode(
+                () -> cardService.getCardTransactions(
+                        1L, 10L, searchRequest(null, 20, otherMonthCursor)),
+                CardErrorCode.INVALID_TRANSACTION_CURSOR);
     }
 
     @Test
@@ -120,5 +327,48 @@ class DefaultCardServiceTest {
         ReflectionTestUtils.setField(request, "last4", "8014");
         ReflectionTestUtils.setField(request, "expiryDate", LocalDate.of(2030, 1, 31));
         return request;
+    }
+
+    private CardTransactionSearchRequest searchRequest(String yearMonth, Integer size, String cursor) {
+        CardTransactionSearchRequest request = new CardTransactionSearchRequest();
+        ReflectionTestUtils.setField(request, "yearMonth", yearMonth);
+        ReflectionTestUtils.setField(request, "size", size);
+        ReflectionTestUtils.setField(request, "cursor", cursor);
+        return request;
+    }
+
+    private CardTransactionCardInfo transactionCard(CardType cardType, BigDecimal scheduledAmount) {
+        return CardTransactionCardInfo.builder()
+                .cardId(10L)
+                .cardProductId(20L)
+                .cardName("테스트 카드")
+                .issuerName("테스트 카드사")
+                .cardImageUrl("https://example.com/card.png")
+                .cardType(cardType)
+                .maskedRearNumber("1234")
+                .scheduledPaymentAmount(scheduledAmount)
+                .build();
+    }
+
+    private CardTransactionItemResponse transaction(Long transactionId, LocalDateTime paidAt) {
+        return CardTransactionItemResponse.builder()
+                .transactionId(transactionId)
+                .paymentAmount(BigDecimal.TEN)
+                .paidAt(paidAt)
+                .performanceIncluded(true)
+                .build();
+    }
+
+    private String encodeCursor(String rawCursor) {
+        return Base64.getUrlEncoder()
+                .withoutPadding()
+                .encodeToString(rawCursor.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private void assertErrorCode(Runnable invocation, CardErrorCode errorCode) {
+        assertThatThrownBy(invocation::run)
+                .isInstanceOf(BusinessException.class)
+                .extracting(exception -> ((BusinessException) exception).getErrorCode())
+                .isEqualTo(errorCode);
     }
 }
