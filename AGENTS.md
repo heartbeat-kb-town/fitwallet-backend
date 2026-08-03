@@ -31,6 +31,7 @@ docker compose up -d      # 로컬 MySQL (스키마 + 시드 자동 적용)
 | 커넥션 풀 | HikariCP 5.1.0 |
 | 검증 | Hibernate Validator 6.2.5.Final + validation-api 2.0.1.Final |
 | JSON | Jackson 2.17.2 (+ jsr310) |
+| 인증 | Spring Security Crypto 5.7.1 (BCrypt) + JJWT 0.13.0 |
 | 테스트 | JUnit 5, spring-test, AssertJ 3.26.3, Mockito 5.12.0 |
 
 > ⚠️ `javax` 기반이므로 **jakarta 계열 라이브러리를 넣으면 안 된다.**
@@ -39,7 +40,7 @@ docker compose up -d      # 로컬 MySQL (스키마 + 시드 자동 적용)
 설정은 전부 XML이다 — `src/main/resources/root-context.xml`(루트 컨텍스트),
 `src/main/webapp/WEB-INF/spring/appServlet/servlet-context.xml`(웹 컨텍스트), `web.xml`.
 
-인증(BCrypt, JWT) 라이브러리는 아직 정하지 않았다. 인증 구현을 시작할 때 결정한다.
+비밀번호 해시는 Spring Security Crypto 5.7.1의 BCrypt를, JWT는 JJWT 0.13.0을 사용한다.
 
 ---
 
