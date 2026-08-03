@@ -23,11 +23,11 @@ import org.springframework.web.method.annotation.MethodArgumentTypeMismatchExcep
 public class GlobalExceptionHandler {
 
     @ExceptionHandler(BusinessException.class)
-    public ResponseEntity<ApiResponse<Void>> handleBusinessException(BusinessException e) {
+    public ResponseEntity<ApiResponse<Object>> handleBusinessException(BusinessException e) {
         ErrorCode errorCode = e.getErrorCode();
         log.warn("business exception: {} - {}", errorCode.getCode(), errorCode.getMessage());
         return ResponseEntity.status(errorCode.getStatus())
-                .body(ApiResponse.error(errorCode));
+                .body(ApiResponse.error(errorCode, e.getData()));
     }
 
     /** {@code @Valid} 검증 실패. 어떤 필드가 왜 틀렸는지까지 내려준다. */

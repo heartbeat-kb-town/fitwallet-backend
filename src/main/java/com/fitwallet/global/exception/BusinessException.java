@@ -12,9 +12,15 @@ import lombok.Getter;
 public class BusinessException extends RuntimeException {
 
     private final transient ErrorCode errorCode;
+    private final transient Object data;
 
     public BusinessException(ErrorCode errorCode) {
+        this(errorCode, null);
+    }
+
+    public BusinessException(ErrorCode errorCode, Object data) {
         super(errorCode.getMessage());
         this.errorCode = errorCode;
+        this.data = data;
     }
 }

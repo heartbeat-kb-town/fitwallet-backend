@@ -1648,7 +1648,7 @@ INSERT INTO `card_event` (`event_id`, `card_product_id`, `issuer_id`, `summary`,
 -- ---------------------------------------------------------
 -- users — 회원
 -- ---------------------------------------------------------
-INSERT INTO `users` (`user_id`, `login_id`, `name`, `phone`, `password_hash`, `provider_user_id`, `payment_pin_hash`, `is_location_agreed`, `is_marketing_agreed`, `pin_auth_id`, `auth_expires_at`, `auth_is_used`, `pin_fail_count`, `created_at`, `updated_at`) VALUES (1,'wooin0205','정우인',NULL,'$2b$12$WSnBdimhztw6AH4YOthyEOp36PxDWQS9QJEptSGeO85CMCXXQnibK',NULL,'$2b$12$LqofFYFaR..0AfplxXYQRe2hPX0tsb.UOye.d/Q7MXFOshg/5JBTe',1,0,NULL,NULL,0,0,'2026-03-01 10:00:00','2026-03-01 10:00:00');
+INSERT INTO `users` (`user_id`, `login_id`, `name`, `phone`, `password_hash`, `provider_user_id`, `payment_pin_hash`, `is_location_agreed`, `is_marketing_agreed`, `pin_auth_id`, `auth_expires_at`, `auth_is_used`, `pin_fail_count`, `created_at`, `updated_at`) VALUES (1,'fitwallet123','김국민','010-1234-5678','$2a$10$fVOyYs72w2Bos1Yqg9kAzO5R7muqmDB65Q.ZnXFRIpnZ2LWyj8Fou',NULL,'$2a$10$VFxQaZFMVYRlbzkFiDmDuuMyKrT58iJNqNPlMzchKkOiMh4y7DlGq',1,0,NULL,NULL,0,0,'2026-03-01 10:00:00','2026-03-01 10:00:00');
 
 -- ---------------------------------------------------------
 -- user_card — 보유 카드
