@@ -1,5 +1,7 @@
 package com.fitwallet.domain.store.dto.request;
 
+import lombok.AllArgsConstructor;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
@@ -23,9 +25,14 @@ import lombok.NoArgsConstructor;
  * <p>
  * Bean Validation을 붙이지 않는다. 명세의 400 응답이 {@code errors} 배열 없이 발생 조건별
  * {@code code}/{@code message}만 내려주므로, 검증은 서비스가 {@code BusinessException}으로 처리한다.
+ * <p>
+ * {@code @Setter}는 금지(§4)라 {@code DefaultStoreService}가 확정된 조건을 만들 때는
+ * {@link Builder}로 새 인스턴스를 만든다.
  */
 @Getter
 @NoArgsConstructor
+@AllArgsConstructor
+@Builder
 public class StoreSearchCondition {
 
     /** 상호명 부분 일치 검색어. 미전달이면 {@code null}이고 이름 필터가 걸리지 않는다. */
