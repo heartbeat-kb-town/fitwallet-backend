@@ -3,6 +3,8 @@ package com.fitwallet.domain.card.service;
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.CardType;
+import com.fitwallet.domain.card.dto.MyDataCard;
+import com.fitwallet.domain.card.dto.MyDataTransaction;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
@@ -18,7 +20,9 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.mockito.stubbing.Answer;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
@@ -29,14 +33,19 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.anyMap;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willAnswer;
+import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
 
 /**
@@ -51,6 +60,9 @@ class DefaultCardServiceTest {
     @Mock
     private CardMapper cardMapper;
 
+    @Mock
+    private MyDataProvider myDataProvider;
+
     private DefaultCardService cardService;
 
     @BeforeEach
@@ -58,7 +70,7 @@ class DefaultCardServiceTest {
         Clock clock = Clock.fixed(
                 Instant.parse("2026-07-23T15:00:00Z"),
                 ZoneId.of("Asia/Seoul"));
-        cardService = new DefaultCardService(cardMapper, clock);
+        cardService = new DefaultCardService(cardMapper, clock, myDataProvider);
     }
 
     @Test
@@ -370,5 +382,87 @@ class DefaultCardServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(exception -> ((BusinessException) exception).getErrorCode())
                 .isEqualTo(errorCode);
+    }
+
+    @Test
+    void 보유_카드가_전혀_없으면_Provider_카드와_거래를_모두_등록한다() {
+        MyDataCard card1 = myDataCard(47L, List.of(transaction(15_000, 1L)));
+        MyDataCard card2 = myDataCard(15L, List.of(transaction(23_000, 2L)));
+        given(myDataProvider.fetchCards(1L)).willReturn(List.of(card1, card2));
+        given(cardMapper.findMaxDisplayOrder(1L)).willReturn(0);
+        given(cardMapper.findDeletedFlag(1L, 47L)).willReturn(null);
+        given(cardMapper.findDeletedFlag(1L, 15L)).willReturn(null);
+        willAnswer(fillGeneratedKey()).given(cardMapper)
+                .insertMyDataCard(eq(1L), any(MyDataCard.class), anyInt(), anyMap());
+
+        cardService.connectMyData(1L);
+
+        then(cardMapper).should().insertMyDataCard(eq(1L), eq(card1), eq(1), anyMap());
+        then(cardMapper).should().insertMyDataCard(eq(1L), eq(card2), eq(2), anyMap());
+        then(cardMapper).should().insertMyDataTransactions(eq(47_000L), eq(card1.getTransactions()));
+        then(cardMapper).should().insertMyDataTransactions(eq(15_000L), eq(card2.getTransactions()));
+    }
+
+    @Test
+    void 소프트_삭제된_카드는_건너뛴다() {
+        MyDataCard card = myDataCard(47L, List.of());
+        given(myDataProvider.fetchCards(1L)).willReturn(List.of(card));
+        given(cardMapper.findMaxDisplayOrder(1L)).willReturn(5);
+        given(cardMapper.findDeletedFlag(1L, 47L)).willReturn(true);
+
+        cardService.connectMyData(1L);
+
+        then(cardMapper).should(never()).insertMyDataCard(any(), any(), anyInt(), anyMap());
+        then(cardMapper).should(never()).reactivateUserCard(any(), any(), anyInt());
+        then(cardMapper).should(never()).insertMyDataTransactions(any(), any());
+    }
+
+    @Test
+    void 신규_카드만_카드와_거래를_함께_등록한다() {
+        MyDataCard existing = myDataCard(47L, List.of(transaction(1_000, 1L)));
+        MyDataCard fresh = myDataCard(15L, List.of(transaction(2_000, 2L)));
+        given(myDataProvider.fetchCards(1L)).willReturn(List.of(existing, fresh));
+        given(cardMapper.findMaxDisplayOrder(1L)).willReturn(5);
+        given(cardMapper.findDeletedFlag(1L, 47L)).willReturn(false);
+        given(cardMapper.findDeletedFlag(1L, 15L)).willReturn(null);
+        willAnswer(fillGeneratedKey()).given(cardMapper)
+                .insertMyDataCard(eq(1L), any(MyDataCard.class), anyInt(), anyMap());
+
+        cardService.connectMyData(1L);
+
+        then(cardMapper).should(never()).insertMyDataCard(eq(1L), eq(existing), anyInt(), anyMap());
+        then(cardMapper).should().insertMyDataCard(eq(1L), eq(fresh), eq(6), anyMap());
+        then(cardMapper).should().insertMyDataTransactions(eq(15_000L), eq(fresh.getTransactions()));
+        then(cardMapper).should(never()).insertMyDataTransactions(eq(47_000L), any());
+    }
+
+    /** MyBatis useGeneratedKeys가 INSERT 후 keyHolder에 PK를 채우는 것을 흉내낸다. */
+    private Answer<Void> fillGeneratedKey() {
+        return invocation -> {
+            MyDataCard card = invocation.getArgument(1);
+            Map<String, Object> keyHolder = invocation.getArgument(3);
+            keyHolder.put("userCardId", card.getCardProductId() * 1000);
+            return null;
+        };
+    }
+
+    private MyDataCard myDataCard(Long cardProductId, List<MyDataTransaction> transactions) {
+        return MyDataCard.builder()
+                .cardProductId(cardProductId)
+                .first4("1234")
+                .last4("5678")
+                .expiryDate(LocalDate.of(2030, 1, 31))
+                .creditLimit(BigDecimal.valueOf(1_000_000))
+                .scheduledPaymentAmount(BigDecimal.valueOf(50_000))
+                .transactions(transactions)
+                .build();
+    }
+
+    private MyDataTransaction transaction(long amount, Long storeId) {
+        return MyDataTransaction.builder()
+                .amount(BigDecimal.valueOf(amount))
+                .storeId(storeId)
+                .paidAt(LocalDateTime.of(2026, 7, 1, 12, 0))
+                .build();
     }
 }

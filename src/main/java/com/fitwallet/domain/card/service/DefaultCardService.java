@@ -3,6 +3,7 @@ package com.fitwallet.domain.card.service;
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.CardType;
+import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
@@ -28,7 +29,9 @@ import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * {@code @Transactional}은 인터페이스가 아니라 여기, 구현체 메서드에 붙인다.
@@ -50,6 +53,7 @@ public class DefaultCardService implements CardService {
 
     private final CardMapper cardMapper;
     private final Clock clock;
+    private final MyDataProvider myDataProvider;
 
     @Override
     @Transactional(readOnly = true)
@@ -301,6 +305,43 @@ public class DefaultCardService implements CardService {
         private DecodedCursor(LocalDateTime paidAt, Long transactionId) {
             this.paidAt = paidAt;
             this.transactionId = transactionId;
+        }
+    }
+
+    /**
+     * 마이데이터에서 보유 카드와 최근 거래내역을 불러온다.
+     * <p>
+     * 회원가입 직후 온보딩과 마이페이지의 카드 불러오기에서 같은 API를 사용하므로
+     * 이 메서드는 여러 번 호출될 수 있다.
+     * <p>
+     * Provider가 반환한 카드별로 기존 등록 여부를 확인하고, 처음 불러온 카드만 등록한다.
+     * 이미 등록된 카드와 사용자가 삭제한 카드는 다시 등록하지 않는다.
+     * 거래내역도 새로 등록된 카드의 내역만 함께 저장한다.
+     * 새로 등록할 카드가 없어도 예외 없이 정상 종료한다.
+     */
+    @Override
+    @Transactional
+    public void connectMyData(Long userId) {
+        List<MyDataCard> cards = myDataProvider.fetchCards(userId);
+
+        int displayOrder = cardMapper.findMaxDisplayOrder(userId);
+        for (MyDataCard card : cards) {
+            Boolean registered = cardMapper.findDeletedFlag(userId, card.getCardProductId());
+            if (registered != null) {
+                continue;
+            }
+
+            displayOrder++;
+            Map<String, Object> keyHolder = new HashMap<>();
+            cardMapper.insertMyDataCard(userId, card, displayOrder, keyHolder);
+
+            if (card.getTransactions() != null && !card.getTransactions().isEmpty()) {
+                // keyHolder가 Map이라 MyBatis가 타입을 모른 채 JDBC 원본 값을
+                // 그대로 넣는다 — MySQL 드라이버는 생성된 BIGINT를 Long이 아니라
+                // BigInteger로 돌려주므로 (Long) 캐스팅은 여기서 실패한다.
+                Long userCardId = ((Number) keyHolder.get("userCardId")).longValue();
+                cardMapper.insertMyDataTransactions(userCardId, card.getTransactions());
+            }
         }
     }
 }

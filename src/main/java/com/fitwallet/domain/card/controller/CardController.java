@@ -107,4 +107,16 @@ public class CardController {
         return ApiResponse.of(CardSuccessCode.CARD_REGISTERED,
                 cardService.register(userId, request));
     }
+
+    @ApiOperation(value = "마이데이터 연동", notes = """
+            마이데이터에서 가져온 보유 카드 중 아직 등록되지 않은 카드와 최근 거래내역을 등록한다.
+
+            - 이미 등록된 카드는 건너뛰고 새로 발견된 카드만 등록한다.
+            - 새로 등록할 카드가 하나도 없어도 오류가 아니라 성공으로 응답한다.
+            """)
+    @PostMapping("/cards/mydata")
+    public ResponseEntity<ApiResponse<Void>> connectMyData(@LoginUserId Long userId) {
+        cardService.connectMyData(userId);
+        return ApiResponse.of(CardSuccessCode.MYDATA_LINKED, null);
+    }
 }

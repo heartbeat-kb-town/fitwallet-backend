@@ -175,4 +175,31 @@
           AND card_product_id = #{request.cardProductId}
     </update>
 
+    <!--
+        생성된 user_card_id는 keyHolder Map의 userCardId 키에 채워진다.
+    -->
+    <insert id="insertMyDataCard"
+            useGeneratedKeys="true"
+            keyProperty="keyHolder.userCardId"
+            keyColumn="user_card_id">
+        INSERT INTO user_card (user_id, card_product_id, first4, last4, expiry_date,
+                               bank_name, balance, credit_limit, scheduled_payment_amount,
+                               display_order, is_deleted)
+        VALUES (#{userId}, #{card.cardProductId}, #{card.first4}, #{card.last4}, #{card.expiryDate},
+                #{card.bankName}, #{card.balance}, #{card.creditLimit}, #{card.scheduledPaymentAmount},
+                #{displayOrder}, 0)
+    </insert>
+
+    <!--
+        discount_amount/is_eligible은 DB DEFAULT를 쓴다.
+        final_amount은 DEFAULT가 없어 amount와 동일하게 채운다 (마이데이터 이력에는 할인 개념이 없다).
+    -->
+    <insert id="insertMyDataTransactions">
+        INSERT INTO payment_transaction (user_card_id, store_id, amount, final_amount, paid_at, is_used_app)
+        VALUES
+        <foreach collection="transactions" item="tx" separator=",">
+            (#{userCardId}, #{tx.storeId}, #{tx.amount}, #{tx.amount}, #{tx.paidAt}, 0)
+        </foreach>
+    </insert>
+
 </mapper>
