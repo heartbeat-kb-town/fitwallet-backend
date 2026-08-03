@@ -23,4 +23,30 @@
         WHERE user_id = #{userId}
     </update>
 
+    <select id="findPinAuthInfo" resultType="com.fitwallet.domain.payment.dto.PinAuthInfo">
+        SELECT pin_auth_id, auth_expires_at, auth_is_used
+        FROM users
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="existsUserCard" resultType="boolean">
+        SELECT EXISTS (
+        SELECT 1 FROM user_card
+        WHERE user_card_id = #{userCardId}
+        AND user_id = #{userId}
+        AND is_deleted = 0
+        )
+    </select>
+
+    <update id="markPinAuthUsed">
+        UPDATE users
+        SET auth_is_used = 1
+        WHERE user_id = #{userId}
+    </update>
+
+    <insert id="insertPaymentSession">
+        INSERT INTO payment_session (user_card_id, session_token, status, expires_at)
+        VALUES (#{userCardId}, #{sessionToken}, #{status}, #{expiresAt})
+    </insert>
+
 </mapper>
