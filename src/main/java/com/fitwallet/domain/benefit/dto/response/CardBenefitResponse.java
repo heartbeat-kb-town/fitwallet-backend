@@ -22,14 +22,14 @@ public class CardBenefitResponse {
     @ApiModelProperty(value = "보유 카드 ID(카드 상품 ID가 아니다). 결제 요청에 그대로 쓴다", example = "1")
     private Long userCardId;
 
-    @ApiModelProperty(value = "카드 이름", example = "신한카드 Mr.Life")
+    @ApiModelProperty(value = "카드 이름", example = "KB국민 청춘대로 톡톡카드")
     private String cardName;
 
-    @ApiModelProperty(value = "카드사 이름", example = "신한카드")
+    @ApiModelProperty(value = "카드사 이름", example = "KB국민카드")
     private String cardCompanyName;
 
-    @ApiModelProperty(value = "카드 이미지 URL. 등록된 이미지가 없으면 null",
-            example = "https://cdn.fitwallet.app/cards/shinhan-mrlife.png")
+    @ApiModelProperty(value = "카드 이미지 URL(카드사 CDN 주소가 그대로 내려간다). 등록된 이미지가 없으면 null",
+            example = "https://img1.kbcard.com/ST/img/cxc/kbcard/upload/img/product/09222_img.png")
     private String cardImageUrl;
 
     @ApiModelProperty(value = """
