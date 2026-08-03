@@ -151,9 +151,13 @@ public class CardListResponse {
 { "success": true, "code": "USER_CARDS_FOUND",
   "message": "보유 카드 목록을 조회했습니다.", "data": [ ... ] }
 
-// 실패 — data는 null로 유지된다
+// 실패 — data는 기본적으로 null이다
 { "success": false, "code": "CARD_NOT_FOUND",
   "message": "카드를 찾을 수 없습니다.", "data": null }
+
+// 실패 + 부가 데이터 — 명세가 요구할 때만 data를 채운다
+{ "success": false, "code": "PIN_MISMATCH",
+  "message": "비밀번호가 일치하지 않습니다.", "data": { "remainingAttempts": 2 } }
 
 // 검증 실패 — errors가 추가된다 (이때만 나온다)
 { "success": false, "code": "INVALID_INPUT_VALUE",
@@ -172,13 +176,19 @@ public class CardListResponse {
 - 전역 단일 enum을 쓰지 않는다 — 6명이 병렬로 개발하면 그 파일에서 계속 충돌한다
 - 예외는 **`BusinessException` 하나만** 쓴다. 새 에러는 예외 클래스가 아니라 ErrorCode 상수를 추가한다
 - **컨트롤러에서 try-catch로 에러 응답을 만들지 않는다.** `GlobalExceptionHandler`가 전부 처리한다
+- 실패 응답에 부가 데이터가 필요하면(예: 남은 시도 횟수) `BusinessException`/`ApiResponse.error()`의
+  2-인자 오버로드를 쓴다. 안 쓰면 기존과 동일하게 `data: null`로 나간다
 
 ```java
 // 컨트롤러 — 성공 응답
 return ApiResponse.of(CardSuccessCode.USER_CARDS_FOUND, cardService.findMyCards(userId));
 
-// 서비스 — 실패
+// 서비스 — 실패 (data 없음)
 throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
+
+// 서비스 — 실패 + 부가 데이터
+throw new BusinessException(PaymentErrorCode.PIN_MISMATCH,
+        PinMismatchResponse.builder().remainingAttempts(remainingAttempts).build());
 ```
 
 ---
