@@ -15,6 +15,6 @@ import java.util.List;
 public class BenefitSummaryResponse {
     private BigDecimal totalReceivedBenefit;
     private BigDecimal totalMissedBenefit;
-    private List<CategoryBenefitDto> categories;
-    private List<CardRecommendationDto> recommendations;
+    private List<CategoryBenefitResponse> categories;
+    private List<CardRecommendationResponse> recommendations;
 }

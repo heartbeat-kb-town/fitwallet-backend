@@ -11,7 +11,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 @NoArgsConstructor
 @Builder
-public class CategoryBenefitDto {
+public class CategoryBenefitResponse {
     private Long categoryId;
     private String categoryName;
     private BigDecimal benefitAmount;

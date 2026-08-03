@@ -11,7 +11,7 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 @Builder
-public class CardRecommendationDto {
+public class CardRecommendationResponse {
     private Long cardProductId;
     private String cardName;
     private String cardImageUrl;
