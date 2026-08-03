@@ -5,6 +5,7 @@ import com.fitwallet.domain.benefit.dto.response.ExpectedBenefitStoreResponse;
 import com.fitwallet.domain.benefit.exception.BenefitErrorCode;
 import com.fitwallet.domain.benefit.service.BenefitService;
 import com.fitwallet.global.config.AuthInterceptor;
+import com.fitwallet.global.config.JwtProvider;
 import com.fitwallet.global.config.LoginUserIdArgumentResolver;
 import com.fitwallet.global.exception.BusinessException;
 import com.fitwallet.global.exception.GlobalExceptionHandler;
@@ -40,19 +41,23 @@ class BenefitControllerTest {
     @Mock
     private BenefitService benefitService;
 
+    @Mock
+    private JwtProvider jwtProvider;
+
     private MockMvc mockMvc;
 
     @BeforeEach
     void setUp() {
         mockMvc = MockMvcBuilders.standaloneSetup(new BenefitController(benefitService))
                 .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
-                .addInterceptors(new AuthInterceptor())
+                .addInterceptors(new AuthInterceptor(jwtProvider))
                 .setControllerAdvice(new GlobalExceptionHandler())
                 .build();
     }
 
     @Test
     void 정상_호출이_200과_EXPECTED_BENEFIT_FOUND를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
         given(benefitService.findExpectedBenefits(eq(1L), any())).willReturn(
                 ExpectedBenefitResponse.builder()
                         .store(ExpectedBenefitStoreResponse.builder()
@@ -62,7 +67,7 @@ class BenefitControllerTest {
                         .build());
 
         mockMvc.perform(get("/api/benefit/expected")
-                        .header("X-User-Id", "1")
+                        .header("Authorization", "Bearer access-token")
                         .param("storeId", "3011"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
@@ -77,11 +82,12 @@ class BenefitControllerTest {
      */
     @Test
     void storeId_쿼리_파라미터가_가공_없이_서비스로_전달된다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
         given(benefitService.findExpectedBenefits(any(), any())).willReturn(
                 ExpectedBenefitResponse.builder().hasCard(false).cards(List.of()).build());
 
         mockMvc.perform(get("/api/benefit/expected")
-                        .header("X-User-Id", "1")
+                        .header("Authorization", "Bearer access-token")
                         .param("storeId", "abc"))
                 .andExpect(status().isOk());
 
@@ -90,11 +96,12 @@ class BenefitControllerTest {
 
     @Test
     void storeId가_없으면_500이_아니라_서비스가_던진_400이_그대로_나간다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
         willThrow(new BusinessException(BenefitErrorCode.STORE_ID_REQUIRED))
                 .given(benefitService).findExpectedBenefits(eq(1L), isNull());
 
         mockMvc.perform(get("/api/benefit/expected")
-                        .header("X-User-Id", "1"))
+                        .header("Authorization", "Bearer access-token"))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.success").value(false))
                 .andExpect(jsonPath("$.code").value("STORE_ID_REQUIRED"))
