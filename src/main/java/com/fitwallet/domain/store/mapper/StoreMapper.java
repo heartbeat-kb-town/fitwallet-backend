@@ -1,6 +1,8 @@
 package com.fitwallet.domain.store.mapper;
 
 import com.fitwallet.domain.store.dto.request.StoreSearchCondition;
+import com.fitwallet.domain.store.dto.response.PopularKeywordResponse;
+import com.fitwallet.domain.store.dto.response.RecentKeywordResponse;
 import com.fitwallet.domain.store.dto.response.StoreSummaryResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -67,4 +69,15 @@ public interface StoreMapper {
      * 호출부를 오도하기 때문이다(§3 접두사 목록 개정 제안 중).
      */
     void upsertSearchHistory(@Param("userId") Long userId, @Param("keyword") String keyword);
+
+    /**
+     * 사용자의 최근 검색어. {@code searched_at} 내림차순 최대 5개. 없으면 빈 목록(예외 아님).
+     */
+    List<RecentKeywordResponse> findRecentKeywords(@Param("userId") Long userId);
+
+    /**
+     * 최근 7일 집계 상위 5개. {@code searchCount}는 검색 횟수가 아니라 그 키워드를 마지막으로
+     * 검색한 사용자 수다((user_id, keyword) UNIQUE라서). 동점이면 가장 최근에 검색된 쪽이 앞선다.
+     */
+    List<PopularKeywordResponse> findPopularKeywords();
 }

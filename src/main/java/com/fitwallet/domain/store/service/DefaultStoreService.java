@@ -1,6 +1,8 @@
 package com.fitwallet.domain.store.service;
 
 import com.fitwallet.domain.store.dto.request.StoreSearchCondition;
+import com.fitwallet.domain.store.dto.response.PopularKeywordsResponse;
+import com.fitwallet.domain.store.dto.response.StoreKeywordsResponse;
 import com.fitwallet.domain.store.dto.response.StoreSearchResponse;
 import com.fitwallet.domain.store.dto.response.StoreSummaryResponse;
 import com.fitwallet.domain.store.exception.StoreErrorCode;
@@ -27,6 +29,9 @@ import java.util.List;
 public class DefaultStoreService implements StoreService {
 
     private static final int NEARBY_MAX_RADIUS_METERS = 3000;
+
+    /** DB에서 오지 않는 서비스 정책값. {@code StoreMapper.findPopularKeywords}의 집계 기간과 맞춘다. */
+    private static final int POPULAR_PERIOD_DAYS = 7;
 
     private final StoreMapper storeMapper;
     private final SearchHistoryService searchHistoryService;
@@ -91,6 +96,18 @@ public class DefaultStoreService implements StoreService {
                 .categoryId(categoryId)
                 .radiusMeters(confirmedRadius)
                 .stores(stores)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public StoreKeywordsResponse findKeywords(Long userId) {
+        return StoreKeywordsResponse.builder()
+                .recent(storeMapper.findRecentKeywords(userId))
+                .popular(PopularKeywordsResponse.builder()
+                        .periodDays(POPULAR_PERIOD_DAYS)
+                        .keywords(storeMapper.findPopularKeywords())
+                        .build())
                 .build();
     }
 
