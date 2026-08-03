@@ -64,7 +64,7 @@ public class DefaultPaymentService implements PaymentService {
                 && pinAuthInfo.getAuthExpiresAt().isAfter(LocalDateTime.now());
 
         if(!valid){ //유효하지 않은 경우
-            throw new BusinessException(PaymentErrorCode.AUTH_ID_INVALID);
+            throw new BusinessException(PaymentErrorCode.PIN_AUTH_ID_INVALID);
         }
 
         paymentMapper.markPinAuthUsed(userId);

@@ -9,7 +9,7 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum PaymentSuccessCode implements SuccessCode {
 
-    PIN_VERIFIED(HttpStatus.OK, "비밀번호가 확인되었습니다."),
+    PIN_VERIFIED(HttpStatus.OK, "결제 비밀번호가 확인되었습니다."),
     QR_CREATED(HttpStatus.CREATED, "QR 코드가 생성되었습니다.");
 
     private final HttpStatus status;
