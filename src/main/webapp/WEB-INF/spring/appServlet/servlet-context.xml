@@ -27,14 +27,14 @@
     <!--
         인증 컨텍스트 전달 통로.
         컨트롤러는 @LoginUserId 로만 사용자를 받고, 헤더/세션을 직접 읽지 않는다.
-        JWT 도입 시 AuthInterceptor 내부만 교체하면 컨트롤러는 그대로 둘 수 있다.
+        AuthInterceptor가 Authorization: Bearer {Access Token}을 검증해 사용자 식별자를 꺼낸다.
     -->
     <interceptors>
         <interceptor>
             <mapping path="/api/**"/>
             <exclude-mapping path="/api/user/signup"/>
             <exclude-mapping path="/api/user/login"/>
-            <beans:bean class="com.fitwallet.global.config.AuthInterceptor"/>
+            <beans:bean class="com.fitwallet.global.config.AuthInterceptor" autowire="constructor"/>
         </interceptor>
     </interceptors>
 
