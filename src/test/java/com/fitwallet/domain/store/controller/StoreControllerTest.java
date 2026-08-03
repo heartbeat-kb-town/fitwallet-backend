@@ -113,13 +113,14 @@ class StoreControllerTest {
 
     @Test
     void 검색어_조회_정상_호출이_200과_SEARCH_KEYWORDS_FOUND를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
         given(storeService.findKeywords(1L)).willReturn(
                 StoreKeywordsResponse.builder()
                         .recent(List.of())
                         .popular(PopularKeywordsResponse.builder().periodDays(7).keywords(List.of()).build())
                         .build());
 
-        mockMvc.perform(get("/api/store/keywords").header("X-User-Id", "1"))
+        mockMvc.perform(get("/api/store/keywords").header("Authorization", "Bearer access-token"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.success").value(true))
                 .andExpect(jsonPath("$.code").value("SEARCH_KEYWORDS_FOUND"));
