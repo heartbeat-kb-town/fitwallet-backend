@@ -58,6 +58,13 @@ dependencies {
     implementation 'org.hibernate.validator:hibernate-validator:6.2.5.Final'
     implementation 'org.glassfish:jakarta.el:3.0.4'
 
+    // API 문서 (Swagger UI / OpenAPI 3)
+    // Boot가 아니므로 springfox-boot-starter를 쓸 수 없다. springfox 3.0.0은 javax 기반 마지막
+    // 버전이라 이 스택과 맞는다 — "springfox는 죽었다"는 평판은 전부 Boot 3/jakarta 전환 맥락이다.
+    // springfox-oas가 OpenAPI 3.0(/v3/api-docs)을, springfox-swagger-ui가 UI 정적 리소스를 준다.
+    implementation 'io.springfox:springfox-oas:3.0.0'
+    implementation 'io.springfox:springfox-swagger-ui:3.0.0'
+
     // Lombok
     compileOnly 'org.projectlombok:lombok:1.18.34'
     annotationProcessor 'org.projectlombok:lombok:1.18.34'

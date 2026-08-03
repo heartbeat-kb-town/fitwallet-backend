@@ -52,12 +52,19 @@
     <!--
         웹 계층(@Controller, @ControllerAdvice)은 servlet-context.xml이 스캔한다.
         여기서 같이 스캔하면 빈이 두 컨텍스트에 중복 등록된다.
+
+        SwaggerConfig도 같은 이유로 제외한다. @Configuration은 @Component 계열이라 기본 필터에 걸리는데,
+        springfox는 RequestMappingHandlerMapping을 읽어야 문서를 만들고 그 빈은 웹 컨텍스트에만 있다.
+        여기서 잡히면 핸들러 매핑이 없는 루트 컨텍스트에 springfox 인프라가 한 벌 더 생겨
+        문서가 비거나 기동이 깨진다.
     -->
     <context:component-scan base-package="com.fitwallet">
         <context:exclude-filter type="annotation"
                                 expression="org.springframework.stereotype.Controller"/>
         <context:exclude-filter type="annotation"
                                 expression="org.springframework.web.bind.annotation.ControllerAdvice"/>
+        <context:exclude-filter type="assignable"
+                                expression="com.fitwallet.global.config.SwaggerConfig"/>
     </context:component-scan>
 
 </beans>
