@@ -49,3 +49,6 @@ desktop.ini
 
 # db.properties
 db.properties
+# OpenAPI 스펙 스냅샷은 openapi-spec 브랜치에 CI가 발행한다 (AGENTS.md §5).
+# 로컬에서 ./gradlew openapiDump로 뽑아볼 수는 있지만 커밋 대상이 아니다.
+docs/openapi.json

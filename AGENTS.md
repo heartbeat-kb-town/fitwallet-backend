@@ -206,6 +206,37 @@ Springfox 3.0.0이 컨트롤러를 읽어 **`/v3/api-docs`(OpenAPI 3.0 JSON)**�
 > 노션 API 명세를 대체하지 않는다. **노션은 "왜/무엇을"의 정본, Swagger는 "실제 계약"의 정본**이다.
 > 둘이 어긋나면 코드가 맞고 노션을 고친다.
 
+#### 스펙 발행 (`openapi-spec` 브랜치)
+
+Springfox는 런타임 생성이라 **앱을 띄우지 않으면 스펙을 볼 수 없다.** 프론트엔드까지 그 부담을
+지지 않도록, CI가 스펙을 뽑아 **`openapi-spec` 브랜치에 발행**한다. 프론트엔드는 이 URL을 읽는다:
+
+```
+https://raw.githubusercontent.com/heartbeat-kb-town/fitwallet-backend/openapi-spec/openapi.json
+```
+
+**아무도 손으로 갱신하지 않는다.** `develop`에 머지될 때마다 CI(`openapi-spec` 잡)가 백엔드를 띄워
+스펙을 받아 발행한다. 컨트롤러·DTO·어노테이션을 고치고 잊어버려도 따라온다.
+
+- **`docs/openapi.json`은 커밋 대상이 아니다** (`.gitignore`). 로컬에서 뽑아보는 산출물일 뿐이며,
+  정본은 `openapi-spec` 브랜치다. 저장소 트리에도 두면 정본이 둘이 된다
+- 그 브랜치는 **발행물이지 소스가 아니다.** 직접 고치지 말고, 고칠 게 있으면 컨트롤러나 어노테이션을 고친다
+- 커밋 이력이 곧 **API 계약 변경 이력**이다. 언제 어떤 필드가 바뀌었는지 여기서 추적한다
+
+> 왜 저장소 트리에 커밋하지 않는가 — `develop`은 룰셋으로 보호돼 있어(PR 필수) CI의 `GITHUB_TOKEN`이
+> 직접 push할 수 없다. 뚫으려면 배포 키나 PAT를 만들어 보호를 완화해야 한다. PR 브랜치에 커밋을
+> 얹는 방법도 되지만, 봇 커밋 뒤에 팀원이 매번 `git pull`을 해야 해서 접었다.
+> 보호가 없는 전용 브랜치는 기본 토큰으로 충분하고 아무에게도 부담을 주지 않는다.
+
+로컬에서 즉시 확인하고 싶을 때만 직접 돌린다:
+
+```bash
+./gradlew openapiDump      # 앱을 띄워 /v3/api-docs를 받아 스냅샷 갱신 (docker compose MySQL 필요)
+```
+
+Gretty의 `integrationTestTask` 훅에 얹어 서버 기동·종료를 자동으로 처리한다
+(`appStart`를 `dependsOn`으로 걸면 그 자리에서 빌드가 멈춘다). 출력은 pretty-print라 diff가 읽힌다.
+
 설정은 `global/config/SwaggerConfig`에 있다 — **이 저장소의 유일한 자바 `@Configuration`**이며
 §1의 "설정은 전부 XML" 관례에 대한 의도된 예외다(Docket은 빌더 체인이라 XML로 옮기면 더 읽기 어렵다).
 새 컨트롤러를 만들 때 설정은 건드릴 필요가 없다. 아래 네 가지만 지킨다.
