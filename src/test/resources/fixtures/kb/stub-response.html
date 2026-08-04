@@ -1,0 +1,41 @@
+
+
+
+<script type="text/javascript" charset="utf-8" src="/CMN/common/js/lib/jquery-3.4.1.min.js"></script>
+<script type="text/javascript" charset="utf-8" src="/CMN/common/js/cmn.js"></script>
+<form id="formRedirect" name="formRedirect" accept-charset="UTF-8"></form>
+<script type="text/javascript">
+$(document).ready(function(){
+	var formObj = {};
+	var pathUrl = '/CRD/DVIEW/HCAM0101';
+	var method = 'POST';
+	var f = document.formRedirect;
+	var params = new kbwaf.Params();
+	for (var key in formObj) {
+		var vKey = Object.keys(formObj)[0];
+		var vValue = formObj[Object.keys(formObj)[0]];
+		params.add(key, formObj[key]);
+	}
+	if(method == "GET") {
+		if (params) {
+			if (pathUrl.indexOf("?") > -1) {
+				pathUrl = pathUrl + "&" + params;
+			} else {
+				pathUrl = pathUrl + "?" + params;
+			}
+		}
+		//location.href = pathUrl;
+		location.replace(pathUrl);
+	} else {
+		svcf_AppendForm(f, params);
+		svcf_Submit(f, pathUrl, "_self", method);
+	}
+});
+
+
+window.onpageshow = function(event){
+	if ( event.persisted || window.performance.navigation.type === 2 ) {
+		history.back();
+	}
+}
+</script>

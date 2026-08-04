@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+
+<mapper namespace="com.fitwallet.batch.kb.mapper.CrawlRawCardMapper">
+
+    <!--
+        created_at / updated_at 은 DB DEFAULT 가 채우므로 컬럼 목록에 넣지 않는다 (AGENTS.md §10).
+
+        ON DUPLICATE KEY UPDATE 는 uk_crawl_raw_card (issuer_id, external_card_code, section)
+        에 걸린다. 이 테이블은 이력을 쌓지 않고 최신 원문만 들고 있으므로 같은 카드의 같은
+        섹션을 다시 수집하면 덮어쓰는 것이 맞다.
+
+        section 은 자바 enum(SectionType)인데 DDL 의 CHECK 값과 상수 이름이 같아
+        기본 EnumTypeHandler 가 알아서 변환한다 — 커스텀 TypeHandler 를 만들지 않는다 (§6).
+    -->
+    <insert id="insertRawCard" parameterType="com.fitwallet.batch.kb.dto.CrawlRawCardRequest">
+        INSERT INTO crawl_raw_card (
+            issuer_id,
+            external_card_code,
+            card_name,
+            section,
+            source_url,
+            raw_text,
+            content_hash,
+            fetched_at
+        ) VALUES (
+            #{issuerId},
+            #{externalCardCode},
+            #{cardName},
+            #{section},
+            #{sourceUrl},
+            #{rawText},
+            #{contentHash},
+            #{fetchedAt}
+        )
+        ON DUPLICATE KEY UPDATE
+            card_name    = VALUES(card_name),
+            source_url   = VALUES(source_url),
+            raw_text     = VALUES(raw_text),
+            content_hash = VALUES(content_hash),
+            fetched_at   = VALUES(fetched_at)
+    </insert>
+
+    <select id="findIssuerIdByName" resultType="long">
+        SELECT issuer_id
+          FROM issuer
+         WHERE card_company_name = #{cardCompanyName}
+    </select>
+
+    <select id="findContentHashesByIssuerId" resultType="string">
+        SELECT content_hash
+          FROM crawl_raw_card
+         WHERE issuer_id = #{issuerId}
+    </select>
+
+    <select id="countByIssuerId" resultType="int">
+        SELECT COUNT(*)
+          FROM crawl_raw_card
+         WHERE issuer_id = #{issuerId}
+    </select>
+
+</mapper>

@@ -35,6 +35,7 @@
 | **가맹점 분류** | `category`, `brand`, `store` | [§2.3](#23-가맹점-분류) |
 | **사용자** | `users`, `refresh_token`, `user_card`, `search_history` | [§2.4](#24-사용자) |
 | **결제** | `payment_transaction`, `payment_session` | [§2.5](#25-결제) |
+| **데이터 수집** | `crawl_raw_card` | [§2.6](#26-데이터-수집) |
 
 관계도는 이 덩어리 단위로 쪼개 각 절 머리에 뒀습니다. 덩어리를 가로지르는 관계는 양쪽 그림에 모두 그리고, 상대 절 번호를 라벨에 붙였습니다.
 
@@ -498,6 +499,45 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 
 ---
 
+### 2.6 데이터 수집
+
+```mermaid
+erDiagram
+    issuer ||--o{ crawl_raw_card : "수집 원문 (2.1)"
+```
+
+#### `crawl_raw_card` — 혜택 원문 수집 staging
+
+카드사 웹페이지에서 긁어온 혜택 설명 **원문 텍스트**를 그대로 보관합니다. 해석된 값은 없습니다 — 해석 결과는 다음 단계에서 `benefit_service`·`benefit_tier`·`benefit_limit`으로 들어갑니다.
+
+**왜 중간 테이블을 두는가:** 수집과 해석을 떼어놓기 위해서입니다. 원문이 DB에 있으면 파서나 LLM 프롬프트를 고칠 때 추출만 재실행하면 됩니다. 이 테이블이 없으면 프롬프트를 손볼 때마다 카드사 페이지 수십 개를 다시 긁어야 합니다.
+
+| 컬럼 | 설명 | 타입 | NULL | DEFAULT | 상세 설명 |
+|---|---|---|---|---|---|
+| `crawl_raw_card_id` (PK) | 수집 원문 ID | BIGINT | NO | AUTO_INCREMENT | |
+| `issuer_id` (FK) | 카드사 | BIGINT | NO | — | → `issuer` |
+| `external_card_code` | 카드사 쪽 카드 식별자 | VARCHAR(20) | NO | — | KB는 제휴코드(`cooperationcode`, 5자리). 카드사마다 체계가 달라 문자열 |
+| `card_name` | 수집 시점 카드명 | VARCHAR(200) | **YES** | — | 페이지에서 못 뽑을 수 있음 |
+| `section` | 원문 영역 | VARCHAR(20) | NO | — | `SUMMARY`/`DETAIL`/`ANNUAL_FEE` (`ck_crawl_raw_card_section`) |
+| `source_url` | 수집 출처 URL | VARCHAR(500) | NO | — | |
+| `raw_text` | 원문 텍스트 | MEDIUMTEXT | NO | — | 태그 제거·공백 정규화만 한 순수 텍스트 |
+| `content_hash` | 원문 해시 | CHAR(64) | NO | — | SHA-256(`raw_text`). 변경 감지용 |
+| `fetched_at` | 수집 시각 | DATETIME | NO | — | 비즈니스 시각. `created_at`과 분리 |
+| `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
+| `updated_at` | 수정 시각 | DATETIME | NO | CURRENT_TIMESTAMP | `ON UPDATE CURRENT_TIMESTAMP` |
+
+> **`card_product`를 FK로 참조하지 않습니다.** 수집 시점엔 그 카드가 `card_product`에 있는지 아직 모릅니다(신규 카드일 수 있음). 우리 카드와 맞춰보는 일 자체가 다음 단계의 몫이라, 여기선 카드사가 쓰는 `external_card_code`만 들고 있습니다.
+>
+> **카드당 한 행이 아니라 섹션당 한 행입니다.** 영역마다 성격이 달라 다음 단계에서 서로 다른 프롬프트로 처리하고, 한 영역만 바뀌었을 때 그 영역만 재처리할 수 있습니다.
+>
+> **`content_hash`가 이 테이블의 핵심입니다.** 재수집 시 해시가 같으면 원문이 안 바뀐 것이므로 LLM 호출을 통째로 건너뜁니다. 비용 절감이자, 어떤 카드가 바뀌었는지 가려내는(= 추가/수정/삭제 판정) 근거입니다.
+>
+> **이력을 쌓지 않고 최신 원문만 덮어씁니다.** `(issuer_id, external_card_code, section)` UNIQUE가 그 불변식이고, 덕분에 `INSERT ... ON DUPLICATE KEY UPDATE` 한 문장으로 원자적으로 갱신됩니다(`search_history` v24와 같은 관용구).
+>
+> **KB의 '확인사항' 탭은 수집하지 않습니다.** 카드당 8천 자가 넘지만 내용이 할인 제외매출·연체이자율 같은 법적 고지문이라(카드 간 유사도 52%) 혜택 판정에 쓸 값이 없습니다. 오히려 넣으면 "상품권 구입은 할인 제외" 같은 문장이 혜택으로 오추출됩니다.
+
+---
+
 ## 3. 코드 값 (CHECK 제약)
 
 DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBatis 기본 `EnumTypeHandler`가 `name()` 기준으로 자동 변환합니다. **커스텀 TypeHandler를 만들지 않습니다** ([AGENTS.md](../AGENTS.md) §6).
@@ -512,6 +552,7 @@ DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBati
 | `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR` | `ck_benefit_limit_limit_period` |
 | `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED` | `ck_payment_session_status` |
 | `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR` (NULL 허용) | `ck_payment_session_fail_reason` |
+| `crawl_raw_card.section` | `SUMMARY`, `DETAIL`, `ANNUAL_FEE` | `ck_crawl_raw_card_section` |
 
 값 집합이 아닌 CHECK 제약(XOR·범위)은 각 테이블의 "상세 설명" 열에 적어 뒀습니다 — `ck_benefit_tier_xor`, `ck_card_event_target_xor`, `ck_card_event_period`, `ck_benefit_service_max_payment_amount`, `ck_benefit_service_point_currency_required`.
 

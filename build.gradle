@@ -65,6 +65,11 @@ dependencies {
     implementation 'io.springfox:springfox-oas:3.0.0'
     implementation 'io.springfox:springfox-swagger-ui:3.0.0'
 
+    // HTML 파싱 (카드사 혜택 원문 크롤러, com.fitwallet.batch)
+    // 순수 자바라 javax/jakarta 구분이 없어 §1의 스택 제약과 충돌하지 않는다.
+    // HTTP는 JDK 17 내장 java.net.http.HttpClient를 쓰므로 클라이언트 의존성은 추가하지 않는다.
+    implementation 'org.jsoup:jsoup:1.18.1'
+
     // Lombok
     compileOnly 'org.projectlombok:lombok:1.18.34'
     annotationProcessor 'org.projectlombok:lombok:1.18.34'
@@ -114,4 +119,18 @@ gretty {
     servletContainer = 'tomcat9'
     httpPort = 8080
     jvmArgs = ['-Denv=local', timezoneJvmArg] + dotenvJvmArgs
+}
+
+// KB국민카드 혜택 원문 크롤러 (com.fitwallet.batch.kb).
+// WAR와 무관하게 도는 독립 프로세스라 Gretty를 띄우지 않고 루트 컨텍스트만 올린다.
+//   ./gradlew crawlKb                 # 전체
+//   ./gradlew crawlKb --args="5"      # 5장만 (스모크)
+tasks.register('crawlKb', JavaExec) {
+    group = 'application'
+    description = 'KB국민카드 혜택 원문을 수집해 crawl_raw_card에 적재한다.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'com.fitwallet.batch.kb.KbCrawlLauncher'
+    systemProperty 'env', System.getProperty('env', 'local')
+    jvmArgs timezoneJvmArg
+    dotenv.each { k, v -> systemProperty(k.toString(), v.toString()) }
 }

@@ -63,17 +63,32 @@ com.fitwallet
 │  │  ├─ request/
 │  │  └─ response/
 │  └─ exception/                # {도메인}ErrorCode
-└─ global/
-   ├─ common/{annotation,dto}/
-   ├─ config/
-   └─ exception/
+├─ global/
+│  ├─ common/{annotation,dto}/
+│  ├─ config/
+│  └─ exception/
+└─ batch/{kb,...}/                # 카드사별 데이터 수집 배치 (도메인 아님)
 
 src/main/resources/mapper/{도메인}/{도메인}Mapper.xml
+src/main/resources/mapper/batch/{배치}Mapper.xml
 ```
 
 **`domain/card`가 참조 구현이다.** 새 도메인은 이걸 복제해서 시작한다.
 
 이 구조의 대가로 MyBatis XML이 API 계약에 묶인다. API 응답 스펙이 바뀌면 XML도 함께 고쳐야 한다.
+
+### `batch` — 도메인이 아닌 것
+
+`batch`는 도메인 6개와 별개다. 카드사 웹페이지에서 혜택 원문을 긁어오는 배치가 여기 산다.
+HTTP 요청·HTML 파싱이 주 관심사라 API 서비스와 성격이 다르고, 6개 도메인 어디에도 속하지
+않는다. 카드사가 늘면 `batch/shinhan`, `batch/hyundai`처럼 **하위 패키지로** 붙인다.
+
+`domain`의 규칙 중 아래는 그대로 지킨다 — DTO 규칙(§4), MyBatis 규칙(§6), 트랜잭션 경계(§9),
+테스트 규칙(§11). 다르게 가는 건 둘뿐이다:
+
+- **Controller가 없다.** 사람이 실행하는 배치라 진입점이 `main()`(`KbCrawlLauncher`)이다
+- **`BusinessException`/ErrorCode를 쓰지 않는다.** HTTP 응답으로 번역될 일이 없어
+  ErrorCode·상태코드가 붙을 자리가 없다. 대신 `KbCrawlException` 계열을 쓴다
 
 ---
 
