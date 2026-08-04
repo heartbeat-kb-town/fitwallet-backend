@@ -3,16 +3,28 @@ package com.fitwallet.domain.card.service;
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.CardType;
+import com.fitwallet.domain.card.dto.CardMonthlyPeriod;
+import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
+import com.fitwallet.domain.card.dto.CardUsageBenefitAllocation;
+import com.fitwallet.domain.card.dto.CardUsageCardInfo;
+import com.fitwallet.domain.card.dto.CardUsageRuleSet;
+import com.fitwallet.domain.card.dto.CardUsageTierState;
+import com.fitwallet.domain.card.dto.CardUsageTierStructure;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
+import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
+import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionCardResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionCursorResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionSummaryResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageCardResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageSummaryResponse;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.card.mapper.CardMapper;
 import com.fitwallet.global.exception.BusinessException;
@@ -22,9 +34,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
-import java.time.Clock;
 import java.time.DateTimeException;
-import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -48,11 +58,14 @@ public class DefaultCardService implements CardService {
     private static final int DEFAULT_TRANSACTION_SIZE = 20;
     private static final int MIN_TRANSACTION_SIZE = 1;
     private static final int MAX_TRANSACTION_SIZE = 100;
-    private static final int AVAILABLE_MONTH_COUNT = 3;
     private static final String CURSOR_DELIMITER = "|";
 
     private final CardMapper cardMapper;
-    private final Clock clock;
+    private final CardMonthlyPeriodResolver monthlyPeriodResolver;
+    private final CardUsageRuleNormalizer usageRuleNormalizer;
+    private final CardUsageTierIntegrator usageTierIntegrator;
+    private final CardUsageBenefitAllocator usageBenefitAllocator;
+    private final CardUsageTierStateCalculator usageTierStateCalculator;
     private final MyDataProvider myDataProvider;
 
     @Override
@@ -82,13 +95,13 @@ public class DefaultCardService implements CardService {
             throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
         }
 
-        LocalDate today = LocalDate.now(clock);
-        YearMonth currentYearMonth = YearMonth.from(today);
-        YearMonth yearMonth = resolveYearMonth(request.getYearMonth(), currentYearMonth);
+        CardMonthlyPeriod period = monthlyPeriodResolver.resolve(
+                request.getYearMonth(), card.getCardType());
+        YearMonth yearMonth = period.getYearMonth();
         int requestedSize = resolveSize(request.getSize());
 
-        LocalDateTime startAt = yearMonth.atDay(1).atStartOfDay();
-        LocalDateTime endAt = resolveEndAt(card.getCardType(), yearMonth, currentYearMonth, today);
+        LocalDateTime startAt = period.getStartAt();
+        LocalDateTime endAt = period.getEndAt();
         DecodedCursor cursor = decodeCursor(request.getCursor(), cardId, yearMonth, startAt, endAt);
 
         CardTransactionSearchCondition condition = CardTransactionSearchCondition.builder()
@@ -100,7 +113,7 @@ public class DefaultCardService implements CardService {
                 .build();
 
         CardTransactionSummaryResponse paymentSummary = createPaymentSummary(
-                userId, cardId, card, yearMonth, currentYearMonth, condition);
+                userId, cardId, card, period.isCurrentMonth(), condition);
         CardTransactionCursorResponse transactions = createCursorResponse(
                 cardId, yearMonth, requestedSize,
                 cardMapper.findTransactions(userId, cardId, condition));
@@ -108,9 +121,66 @@ public class DefaultCardService implements CardService {
         return CardTransactionDetailResponse.builder()
                 .card(toCardResponse(card))
                 .yearMonth(yearMonth.toString())
-                .availableYearMonths(createAvailableYearMonths(currentYearMonth))
+                .availableYearMonths(period.getAvailableYearMonths())
                 .paymentSummary(paymentSummary)
                 .transactions(transactions)
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CardUsageDetailResponse getCardUsage(
+            Long userId,
+            Long cardId,
+            CardUsageSearchRequest request) {
+        CardUsageCardInfo card = cardMapper.findUsageCardInfo(userId, cardId);
+        if (card == null) {
+            throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
+        }
+
+        CardMonthlyPeriod period = monthlyPeriodResolver.resolve(
+                request == null ? null : request.getYearMonth(),
+                card.getCardType());
+        CardUsagePeriodCondition condition = CardUsagePeriodCondition.builder()
+                .startAt(period.getStartAt())
+                .endAt(period.getEndAt())
+                .build();
+        CardUsageAmountSummary amounts = cardMapper.findUsageAmounts(
+                userId, cardId, condition);
+        if (amounts == null || amounts.getRecognizedAmount() == null
+                || amounts.getExcludedAmount() == null) {
+            throw new IllegalStateException(
+                    "카드 이용 실적 금액 집계 결과가 없습니다. cardId=" + cardId);
+        }
+
+        CardUsageRuleSet ruleSet = usageRuleNormalizer.normalize(
+                card.getCardProductId(),
+                cardMapper.findUsageBenefitRules(card.getCardProductId()));
+        CardUsageTierStructure tierStructure = usageTierIntegrator.integrate(ruleSet);
+        CardUsageBenefitAllocation benefitAllocation = usageBenefitAllocator.allocate(
+                tierStructure, ruleSet.getBenefits());
+        CardUsageTierState tierState = usageTierStateCalculator.calculate(
+                amounts.getRecognizedAmount(), tierStructure, benefitAllocation);
+
+        return CardUsageDetailResponse.builder()
+                .card(CardUsageCardResponse.builder()
+                        .cardName(card.getCardName())
+                        .issuerName(card.getIssuerName())
+                        .build())
+                .yearMonth(period.getYearMonth().toString())
+                .availableYearMonths(period.getAvailableYearMonths())
+                .tierType(tierStructure.getTierType())
+                .performanceStatus(tierState.getPerformanceStatus())
+                .usageSummary(CardUsageSummaryResponse.builder()
+                        .recognizedAmount(amounts.getRecognizedAmount())
+                        .excludedAmount(amounts.getExcludedAmount())
+                        .build())
+                .currentTier(tierState.getCurrentTier())
+                .nextTier(tierState.getNextTier())
+                .amountUntilNextTier(tierState.getAmountUntilNextTier())
+                .tierProgressRate(tierState.getTierProgressRate())
+                .tiers(tierState.getTiers())
+                .defaultBenefits(benefitAllocation.getDefaultBenefits())
                 .build();
     }
 
@@ -138,25 +208,6 @@ public class DefaultCardService implements CardService {
         return cardMapper.findByUserIdAndCardProductId(userId, request.getCardProductId());
     }
 
-    private YearMonth resolveYearMonth(String requestedYearMonth, YearMonth currentYearMonth) {
-        if (requestedYearMonth == null || requestedYearMonth.isBlank()) {
-            return currentYearMonth;
-        }
-
-        final YearMonth yearMonth;
-        try {
-            yearMonth = YearMonth.parse(requestedYearMonth);
-        } catch (DateTimeException exception) {
-            throw new BusinessException(CardErrorCode.INVALID_YEAR_MONTH);
-        }
-
-        if (yearMonth.isAfter(currentYearMonth)
-                || yearMonth.isBefore(currentYearMonth.minusMonths(AVAILABLE_MONTH_COUNT - 1L))) {
-            throw new BusinessException(CardErrorCode.YEAR_MONTH_OUT_OF_RANGE);
-        }
-        return yearMonth;
-    }
-
     private int resolveSize(Integer requestedSize) {
         if (requestedSize == null) {
             return DEFAULT_TRANSACTION_SIZE;
@@ -167,25 +218,13 @@ public class DefaultCardService implements CardService {
         return requestedSize;
     }
 
-    private LocalDateTime resolveEndAt(CardType cardType, YearMonth yearMonth,
-                                       YearMonth currentYearMonth, LocalDate today) {
-        if (!yearMonth.equals(currentYearMonth)) {
-            return yearMonth.plusMonths(1).atDay(1).atStartOfDay();
-        }
-        if (cardType == CardType.CREDIT) {
-            return today.atStartOfDay();
-        }
-        return today.plusDays(1).atStartOfDay();
-    }
-
     private CardTransactionSummaryResponse createPaymentSummary(
             Long userId,
             Long cardId,
             CardTransactionCardInfo card,
-            YearMonth yearMonth,
-            YearMonth currentYearMonth,
+            boolean currentMonth,
             CardTransactionSearchCondition condition) {
-        if (card.getCardType() == CardType.CREDIT && yearMonth.equals(currentYearMonth)) {
+        if (card.getCardType() == CardType.CREDIT && currentMonth) {
             BigDecimal scheduledPaymentAmount = card.getScheduledPaymentAmount();
             if (scheduledPaymentAmount == null) {
                 throw new BusinessException(CardErrorCode.INVALID_CARD_PAYMENT_DATA);
@@ -236,14 +275,6 @@ public class DefaultCardService implements CardService {
                 .cardType(card.getCardType())
                 .maskedRearNumber(card.getMaskedRearNumber())
                 .build();
-    }
-
-    private List<String> createAvailableYearMonths(YearMonth currentYearMonth) {
-        List<String> availableYearMonths = new ArrayList<>(AVAILABLE_MONTH_COUNT);
-        for (int index = 0; index < AVAILABLE_MONTH_COUNT; index++) {
-            availableYearMonths.add(currentYearMonth.minusMonths(index).toString());
-        }
-        return availableYearMonths;
     }
 
     private DecodedCursor decodeCursor(
