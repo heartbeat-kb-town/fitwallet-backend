@@ -23,4 +23,6 @@ public interface CardService {
             CardTransactionSearchRequest request);
 
     CardListResponse register(Long userId, CardRegisterRequest request);
+
+    void connectMyData(Long userId);
 }

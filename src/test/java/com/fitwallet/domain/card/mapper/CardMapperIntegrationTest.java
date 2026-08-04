@@ -1,6 +1,8 @@
 package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardType;
+import com.fitwallet.domain.card.dto.MyDataCard;
+import com.fitwallet.domain.card.dto.MyDataTransaction;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -12,10 +14,14 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
+import java.math.BigDecimal;
 import java.sql.Timestamp;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -184,5 +190,77 @@ class CardMapperIntegrationTest {
         ReflectionTestUtils.setField(request, "last4", "5678");
         ReflectionTestUtils.setField(request, "expiryDate", LocalDate.of(2030, 1, 31));
         return request;
+    }
+
+    @Test
+    void 마이데이터_카드의_카드번호_유효기간_한도_결제예정액이_저장된다() {
+        // card_product_id=1은 CREDIT이고 SEED_USER_ID(1)에는 아직 등록돼 있지 않다.
+        MyDataCard card = myDataCard(1L, "9999", "1111", null, null,
+                BigDecimal.valueOf(2_500_000), BigDecimal.valueOf(180_000), List.of());
+
+        cardMapper.insertMyDataCard(SEED_USER_ID, card, 6, new HashMap<>());
+
+        CardListResponse saved = cardMapper.findByUserIdAndCardProductId(SEED_USER_ID, 1L);
+        assertThat(saved).isNotNull();
+        assertThat(saved.getMaskedFrontNumber()).isEqualTo("9999");
+        assertThat(saved.getMaskedRearNumber()).isEqualTo("1111");
+        assertThat(saved.getExpiryDate()).isEqualTo(LocalDate.of(2031, 12, 31));
+        assertThat(saved.getCreditLimit()).isEqualByComparingTo(BigDecimal.valueOf(2_500_000));
+        assertThat(saved.getScheduledPaymentAmount()).isEqualByComparingTo(BigDecimal.valueOf(180_000));
+        assertThat(saved.getBankName()).isNull();
+        assertThat(saved.getBalance()).isNull();
+    }
+
+    @Test
+    void 생성된_userCardId로_거래내역이_연결되고_금액_가맹점_결제시각이_저장된다() {
+        Long userCardId = insertMyDataCardAndGetUserCardId();
+        LocalDateTime paidAt = LocalDateTime.of(2026, 7, 18, 15, 5);
+
+        cardMapper.insertMyDataTransactions(userCardId, List.of(
+                MyDataTransaction.builder()
+                        .amount(BigDecimal.valueOf(8_500))
+                        .storeId(1L)
+                        .paidAt(paidAt)
+                        .build()));
+
+        Map<String, Object> row = jdbcTemplate.queryForMap(
+                "SELECT * FROM payment_transaction WHERE user_card_id = ?", userCardId);
+
+        assertThat(((Number) row.get("user_card_id")).longValue()).isEqualTo(userCardId);
+        assertThat(((Number) row.get("store_id")).longValue()).isEqualTo(1L);
+        assertThat((BigDecimal) row.get("amount")).isEqualByComparingTo(BigDecimal.valueOf(8_500));
+        assertThat((BigDecimal) row.get("final_amount")).isEqualByComparingTo(BigDecimal.valueOf(8_500));
+        assertThat((LocalDateTime) row.get("paid_at")).isEqualTo(paidAt);
+    }
+
+    /** card_product_id=1(CREDIT)로 마이데이터 카드를 등록하고 생성된 PK를 돌려준다. */
+    private Long insertMyDataCardAndGetUserCardId() {
+        MyDataCard card = myDataCard(1L, "9999", "2222", null, null,
+                BigDecimal.valueOf(1_000_000), BigDecimal.valueOf(50_000), List.of());
+        Map<String, Object> keyHolder = new HashMap<>();
+
+        cardMapper.insertMyDataCard(SEED_USER_ID, card, 6, keyHolder);
+
+        // MySQL 드라이버가 생성된 BIGINT를 BigInteger로 돌려주므로 Number로 받는다
+        Long userCardId = ((Number) keyHolder.get("userCardId")).longValue();
+        assertThat(userCardId).isNotNull();
+        return userCardId;
+    }
+
+    private MyDataCard myDataCard(Long cardProductId, String first4, String last4,
+                                   String bankName, BigDecimal balance,
+                                   BigDecimal creditLimit, BigDecimal scheduledPaymentAmount,
+                                   List<MyDataTransaction> transactions) {
+        return MyDataCard.builder()
+                .cardProductId(cardProductId)
+                .first4(first4)
+                .last4(last4)
+                .expiryDate(LocalDate.of(2031, 12, 31))
+                .bankName(bankName)
+                .balance(balance)
+                .creditLimit(creditLimit)
+                .scheduledPaymentAmount(scheduledPaymentAmount)
+                .transactions(transactions)
+                .build();
     }
 }

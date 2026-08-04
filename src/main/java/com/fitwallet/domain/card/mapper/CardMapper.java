@@ -1,6 +1,8 @@
 package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
+import com.fitwallet.domain.card.dto.MyDataCard;
+import com.fitwallet.domain.card.dto.MyDataTransaction;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
@@ -10,6 +12,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.math.BigDecimal;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 카드 도메인 조회.
@@ -74,4 +77,19 @@ public interface CardMapper {
     void reactivateUserCard(@Param("userId") Long userId,
                             @Param("request") CardRegisterRequest request,
                             @Param("displayOrder") int displayOrder);
+
+    /**
+     * 마이데이터로 받아온 카드를 등록한다.
+     * <p>
+     * 생성된 PK를 그 객체에 채워 넣는 대신, XML의 {@code useGeneratedKeys}가
+     * {@code keyHolder} Map에 {@code userCardId}를 채운다.
+     */
+    void insertMyDataCard(@Param("userId") Long userId,
+                          @Param("card") MyDataCard card,
+                          @Param("displayOrder") int displayOrder,
+                          @Param("keyHolder") Map<String, Object> keyHolder);
+
+    /** 마이데이터로 받아온 거래내역을 한 카드에 일괄 저장한다. */
+    void insertMyDataTransactions(@Param("userCardId") Long userCardId,
+                                  @Param("transactions") List<MyDataTransaction> transactions);
 }
