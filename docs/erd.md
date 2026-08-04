@@ -502,16 +502,16 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 
 DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBatis 기본 `EnumTypeHandler`가 `name()` 기준으로 자동 변환합니다. **커스텀 TypeHandler를 만들지 않습니다** ([AGENTS.md](../AGENTS.md) §6).
 
-| 테이블.컬럼 | 허용 값 | 제약 이름 |
-|---|---|---|
-| `card_product.card_type` | `CREDIT`, `DEBIT` | `ck_card_product_card_type` |
-| `benefit_service.benefit_type` | `ACCUMULATE`, `CASHBACK` | `ck_benefit_service_benefit_type` |
-| `benefit_service.value_type` | `FIXED`, `RATE` | `ck_benefit_service_value_type` |
-| `benefit_service.scope_type` | `BRAND`, `INDUSTRY` | `ck_benefit_service_scope_type` |
-| `benefit_limit.limit_basis` | `COUNT`, `AMOUNT`, `POINT` | `ck_benefit_limit_limit_basis` |
-| `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR` | `ck_benefit_limit_limit_period` |
-| `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED` | `ck_payment_session_status` |
-| `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR` (NULL 허용) | `ck_payment_session_fail_reason` |
+| 테이블.컬럼 | 허용 값                                                                                                                  | 제약 이름 |
+|---|-----------------------------------------------------------------------------------------------------------------------|---|
+| `card_product.card_type` | `CREDIT`, `DEBIT`                                                                                                     | `ck_card_product_card_type` |
+| `benefit_service.benefit_type` | `ACCUMULATE`, `CASHBACK`                                                                                              | `ck_benefit_service_benefit_type` |
+| `benefit_service.value_type` | `FIXED`, `RATE`                                                                                                       | `ck_benefit_service_value_type` |
+| `benefit_service.scope_type` | `BRAND`, `INDUSTRY`                                                                                                   | `ck_benefit_service_scope_type` |
+| `benefit_limit.limit_basis` | `COUNT`, `AMOUNT`, `POINT`                                                                                            | `ck_benefit_limit_limit_basis` |
+| `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR`                                                                             | `ck_benefit_limit_limit_period` |
+| `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED`                                                  | `ck_payment_session_status` |
+| `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR`, `MOCK_RANDOM_DECLINE` (NULL 허용) | `ck_payment_session_fail_reason` |
 
 값 집합이 아닌 CHECK 제약(XOR·범위)은 각 테이블의 "상세 설명" 열에 적어 뒀습니다 — `ck_benefit_tier_xor`, `ck_card_event_target_xor`, `ck_card_event_period`, `ck_benefit_service_max_payment_amount`, `ck_benefit_service_point_currency_required`.
 
