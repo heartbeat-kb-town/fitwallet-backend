@@ -13,6 +13,10 @@
     ],
     "tags": [
         {
+            "name": "benefit-report-controller",
+            "description": "Benefit Report Controller"
+        },
+        {
             "name": "payment-controller",
             "description": "Payment Controller"
         },
@@ -61,6 +65,55 @@
                             "*/*": {
                                 "schema": {
                                     "$ref": "#/components/schemas/ApiResponse\u00abExpectedBenefitResponse\u00bb"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": [
+                            
+                        ]
+                    }
+                ]
+            }
+        },
+        "/api/report/benefit/summary": {
+            "get": {
+                "tags": [
+                    "benefit-report-controller"
+                ],
+                "summary": "getSummary",
+                "operationId": "getSummaryUsingGET",
+                "parameters": [
+                    {
+                        "name": "yearMonth",
+                        "in": "query",
+                        "description": "yearMonth",
+                        "required": true,
+                        "style": "form",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponse\u00abBenefitSummaryResponse\u00bb"
                                 }
                             }
                         }
@@ -740,6 +793,30 @@
     },
     "components": {
         "schemas": {
+            "ApiResponse\u00abBenefitSummaryResponse\u00bb": {
+                "title": "ApiResponse\u00abBenefitSummaryResponse\u00bb",
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/BenefitSummaryResponse"
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FieldErrorDetail"
+                        }
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "success": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "ApiResponse\u00abCardListResponse\u00bb": {
                 "title": "ApiResponse\u00abCardListResponse\u00bb",
                 "type": "object",
@@ -1025,6 +1102,32 @@
                 },
                 "description": "\ud61c\ud0dd\uc744 \ubc1b\uc9c0 \ubabb\ud558\ub294 \uc0ac\uc720. code\ub294 \ud654\uba74 \ubd84\uae30\uc6a9, message\ub294 \uadf8\ub300\ub85c \ub178\ucd9c\ud558\ub294 \ubb38\uad6c\ub2e4"
             },
+            "BenefitSummaryResponse": {
+                "title": "BenefitSummaryResponse",
+                "type": "object",
+                "properties": {
+                    "categories": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CategoryBenefitResponse"
+                        }
+                    },
+                    "recommendations": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/CardRecommendationResponse"
+                        }
+                    },
+                    "totalMissedBenefit": {
+                        "type": "number",
+                        "format": "bigdecimal"
+                    },
+                    "totalReceivedBenefit": {
+                        "type": "number",
+                        "format": "bigdecimal"
+                    }
+                }
+            },
             "CardBenefitResponse": {
                 "title": "CardBenefitResponse",
                 "type": "object",
@@ -1121,6 +1224,29 @@
                     "userCardId": {
                         "type": "integer",
                         "format": "int64"
+                    }
+                }
+            },
+            "CardRecommendationResponse": {
+                "title": "CardRecommendationResponse",
+                "type": "object",
+                "properties": {
+                    "cardImageUrl": {
+                        "type": "string"
+                    },
+                    "cardName": {
+                        "type": "string"
+                    },
+                    "cardProductId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "description": {
+                        "type": "string"
+                    },
+                    "expectedBenefit": {
+                        "type": "number",
+                        "format": "bigdecimal"
                     }
                 }
             },
@@ -1319,6 +1445,27 @@
                     }
                 },
                 "description": "\uacb0\uc81c \ub0b4\uc5ed \ud654\uba74 \uc0c1\ub2e8\uc758 \uacb0\uc81c \uc774\uc6a9\uae08\uc561 \uc694\uc57d"
+            },
+            "CategoryBenefitResponse": {
+                "title": "CategoryBenefitResponse",
+                "type": "object",
+                "properties": {
+                    "benefitAmount": {
+                        "type": "number",
+                        "format": "bigdecimal"
+                    },
+                    "categoryId": {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    "categoryName": {
+                        "type": "string"
+                    },
+                    "spendAmount": {
+                        "type": "number",
+                        "format": "bigdecimal"
+                    }
+                }
             },
             "ExpectedBenefitResponse": {
                 "title": "ExpectedBenefitResponse",
