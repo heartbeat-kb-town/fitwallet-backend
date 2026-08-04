@@ -2,8 +2,10 @@ package com.fitwallet.domain.card.service;
 
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
+import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
 
 import java.util.List;
 
@@ -21,6 +23,11 @@ public interface CardService {
             Long userId,
             Long cardId,
             CardTransactionSearchRequest request);
+
+    CardUsageDetailResponse getCardUsage(
+            Long userId,
+            Long cardId,
+            CardUsageSearchRequest request);
 
     CardListResponse register(Long userId, CardRegisterRequest request);
 

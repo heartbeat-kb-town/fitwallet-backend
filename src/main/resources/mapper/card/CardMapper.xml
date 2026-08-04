@@ -48,6 +48,37 @@
         <result column="is_eligible" property="performanceIncluded"/>
     </resultMap>
 
+    <resultMap id="cardUsageCardInfoMap"
+               type="com.fitwallet.domain.card.dto.CardUsageCardInfo">
+        <result column="card_product_id" property="cardProductId"/>
+        <result column="card_name" property="cardName"/>
+        <result column="card_company_name" property="issuerName"/>
+        <result column="card_type" property="cardType"/>
+    </resultMap>
+
+    <resultMap id="cardUsageAmountSummaryMap"
+               type="com.fitwallet.domain.card.dto.CardUsageAmountSummary">
+        <result column="recognized_amount" property="recognizedAmount"/>
+        <result column="excluded_amount" property="excludedAmount"/>
+    </resultMap>
+
+    <resultMap id="cardUsageBenefitRuleMap"
+               type="com.fitwallet.domain.card.dto.CardUsageBenefitRule">
+        <result column="service_id" property="benefitId"/>
+        <result column="plan_group_id" property="planGroupId"/>
+        <result column="benefit_name" property="benefitName"/>
+        <result column="benefit_type" property="benefitType"/>
+        <result column="value_type" property="valueType"/>
+        <result column="value_number" property="valueNumber"/>
+        <result column="min_payment_amount" property="benefitMinimumAmount"/>
+        <result column="max_payment_amount" property="benefitMaximumAmount"/>
+        <result column="currency_name" property="pointCurrencyName"/>
+        <result column="tier_id" property="sourceTierId"/>
+        <result column="tier_order" property="sourceTierOrder"/>
+        <result column="min_prev_month_spend" property="tierMinimumAmount"/>
+        <result column="max_prev_month_spend" property="tierMaximumAmount"/>
+    </resultMap>
+
     <select id="findTransactionCardInfo"
             resultMap="cardTransactionCardInfoMap">
         SELECT uc.user_card_id,
@@ -107,6 +138,60 @@
         ORDER BY pt.paid_at DESC,
                  pt.payment_transaction_id DESC
         LIMIT #{condition.limit}
+    </select>
+
+    <select id="findUsageCardInfo" resultMap="cardUsageCardInfoMap">
+        SELECT uc.card_product_id,
+               cp.card_name,
+               i.card_company_name,
+               cp.card_type
+        FROM user_card uc
+                 JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+                 JOIN issuer i ON i.issuer_id = cp.issuer_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+    </select>
+
+    <select id="findUsageAmounts" resultMap="cardUsageAmountSummaryMap">
+        SELECT COALESCE(SUM(CASE WHEN pt.is_eligible = 1 THEN pt.amount ELSE 0 END), 0)
+                   AS recognized_amount,
+               COALESCE(SUM(CASE WHEN pt.is_eligible = 0 THEN pt.amount ELSE 0 END), 0)
+                   AS excluded_amount
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+          AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
+          AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
+    </select>
+
+    <select id="findUsageBenefitRules" resultMap="cardUsageBenefitRuleMap">
+        SELECT bs.service_id,
+               bs.plan_group_id,
+               bs.benefit_name,
+               bs.benefit_type,
+               bs.value_type,
+               bs.value_number,
+               bs.min_payment_amount,
+               bs.max_payment_amount,
+               pc.currency_name,
+               bt.tier_id,
+               bt.tier_order,
+               bt.min_prev_month_spend,
+               bt.max_prev_month_spend
+        FROM benefit_service bs
+                 LEFT JOIN point_currency pc ON pc.point_currency_id = bs.point_currency_id
+                 LEFT JOIN benefit_tier bt
+                           ON (bs.plan_group_id IS NOT NULL
+                               AND bt.plan_group_id = bs.plan_group_id)
+                              OR (bs.plan_group_id IS NULL
+                                  AND bt.service_id = bs.service_id)
+        WHERE bs.card_product_id = #{cardProductId}
+        ORDER BY bs.service_id,
+                 bt.tier_order,
+                 bt.tier_id
     </select>
 
     <select id="findByUserId" resultType="com.fitwallet.domain.card.dto.response.CardListResponse">

@@ -1,10 +1,14 @@
 package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
+import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
+import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
+import com.fitwallet.domain.card.dto.CardUsageCardInfo;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.MyDataTransaction;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
+import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
 import org.apache.ibatis.annotations.Mapper;
@@ -45,6 +49,20 @@ public interface CardMapper {
             @Param("userId") Long userId,
             @Param("cardId") Long cardId,
             @Param("condition") CardTransactionSearchCondition condition);
+
+    /** 로그인 사용자가 보유한 카드의 이용 실적 조회용 내부 정보를 조회한다. */
+    CardUsageCardInfo findUsageCardInfo(@Param("userId") Long userId,
+                                        @Param("cardId") Long cardId);
+
+    /** 조회 기간의 실적 인정 금액과 실적 미인정 금액을 각각 집계한다. */
+    CardUsageAmountSummary findUsageAmounts(
+            @Param("userId") Long userId,
+            @Param("cardId") Long cardId,
+            @Param("condition") CardUsagePeriodCondition condition);
+
+    /** 카드상품에 속한 혜택과 조건부로 연결된 원본 실적 구간을 조회한다. */
+    List<CardUsageBenefitRule> findUsageBenefitRules(
+            @Param("cardProductId") Long cardProductId);
 
     /** 사용자의 카드 목록을 {@code display_order} 순으로 조회한다. 삭제된 카드는 제외된다. */
     List<CardListResponse> findByUserId(@Param("userId") Long userId);
