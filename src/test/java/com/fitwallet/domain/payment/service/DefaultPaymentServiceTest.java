@@ -11,6 +11,8 @@ import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
 import com.fitwallet.domain.payment.dto.PinAuthInfo;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
 import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
+import com.fitwallet.domain.payment.dto.QrSessionInfo;
+import com.fitwallet.domain.payment.dto.response.QrStatusResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -43,6 +45,7 @@ class DefaultPaymentServiceTest {
     @InjectMocks
     private DefaultPaymentService paymentService;
 
+    // 결제 비밀번호 확인
     @Test
     void PIN이_일치하면_인증_토큰을_발급한다() {
         given(paymentMapper.findUserPinInfo(1L)).willReturn(
@@ -104,6 +107,8 @@ class DefaultPaymentServiceTest {
 
         then(passwordEncoder).should(never()).matches(any(), any());
     }
+
+    // QR 생성 (CPM)
 
     @Test
     void 카드소유자이고_유효한_인증이면_QR을_생성한다() {
@@ -221,6 +226,100 @@ class DefaultPaymentServiceTest {
 
         then(paymentMapper).should(never()).markPinAuthUsed(any());
         then(paymentMapper).should(never()).insertPaymentSession(any(), any(), any(), any());
+    }
+
+    // QR 상태 조회
+    @Test
+    void 존재하지_않는_토큰이면_QR_NOT_FOUND_예외를_던진다() {
+        given(paymentMapper.findQrSessionByToken(1L, "qrt_unknown")).willReturn(null);
+
+        assertThatThrownBy(() -> paymentService.getQrStatus(1L, "qrt_unknown"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(PaymentErrorCode.QR_NOT_FOUND);
+    }
+
+    @Test
+    void PENDING_상태에서_만료시각이_지났으면_QR_EXPIRED_예외를_던지고_상태를_만료처리한다() {
+        given(paymentMapper.findQrSessionByToken(1L, "qrt_abc")).willReturn(
+                QrSessionInfo.builder()
+                        .status(PaymentSessionStatus.PENDING)
+                        .expiresAt(LocalDateTime.now().minusSeconds(1))
+                        .createdAt(LocalDateTime.now().minusSeconds(200))
+                        .build());
+
+        assertThatThrownBy(() -> paymentService.getQrStatus(1L, "qrt_abc"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(PaymentErrorCode.QR_EXPIRED);
+
+        then(paymentMapper).should().markSessionExpired("qrt_abc");
+    }
+
+    @Test
+    void 이미_EXPIRED_상태면_다시_만료처리하지_않고_예외만_던진다() {
+        given(paymentMapper.findQrSessionByToken(1L, "qrt_abc")).willReturn(
+                QrSessionInfo.builder()
+                        .status(PaymentSessionStatus.EXPIRED)
+                        .expiresAt(LocalDateTime.now().minusSeconds(100))
+                        .createdAt(LocalDateTime.now().minusSeconds(300))
+                        .build());
+
+        assertThatThrownBy(() -> paymentService.getQrStatus(1L, "qrt_abc"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(PaymentErrorCode.QR_EXPIRED);
+
+        then(paymentMapper).should(never()).markSessionExpired(any());
+    }
+
+    @Test
+    void 스캔_지연시간이_지나지_않았으면_PENDING_상태를_그대로_반환한다() {
+        given(paymentMapper.findQrSessionByToken(1L, "qrt_abc")).willReturn(
+                QrSessionInfo.builder()
+                        .status(PaymentSessionStatus.PENDING)
+                        .expiresAt(LocalDateTime.now().plusSeconds(170))
+                        .createdAt(LocalDateTime.now())
+                        .build());
+
+        QrStatusResponse response = paymentService.getQrStatus(1L, "qrt_abc");
+
+        assertThat(response.getStatus()).isEqualTo(PaymentSessionStatus.PENDING);
+        assertThat(response.getPaymentId()).isNull();
+        then(paymentMapper).should(never()).markSessionScanned(any(), any());
+    }
+
+    @Test
+    void 스캔_지연시간이_지나면_SCANNED로_전환하고_paymentId를_발급한다() {
+        given(paymentMapper.findQrSessionByToken(1L, "qrt_abc")).willReturn(
+                QrSessionInfo.builder()
+                        .status(PaymentSessionStatus.PENDING)
+                        .expiresAt(LocalDateTime.now().plusSeconds(170))
+                        .createdAt(LocalDateTime.now().minusSeconds(10))
+                        .build());
+
+        QrStatusResponse response = paymentService.getQrStatus(1L, "qrt_abc");
+
+        assertThat(response.getStatus()).isEqualTo(PaymentSessionStatus.SCANNED);
+        assertThat(response.getPaymentId()).startsWith("pay_");
+        then(paymentMapper).should().markSessionScanned(eq("qrt_abc"), anyString());
+    }
+
+    @Test
+    void 이미_SCANNED된_세션이면_재전환없이_기존_상태와_paymentId를_반환한다() {
+        given(paymentMapper.findQrSessionByToken(1L, "qrt_abc")).willReturn(
+                QrSessionInfo.builder()
+                        .status(PaymentSessionStatus.SCANNED)
+                        .paymentId("pay_existing123")
+                        .expiresAt(LocalDateTime.now().plusSeconds(170))
+                        .createdAt(LocalDateTime.now().minusSeconds(10))
+                        .build());
+
+        QrStatusResponse response = paymentService.getQrStatus(1L, "qrt_abc");
+
+        assertThat(response.getStatus()).isEqualTo(PaymentSessionStatus.SCANNED);
+        assertThat(response.getPaymentId()).isEqualTo("pay_existing123");
+        then(paymentMapper).should(never()).markSessionScanned(any(), any());
     }
 
     private PinVerifyRequest verifyRequest(String pin) {

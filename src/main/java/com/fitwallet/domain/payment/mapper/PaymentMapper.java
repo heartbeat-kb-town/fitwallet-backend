@@ -2,6 +2,7 @@ package com.fitwallet.domain.payment.mapper;
 
 import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
 import com.fitwallet.domain.payment.dto.PinAuthInfo;
+import com.fitwallet.domain.payment.dto.QrSessionInfo;
 import com.fitwallet.domain.payment.dto.UserPinInfo;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -28,4 +29,7 @@ public interface PaymentMapper {
                               @Param("sessionToken") String sessionToken,
                               @Param("status") PaymentSessionStatus status,
                               @Param("expiresAt") LocalDateTime expiresAt);
+    QrSessionInfo findQrSessionByToken(@Param("userId") Long userId, @Param("qrToken") String qrToken);
+    void markSessionScanned(@Param("qrToken") String qrToken, @Param("paymentId") String paymentId);
+    void markSessionExpired(@Param("qrToken") String qrToken);
 }
