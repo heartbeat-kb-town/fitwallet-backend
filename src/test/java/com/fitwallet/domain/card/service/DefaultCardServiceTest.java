@@ -3,14 +3,22 @@ package com.fitwallet.domain.card.service;
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.CardType;
+import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
+import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
+import com.fitwallet.domain.card.dto.CardUsageCardInfo;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.MyDataTransaction;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
+import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
+import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
+import com.fitwallet.domain.benefit.dto.BenefitType;
+import com.fitwallet.domain.benefit.dto.ValueType;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.card.mapper.CardMapper;
 import com.fitwallet.global.exception.BusinessException;
@@ -70,7 +78,14 @@ class DefaultCardServiceTest {
         Clock clock = Clock.fixed(
                 Instant.parse("2026-07-23T15:00:00Z"),
                 ZoneId.of("Asia/Seoul"));
-        cardService = new DefaultCardService(cardMapper, clock, myDataProvider);
+        cardService = new DefaultCardService(
+                cardMapper,
+                new CardMonthlyPeriodResolver(clock),
+                new CardUsageRuleNormalizer(),
+                new CardUsageTierIntegrator(),
+                new CardUsageBenefitAllocator(),
+                new CardUsageTierStateCalculator(),
+                myDataProvider);
     }
 
     @Test
@@ -330,6 +345,64 @@ class DefaultCardServiceTest {
 
         then(cardMapper).should().reactivateUserCard(1L, request, 3);
         then(cardMapper).should(never()).insertUserCard(any(), any(), anyInt());
+    }
+
+    @Test
+    void 이용실적조회시_카드와_금액과_혜택규칙을_조합해_응답한다() {
+        CardUsageSearchRequest request = new CardUsageSearchRequest();
+        given(cardMapper.findUsageCardInfo(1L, 5L)).willReturn(CardUsageCardInfo.builder()
+                .cardProductId(43L).cardName("KB국민 노리 체크카드")
+                .issuerName("KB국민카드").cardType(CardType.DEBIT).build());
+        given(cardMapper.findUsageAmounts(eq(1L), eq(5L), any(CardUsagePeriodCondition.class)))
+                .willReturn(CardUsageAmountSummary.builder()
+                        .recognizedAmount(new BigDecimal("100000"))
+                        .excludedAmount(new BigDecimal("20000")).build());
+        given(cardMapper.findUsageBenefitRules(43L)).willReturn(List.of(
+                CardUsageBenefitRule.builder()
+                        .benefitId(124L).benefitName("전 가맹점 할인")
+                        .benefitType(BenefitType.CASHBACK).valueType(ValueType.RATE)
+                        .valueNumber(new BigDecimal("0.50"))
+                        .benefitMinimumAmount(BigDecimal.ZERO).build()));
+
+        CardUsageDetailResponse response = cardService.getCardUsage(1L, 5L, request);
+
+        assertThat(response.getCard().getCardName()).isEqualTo("KB국민 노리 체크카드");
+        assertThat(response.getCard().getIssuerName()).isEqualTo("KB국민카드");
+        assertThat(response.getYearMonth()).isEqualTo("2026-07");
+        assertThat(response.getUsageSummary().getRecognizedAmount()).isEqualByComparingTo("100000");
+        assertThat(response.getUsageSummary().getExcludedAmount()).isEqualByComparingTo("20000");
+        assertThat(response.getTiers()).isEmpty();
+        assertThat(response.getDefaultBenefits()).hasSize(1);
+        assertThat(response.getDefaultBenefits().get(0).getValueLabel()).isEqualTo("0.5%");
+    }
+
+    @Test
+    void 이용실적조회는_카드유형에_맞춘_공통월범위를_금액집계에_전달한다() {
+        given(cardMapper.findUsageCardInfo(1L, 5L)).willReturn(CardUsageCardInfo.builder()
+                .cardProductId(43L).cardType(CardType.DEBIT).build());
+        given(cardMapper.findUsageAmounts(eq(1L), eq(5L), any(CardUsagePeriodCondition.class)))
+                .willReturn(CardUsageAmountSummary.builder()
+                        .recognizedAmount(BigDecimal.ZERO).excludedAmount(BigDecimal.ZERO).build());
+        given(cardMapper.findUsageBenefitRules(43L)).willReturn(List.of());
+
+        cardService.getCardUsage(1L, 5L, new CardUsageSearchRequest());
+
+        ArgumentCaptor<CardUsagePeriodCondition> captor =
+                ArgumentCaptor.forClass(CardUsagePeriodCondition.class);
+        then(cardMapper).should().findUsageAmounts(eq(1L), eq(5L), captor.capture());
+        assertThat(captor.getValue().getStartAt()).isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+        assertThat(captor.getValue().getEndAt()).isEqualTo(LocalDateTime.of(2026, 7, 25, 0, 0));
+    }
+
+    @Test
+    void 이용실적조회시_사용자카드가_없으면_예외를_던진다() {
+        given(cardMapper.findUsageCardInfo(1L, 999L)).willReturn(null);
+
+        assertThatThrownBy(() -> cardService.getCardUsage(1L, 999L, new CardUsageSearchRequest()))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CardErrorCode.CARD_NOT_FOUND);
+        then(cardMapper).should(never()).findUsageAmounts(any(), any(), any());
+        then(cardMapper).should(never()).findUsageBenefitRules(any());
     }
 
     private CardRegisterRequest registerRequest() {

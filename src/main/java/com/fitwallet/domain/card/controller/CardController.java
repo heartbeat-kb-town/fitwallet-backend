@@ -3,8 +3,10 @@ package com.fitwallet.domain.card.controller;
 import com.fitwallet.domain.card.dto.CardSuccessCode;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
+import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
 import com.fitwallet.domain.card.service.CardService;
 import com.fitwallet.global.common.annotation.LoginUserId;
 import com.fitwallet.global.common.dto.ApiResponse;
@@ -82,7 +84,7 @@ public class CardController {
             | HTTP | code | message |
             |---|---|---|
             | 400 | INVALID_YEAR_MONTH | 조회 연월 형식이 올바르지 않습니다. |
-            | 400 | YEAR_MONTH_OUT_OF_RANGE | 최근 3개월의 결제 내역만 조회할 수 있습니다. |
+            | 400 | YEAR_MONTH_OUT_OF_RANGE | 최근 3개월의 내역만 조회할 수 있습니다. |
             | 400 | INVALID_TRANSACTION_PAGE_SIZE | 조회 개수는 1개 이상 100개 이하여야 합니다. |
             | 400 | INVALID_TRANSACTION_CURSOR | 유효하지 않은 결제 내역 커서입니다. |
             | 404 | CARD_NOT_FOUND | 요청한 카드를 찾을 수 없습니다. |
@@ -97,6 +99,33 @@ public class CardController {
 
         return ApiResponse.of(CardSuccessCode.CARD_TRANSACTIONS_FOUND,
                 cardService.getCardTransactions(userId, cardId, request));
+    }
+
+    @ApiOperation(value = "카드 이용 실적 상세 조회", notes = """
+            로그인 사용자가 보유한 카드의 월별 이용 실적과 카드상품 단위 통합 혜택 구간을 조회한다.
+
+            - `yearMonth`를 생략하면 현재 월을 조회하며, 현재 월을 포함한 최근 3개월만 조회할 수 있다.
+            - 체크카드의 현재 월 실적은 오늘 거래까지, 신용카드는 전날 거래까지 반영한다.
+            - `recognizedAmount`는 `is_eligible=true`, `excludedAmount`는 `is_eligible=false` 거래의 `amount` 합계다.
+            - 실적 조건이 있는 카드는 최소금액 기준의 통합 구간과 구간별 적용 혜택을 반환한다.
+            - 실적 조건이 없는 카드는 `tiers=[]`이고 혜택을 `defaultBenefits`로 반환한다.
+            - 실적 금액을 선택하면 같은 `cardId`, `yearMonth`로 카드별 결제 내역 API를 호출할 수 있다.
+
+            | HTTP | code | message |
+            |---|---|---|
+            | 400 | INVALID_YEAR_MONTH | 조회 연월 형식이 올바르지 않습니다. |
+            | 400 | YEAR_MONTH_OUT_OF_RANGE | 최근 3개월의 내역만 조회할 수 있습니다. |
+            | 404 | CARD_NOT_FOUND | 요청한 카드를 찾을 수 없습니다. |
+            """)
+    @GetMapping("/card/{cardId}/usage")
+    public ResponseEntity<ApiResponse<CardUsageDetailResponse>> getCardUsage(
+            @LoginUserId Long userId,
+            @ApiParam(value = "보유 카드 ID(user_card_id)", example = "5", required = true)
+            @PathVariable Long cardId,
+            @ModelAttribute CardUsageSearchRequest request) {
+
+        return ApiResponse.of(CardSuccessCode.CARD_USAGE_FOUND,
+                cardService.getCardUsage(userId, cardId, request));
     }
 
     @PostMapping("/card")

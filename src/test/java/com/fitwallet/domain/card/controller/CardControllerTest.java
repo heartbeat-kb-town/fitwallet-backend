@@ -2,9 +2,11 @@ package com.fitwallet.domain.card.controller;
 
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
+import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardTransactionCursorResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionSummaryResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.card.service.CardService;
 import com.fitwallet.global.config.AuthInterceptor;
@@ -118,6 +120,46 @@ class CardControllerTest {
                 .andExpect(jsonPath("$.code").value("CARD_NOT_FOUND"))
                 .andExpect(jsonPath("$.message")
                         .value("요청한 카드를 찾을 수 없습니다."));
+    }
+
+    @Test
+    void 카드이용실적_조회는_200과_CARD_USAGE_FOUND를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(cardService.getCardUsage(eq(1L), eq(5L), any()))
+                .willReturn(CardUsageDetailResponse.builder()
+                        .yearMonth("2026-07")
+                        .availableYearMonths(List.of("2026-07", "2026-06", "2026-05"))
+                        .tiers(List.of())
+                        .defaultBenefits(List.of())
+                        .build());
+
+        mockMvc.perform(get("/api/card/5/usage")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("CARD_USAGE_FOUND"))
+                .andExpect(jsonPath("$.message").value("월별 이용 실적 조회에 성공했습니다."))
+                .andExpect(jsonPath("$.data.yearMonth").value("2026-07"))
+                .andExpect(jsonPath("$.data.tiers").isArray())
+                .andExpect(jsonPath("$.data.defaultBenefits").isArray());
+    }
+
+    @Test
+    void 카드이용실적의_yearMonth를_DTO에_직접바인딩해_서비스로_전달한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(cardService.getCardUsage(any(), any(), any()))
+                .willReturn(CardUsageDetailResponse.builder()
+                        .tiers(List.of()).defaultBenefits(List.of()).build());
+        ArgumentCaptor<CardUsageSearchRequest> captor =
+                ArgumentCaptor.forClass(CardUsageSearchRequest.class);
+
+        mockMvc.perform(get("/api/card/5/usage")
+                        .header("Authorization", "Bearer access-token")
+                        .param("yearMonth", "2026-06"))
+                .andExpect(status().isOk());
+
+        then(cardService).should().getCardUsage(eq(1L), eq(5L), captor.capture());
+        assertThat(captor.getValue().getYearMonth()).isEqualTo("2026-06");
     }
 
     private CardTransactionDetailResponse transactionResponse() {
