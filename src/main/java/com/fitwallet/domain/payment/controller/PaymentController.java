@@ -2,7 +2,9 @@ package com.fitwallet.domain.payment.controller;
 
 import com.fitwallet.domain.payment.dto.PaymentSuccessCode;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
+import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
 import com.fitwallet.domain.payment.dto.response.PinVerifyResponse;
+import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
 import com.fitwallet.domain.payment.service.PaymentService;
 import com.fitwallet.global.common.annotation.LoginUserId;
 import com.fitwallet.global.common.dto.ApiResponse;
@@ -27,5 +29,12 @@ public class PaymentController {
                                                                     @Valid @RequestBody PinVerifyRequest request){
         return ApiResponse.of(PaymentSuccessCode.PIN_VERIFIED,
                 paymentService.verifyPin(userId, request));
+    }
+
+    @PostMapping("/payment/qr")
+    public ResponseEntity<ApiResponse<QrGenerateResponse>> generateQr(@LoginUserId Long userId,
+                                                                      @Valid @RequestBody QrGenerateRequest request){
+        return ApiResponse.of(PaymentSuccessCode.QR_CREATED,
+                paymentService.generateQr(userId, request));
     }
 }
