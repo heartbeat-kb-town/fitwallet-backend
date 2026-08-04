@@ -3,12 +3,14 @@ package com.fitwallet.domain.payment.service;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
 import com.fitwallet.domain.payment.dto.PinAuthInfo;
+import com.fitwallet.domain.payment.dto.QrSessionInfo;
 import com.fitwallet.domain.payment.dto.UserPinInfo;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
 import com.fitwallet.domain.payment.dto.response.PinMismatchResponse;
 import com.fitwallet.domain.payment.dto.response.PinVerifyResponse;
 import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
+import com.fitwallet.domain.payment.dto.response.QrStatusResponse;
 import com.fitwallet.domain.payment.exception.PaymentErrorCode;
 import com.fitwallet.domain.payment.mapper.PaymentMapper;
 import com.fitwallet.global.exception.BusinessException;
@@ -27,6 +29,7 @@ public class DefaultPaymentService implements PaymentService {
     private static final int MAX_PIN_ATTEMPTS = 5;
     private static final int PIN_AUTH_TTL_SECONDS = 180;
     private static final int QR_SESSION_TTL_SECONDS = 180;
+    private static final int MOCK_SCAN_DELAY_SECONDS = 3;
 
     private final PaymentMapper paymentMapper;
     private final PasswordEncoder passwordEncoder;
@@ -78,5 +81,36 @@ public class DefaultPaymentService implements PaymentService {
                 .status(PaymentSessionStatus.PENDING)
                 .expiresIn(QR_SESSION_TTL_SECONDS)
                 .build();
+    }
+
+    @Override
+    @Transactional
+    public QrStatusResponse getQrStatus(Long userId, String qrToken){
+        QrSessionInfo qrSession = paymentMapper.findQrSessionByToken(userId, qrToken);
+        if(qrSession==null){
+            throw new BusinessException(PaymentErrorCode.QR_NOT_FOUND);
+        }
+
+        boolean expired = qrSession.getStatus() == PaymentSessionStatus.EXPIRED
+                || (qrSession.getStatus() == PaymentSessionStatus.PENDING && qrSession.getExpiresAt().isBefore(LocalDateTime.now()));
+
+        if(expired){
+            if(qrSession.getStatus()!=PaymentSessionStatus.EXPIRED){
+                paymentMapper.markSessionExpired(qrToken);
+            }
+            throw new BusinessException(PaymentErrorCode.QR_EXPIRED);
+        }
+
+        //PENDING 상태에서 3초 지나면 SCANNED 로 전환
+        boolean shouldAutoScan = qrSession.getStatus() == PaymentSessionStatus.PENDING
+                && qrSession.getCreatedAt().plusSeconds(MOCK_SCAN_DELAY_SECONDS).isBefore(LocalDateTime.now());
+
+        if(shouldAutoScan){
+            String paymentId = "pay_" + UUID.randomUUID().toString().replace("-", "");
+            paymentMapper.markSessionScanned(qrToken, paymentId);
+            QrStatusResponse.builder().status(PaymentSessionStatus.SCANNED).paymentId(paymentId).build();
+        }
+
+        return QrStatusResponse.builder().status(qrSession.getStatus()).paymentId(qrSession.getPaymentId()).build();
     }
 }
