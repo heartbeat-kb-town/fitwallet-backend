@@ -106,6 +106,23 @@ class UserMapperIntegrationTest {
         assertThat(savedHash).isEqualTo(TOKEN_HASH_B);
     }
 
+    @Test
+    void 저장된_리프레시_토큰_해시를_조회한다() {
+        Long userId = registerAndGetUserId();
+        userMapper.saveOrUpdateRefreshToken(userId, TOKEN_HASH_A);
+
+        String tokenHash = userMapper.findRefreshTokenHashByUserId(userId);
+
+        assertThat(tokenHash).isEqualTo(TOKEN_HASH_A);
+    }
+
+    @Test
+    void 저장된_리프레시_토큰이_없으면_null을_반환한다() {
+        Long userId = registerAndGetUserId();
+
+        assertThat(userMapper.findRefreshTokenHashByUserId(userId)).isNull();
+    }
+
     private Long registerAndGetUserId() {
         userMapper.insertUser(signUpRequest(), PASSWORD_HASH);
         return userMapper.findLoginInfoByLoginId(NEW_LOGIN_ID).getUserId();

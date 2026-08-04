@@ -2,12 +2,14 @@ package com.fitwallet.domain.user.service;
 
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
+import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.exception.UserErrorCode;
 import com.fitwallet.domain.user.mapper.UserMapper;
 import com.fitwallet.global.config.JwtProvider;
 import com.fitwallet.global.exception.BusinessException;
+import com.fitwallet.global.exception.CommonErrorCode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -160,6 +162,49 @@ class DefaultUserServiceTest {
                 .isEqualTo(UserErrorCode.INVALID_CREDENTIALS);
 
         then(jwtProvider).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void 재발급_성공시_새_Access_Token을_반환한다() throws NoSuchAlgorithmException {
+        String refreshToken = "refresh-token";
+        String tokenHash = HexFormat.of().formatHex(
+                MessageDigest.getInstance("SHA-256")
+                        .digest(refreshToken.getBytes(StandardCharsets.UTF_8))
+        );
+
+        given(jwtProvider.getUserIdFromRefreshToken(refreshToken)).willReturn(1L);
+        given(userMapper.findRefreshTokenHashByUserId(1L)).willReturn(tokenHash);
+        given(jwtProvider.generateAccessToken(1L)).willReturn("new-access-token");
+
+        TokenReissueResponse response = userService.reissueAccessToken(refreshToken);
+
+        assertThat(response.getAccessToken()).isEqualTo("new-access-token");
+    }
+
+    @Test
+    void 저장된_리프레시_토큰이_없으면_UNAUTHORIZED_예외를_던진다() {
+        String refreshToken = "refresh-token";
+        given(jwtProvider.getUserIdFromRefreshToken(refreshToken)).willReturn(1L);
+        given(userMapper.findRefreshTokenHashByUserId(1L)).willReturn(null);
+
+        assertThatThrownBy(() -> userService.reissueAccessToken(refreshToken))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+
+        then(jwtProvider).should(never()).generateAccessToken(org.mockito.ArgumentMatchers.anyLong());
+    }
+
+    @Test
+    void 요청한_리프레시_토큰의_해시가_저장된_해시와_다르면_UNAUTHORIZED_예외를_던진다() {
+        String refreshToken = "refresh-token";
+        given(jwtProvider.getUserIdFromRefreshToken(refreshToken)).willReturn(1L);
+        given(userMapper.findRefreshTokenHashByUserId(1L)).willReturn("stale-hash");
+
+        assertThatThrownBy(() -> userService.reissueAccessToken(refreshToken))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(CommonErrorCode.UNAUTHORIZED);
     }
 
     private UserLoginRequest loginRequest(String loginId, String password) {

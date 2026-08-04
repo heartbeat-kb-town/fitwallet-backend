@@ -145,6 +145,13 @@ class JwtProviderTest {
     }
 
     @Test
+    void 리프레시_토큰이_null이면_UNAUTHORIZED_예외를_던진다() {
+        assertUnauthorized(
+                () -> jwtProvider.getUserIdFromRefreshToken(null)
+        );
+    }
+
+    @Test
     void 사용자_ID가_null이면_액세스_토큰_생성에_실패한다() {
         assertThatThrownBy(
                 () -> jwtProvider.generateAccessToken(null)
