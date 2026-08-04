@@ -555,6 +555,55 @@
                 ]
             }
         },
+        "/api/payment/qr/{qrToken}/status": {
+            "get": {
+                "tags": [
+                    "payment-controller"
+                ],
+                "summary": "getQrStatus",
+                "operationId": "getQrStatusUsingGET",
+                "parameters": [
+                    {
+                        "name": "qrToken",
+                        "in": "path",
+                        "description": "qrToken",
+                        "required": true,
+                        "style": "simple",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponse\u00abQrStatusResponse\u00bb"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": [
+                            
+                        ]
+                    }
+                ]
+            }
+        },
         "/api/store/keywords": {
             "get": {
                 "tags": [
@@ -1034,6 +1083,30 @@
                     },
                     "data": {
                         "$ref": "#/components/schemas/QrGenerateResponse"
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FieldErrorDetail"
+                        }
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "success": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponse\u00abQrStatusResponse\u00bb": {
+                "title": "ApiResponse\u00abQrStatusResponse\u00bb",
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/QrStatusResponse"
                     },
                     "errors": {
                         "type": "array",
@@ -1928,6 +2001,26 @@
                         "format": "int32"
                     },
                     "qrToken": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string",
+                        "enum": [
+                            "COMPLETED",
+                            "EXPIRED",
+                            "FAILED",
+                            "PENDING",
+                            "PROCESSING",
+                            "SCANNED"
+                        ]
+                    }
+                }
+            },
+            "QrStatusResponse": {
+                "title": "QrStatusResponse",
+                "type": "object",
+                "properties": {
+                    "paymentId": {
                         "type": "string"
                     },
                     "status": {
