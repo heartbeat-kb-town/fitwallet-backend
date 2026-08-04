@@ -108,7 +108,7 @@ public class DefaultPaymentService implements PaymentService {
         if(shouldAutoScan){
             String paymentId = "pay_" + UUID.randomUUID().toString().replace("-", "");
             paymentMapper.markSessionScanned(qrToken, paymentId);
-            QrStatusResponse.builder().status(PaymentSessionStatus.SCANNED).paymentId(paymentId).build();
+            return QrStatusResponse.builder().status(PaymentSessionStatus.SCANNED).paymentId(paymentId).build();
         }
 
         return QrStatusResponse.builder().status(qrSession.getStatus()).paymentId(qrSession.getPaymentId()).build();
