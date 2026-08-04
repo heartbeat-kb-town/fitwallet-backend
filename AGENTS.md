@@ -299,10 +299,12 @@ public List<CardListResponse> findMyCards(@LoginUserId Long userId) {
 ```
 
 - **`@RequestParam userId`, 헤더 직접 읽기, 세션 접근은 모두 금지**
-- `AuthInterceptor`가 `/api/**`에서 인증 주체를 꺼내 요청 속성에 담고,
-  `LoginUserIdArgumentResolver`가 `@LoginUserId` 파라미터에 주입한다
-- **`AuthInterceptor`는 현재 임시 구현이다** — 인증이 없어 `X-User-Id` 헤더를 그대로 신뢰한다.
-  JWT 도입 시 이 클래스 내부만 교체하고 컨트롤러는 손대지 않는다
+- `AuthInterceptor`가 `/api/**`에서 `Authorization: Bearer {Access Token}` 헤더를 검증해
+  인증 주체를 요청 속성에 담고, `LoginUserIdArgumentResolver`가 `@LoginUserId` 파라미터에 주입한다
+- 서명·만료·토큰 타입(ACCESS/REFRESH) 검증은 `JwtProvider`가 담당한다. 헤더가 없거나
+  형식이 틀리거나 검증에 실패하면 `BusinessException(CommonErrorCode.UNAUTHORIZED)`로 401 응답한다
+- 인증이 필요 없는 엔드포인트는 `servlet-context.xml`의 `AuthInterceptor` exclude-mapping과
+  `SwaggerConfig.PUBLIC_PATHS`(§5) 양쪽에 같은 목록을 유지한다
 
 ---
 
