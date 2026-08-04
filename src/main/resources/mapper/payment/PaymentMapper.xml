@@ -49,4 +49,26 @@
         VALUES (#{userCardId}, #{sessionToken}, #{status}, #{expiresAt})
     </insert>
 
+    <select id="findQrSessionByToken" resultType="com.fitwallet.domain.payment.dto.QrSessionInfo">
+        SELECT ps.status, ps.payment_id, ps.expires_at, ps.created_at
+        FROM payment_session ps
+        JOIN user_card uc ON uc.user_card_id = ps.user_card_id
+        WHERE ps.session_token = #{qrToken}
+        AND uc.user_id = #{userId}
+        AND uc.is_deleted = 0
+    </select>
+
+    <update id="markSessionScanned">
+        UPDATE payment_session
+        SET status = 'SCANNED',
+        payment_id = #{paymentId}
+        WHERE session_token = #{qrToken}
+    </update>
+
+    <update id="markSessionExpired">
+        UPDATE payment_session
+        SET status = 'EXPIRED'
+        WHERE session_token = #{qrToken}
+    </update>
+
 </mapper>
