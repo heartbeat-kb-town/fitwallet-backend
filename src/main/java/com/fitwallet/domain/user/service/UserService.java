@@ -3,6 +3,7 @@ package com.fitwallet.domain.user.service;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
+import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 
 import java.util.List;
@@ -17,4 +18,7 @@ public interface UserService {
 
     /** 로그인 사용자가 최근 1개월간 가장 자주 결제한 장소를 최대 3개 조회한다. */
     List<FrequentPlaceResponse> findFrequentPlaces(Long userId);
+
+    /** Refresh Token을 검증하고 새 Access Token을 발급한다. */
+    TokenReissueResponse reissueAccessToken(String refreshToken);
 }

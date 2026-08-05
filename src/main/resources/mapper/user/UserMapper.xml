@@ -77,4 +77,11 @@
         LIMIT 3
     </select>
 
+    <!-- 재발급 시 쿠키로 받은 토큰을 해시해 이 값과 대조한다. 없으면 null. -->
+    <select id="findRefreshTokenHashByUserId" resultType="string">
+        SELECT token_hash
+        FROM refresh_token
+        WHERE user_id = #{userId}
+    </select>
+
 </mapper>

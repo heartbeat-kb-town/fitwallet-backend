@@ -3,12 +3,14 @@ package com.fitwallet.domain.user.service;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
+import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.exception.UserErrorCode;
 import com.fitwallet.domain.user.mapper.UserMapper;
 import com.fitwallet.global.config.JwtProvider;
 import com.fitwallet.global.exception.BusinessException;
+import com.fitwallet.global.exception.CommonErrorCode;
 import lombok.RequiredArgsConstructor;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -93,6 +95,29 @@ public class DefaultUserService implements UserService {
     @Transactional(readOnly = true)
     public List<FrequentPlaceResponse> findFrequentPlaces(Long userId) {
         return userMapper.findFrequentPlaces(userId);
+    }
+
+    /**
+     * Access Token을 재발급한다.
+     * <p>
+     * 서명·만료·타입을 검증하고 DB에 저장된 해시와 대조만 한 뒤 그대로 유지한다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public TokenReissueResponse reissueAccessToken(String refreshToken) {
+        Long userId = jwtProvider.getUserIdFromRefreshToken(refreshToken);
+
+        String storedTokenHash = userMapper.findRefreshTokenHashByUserId(userId);
+
+        if (storedTokenHash == null || !storedTokenHash.equals(hashToken(refreshToken))) {
+            throw new BusinessException(CommonErrorCode.UNAUTHORIZED);
+        }
+
+        String accessToken = jwtProvider.generateAccessToken(userId);
+
+        return TokenReissueResponse.builder()
+                .accessToken(accessToken)
+                .build();
     }
 
     /**

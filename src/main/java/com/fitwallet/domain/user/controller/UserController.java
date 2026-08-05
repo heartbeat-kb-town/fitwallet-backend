@@ -4,6 +4,7 @@ import com.fitwallet.domain.user.dto.UserSuccessCode;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
+import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.service.UserService;
@@ -14,6 +15,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -87,6 +89,22 @@ public class UserController {
         return ApiResponse.of(
                 UserSuccessCode.FREQUENT_PLACES_FOUND,
                 userService.findFrequentPlaces(userId)
+        );
+    }
+
+    /**
+     * Access Token을 재발급한다.
+     * Refresh Token은 HttpOnly 쿠키로만 전달받는다
+     */
+    @PostMapping("/user/reissue")
+    public ResponseEntity<ApiResponse<TokenReissueResponse>> reissueAccessToken(
+            @CookieValue(value = "refreshToken", required = false) String refreshToken) {
+
+        TokenReissueResponse response = userService.reissueAccessToken(refreshToken);
+
+        return ApiResponse.of(
+                UserSuccessCode.TOKEN_REISSUE_SUCCESS,
+                response
         );
     }
 }

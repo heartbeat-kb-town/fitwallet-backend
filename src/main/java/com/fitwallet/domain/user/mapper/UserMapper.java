@@ -46,4 +46,10 @@ public interface UserMapper {
      */
     List<FrequentPlaceResponse> findFrequentPlaces(@Param("userId") Long userId);
 
+    /**
+     * 유저에게 저장된 리프레시 토큰 해시를 조회한다.
+     * 저장된 토큰이 없으면 {@code null}을 반환한다.
+     */
+    String findRefreshTokenHashByUserId(@Param("userId") Long userId);
+
 }
