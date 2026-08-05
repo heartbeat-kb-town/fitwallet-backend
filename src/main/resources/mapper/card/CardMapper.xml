@@ -48,6 +48,28 @@
         <result column="is_eligible" property="performanceIncluded"/>
     </resultMap>
 
+    <resultMap id="cardSummaryCardInfoMap"
+               type="com.fitwallet.domain.card.dto.CardSummaryCardInfo">
+        <id column="user_card_id" property="cardId"/>
+        <result column="card_product_id" property="cardProductId"/>
+        <result column="card_name" property="cardName"/>
+        <result column="card_company_name" property="issuerName"/>
+        <result column="card_image_url" property="cardImageUrl"/>
+        <result column="card_type" property="cardType"/>
+        <result column="bank_name" property="bankName"/>
+        <result column="balance" property="balance"/>
+    </resultMap>
+
+    <resultMap id="cardSummaryTransactionMap"
+               type="com.fitwallet.domain.card.dto.response.CardSummaryTransactionResponse">
+        <id column="payment_transaction_id" property="transactionId"/>
+        <result column="store_name" property="storeName"/>
+        <result column="category_name" property="categoryName"/>
+        <result column="category_image_url" property="categoryImageUrl"/>
+        <result column="amount" property="paymentAmount"/>
+        <result column="paid_at" property="paidAt"/>
+    </resultMap>
+
     <resultMap id="cardUsageCardInfoMap"
                type="com.fitwallet.domain.card.dto.CardUsageCardInfo">
         <result column="card_product_id" property="cardProductId"/>
@@ -140,6 +162,43 @@
         LIMIT #{condition.limit}
     </select>
 
+    <select id="findSummaryCardInfo" resultMap="cardSummaryCardInfoMap">
+        SELECT uc.user_card_id,
+               uc.card_product_id,
+               cp.card_name,
+               i.card_company_name,
+               cp.card_image_url,
+               cp.card_type,
+               uc.bank_name,
+               uc.balance
+        FROM user_card uc
+                 JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+                 JOIN issuer i ON i.issuer_id = cp.issuer_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+    </select>
+
+    <select id="findRecentTransactions" resultMap="cardSummaryTransactionMap">
+        SELECT pt.payment_transaction_id,
+               s.store_name,
+               c.category_name,
+               c.category_image_url,
+               pt.amount,
+               pt.paid_at
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+                 LEFT JOIN store s ON s.store_id = pt.store_id
+                 LEFT JOIN category c ON c.category_id = s.category_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+          AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
+          AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
+        ORDER BY pt.paid_at DESC,
+                 pt.payment_transaction_id DESC
+    </select>
+
     <select id="findUsageCardInfo" resultMap="cardUsageCardInfoMap">
         SELECT uc.card_product_id,
                cp.card_name,
@@ -199,9 +258,28 @@
         <include refid="cardListColumns"/>
         FROM user_card uc
                  JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+        <if test="sortType != null and sortType.name() == 'RECENTLY_USED'">
+                 LEFT JOIN (
+                     SELECT user_card_id,
+                            MAX(paid_at) AS last_paid_at
+                     FROM payment_transaction
+                     GROUP BY user_card_id
+                 ) recent_payment ON recent_payment.user_card_id = uc.user_card_id
+        </if>
         WHERE uc.user_id = #{userId}
           AND uc.is_deleted = 0
-        ORDER BY uc.display_order
+        <choose>
+            <when test="sortType != null and sortType.name() == 'RECENTLY_USED'">
+                ORDER BY CASE WHEN recent_payment.last_paid_at IS NULL THEN 1 ELSE 0 END,
+                         recent_payment.last_paid_at DESC,
+                         uc.display_order ASC,
+                         uc.user_card_id ASC
+            </when>
+            <otherwise>
+                ORDER BY uc.display_order ASC,
+                         uc.user_card_id ASC
+            </otherwise>
+        </choose>
     </select>
 
     <select id="findByUserIdAndUserCardId"

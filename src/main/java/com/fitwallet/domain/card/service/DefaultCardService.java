@@ -1,6 +1,8 @@
 package com.fitwallet.domain.card.service;
 
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
+import com.fitwallet.domain.card.dto.CardListSortType;
+import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.CardMonthlyPeriod;
@@ -10,13 +12,21 @@ import com.fitwallet.domain.card.dto.CardUsageCardInfo;
 import com.fitwallet.domain.card.dto.CardUsageRuleSet;
 import com.fitwallet.domain.card.dto.CardUsageTierState;
 import com.fitwallet.domain.card.dto.CardUsageTierStructure;
+import com.fitwallet.domain.card.dto.CardUsageTierType;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
+import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
+import com.fitwallet.domain.card.dto.request.CardRecentTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryAmountResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryCardResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryTierResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryUsageResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionCardResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionCursorResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
@@ -25,6 +35,7 @@ import com.fitwallet.domain.card.dto.response.CardTransactionSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageCardResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageSummaryResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageTierSummaryResponse;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.card.mapper.CardMapper;
 import com.fitwallet.global.exception.BusinessException;
@@ -34,7 +45,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
+import java.time.Clock;
 import java.time.DateTimeException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.YearMonth;
 import java.util.ArrayList;
@@ -67,21 +80,52 @@ public class DefaultCardService implements CardService {
     private final CardUsageBenefitAllocator usageBenefitAllocator;
     private final CardUsageTierStateCalculator usageTierStateCalculator;
     private final MyDataProvider myDataProvider;
+    private final Clock clock;
 
     @Override
     @Transactional(readOnly = true)
-    public List<CardListResponse> findMyCards(Long userId) {
-        return cardMapper.findByUserId(userId);
+    public List<CardListResponse> findMyCards(Long userId, CardListSearchRequest request) {
+        CardListSortType sortType = request == null || request.getSort() == null
+                ? CardListSortType.DISPLAY_ORDER
+                : request.getSort();
+        return cardMapper.findByUserId(userId, sortType);
     }
 
     @Override
     @Transactional(readOnly = true)
-    public CardListResponse findMyCard(Long userId, Long userCardId) {
-        CardListResponse card = cardMapper.findByUserIdAndUserCardId(userId, userCardId);
+    public CardSummaryResponse findCardSummary(Long userId, Long cardId) {
+        CardSummaryCardInfo card = cardMapper.findSummaryCardInfo(userId, cardId);
         if (card == null) {
             throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
         }
-        return card;
+
+        LocalDate today = LocalDate.now(clock);
+        CardMonthlyPeriod monthlyPeriod = monthlyPeriodResolver.resolve(null, card.getCardType());
+        CardSummaryAmountResponse amountSummary = createSummaryAmount(
+                userId, cardId, card, monthlyPeriod, today);
+
+        CardRecentTransactionSearchCondition recentCondition =
+                CardRecentTransactionSearchCondition.builder()
+                        .startAt(today.minusDays(1).atStartOfDay())
+                        .endAt(today.plusDays(1).atStartOfDay())
+                        .build();
+
+        CardUsageCardInfo usageCard = CardUsageCardInfo.builder()
+                .cardProductId(card.getCardProductId())
+                .cardName(card.getCardName())
+                .issuerName(card.getIssuerName())
+                .cardType(card.getCardType())
+                .build();
+        CardUsageDetailResponse usageDetail = createCardUsageDetail(
+                userId, cardId, null, usageCard);
+
+        return CardSummaryResponse.builder()
+                .card(toSummaryCard(card))
+                .amountSummary(amountSummary)
+                .recentTransactions(cardMapper.findRecentTransactions(
+                        userId, cardId, recentCondition))
+                .usageSummary(toSummaryUsage(usageDetail))
+                .build();
     }
 
     @Override
@@ -113,7 +157,7 @@ public class DefaultCardService implements CardService {
                 .build();
 
         CardTransactionSummaryResponse paymentSummary = createPaymentSummary(
-                userId, cardId, card, period.isCurrentMonth(), condition);
+                userId, cardId, condition);
         CardTransactionCursorResponse transactions = createCursorResponse(
                 cardId, yearMonth, requestedSize,
                 cardMapper.findTransactions(userId, cardId, condition));
@@ -138,9 +182,20 @@ public class DefaultCardService implements CardService {
             throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
         }
 
-        CardMonthlyPeriod period = monthlyPeriodResolver.resolve(
+        return createCardUsageDetail(
+                userId,
+                cardId,
                 request == null ? null : request.getYearMonth(),
-                card.getCardType());
+                card);
+    }
+
+    private CardUsageDetailResponse createCardUsageDetail(
+            Long userId,
+            Long cardId,
+            String requestedYearMonth,
+            CardUsageCardInfo card) {
+        CardMonthlyPeriod period = monthlyPeriodResolver.resolve(
+                requestedYearMonth, card.getCardType());
         CardUsagePeriodCondition condition = CardUsagePeriodCondition.builder()
                 .startAt(period.getStartAt())
                 .endAt(period.getEndAt())
@@ -184,6 +239,71 @@ public class DefaultCardService implements CardService {
                 .build();
     }
 
+    private CardSummaryAmountResponse createSummaryAmount(
+            Long userId,
+            Long cardId,
+            CardSummaryCardInfo card,
+            CardMonthlyPeriod monthlyPeriod,
+            LocalDate today) {
+        if (card.getCardType() == CardType.CREDIT) {
+            CardTransactionSearchCondition condition = CardTransactionSearchCondition.builder()
+                    .startAt(monthlyPeriod.getStartAt())
+                    .endAt(monthlyPeriod.getEndAt())
+                    .build();
+            return CardSummaryAmountResponse.builder()
+                    .creditUsageAmount(cardMapper.sumTransactionAmount(
+                            userId, cardId, condition))
+                    .asOfDate(monthlyPeriod.getEndAt().toLocalDate().minusDays(1))
+                    .build();
+        }
+
+        if (card.getBalance() == null
+                || card.getBankName() == null
+                || card.getBankName().isBlank()) {
+            throw new BusinessException(CardErrorCode.INVALID_CARD_SUMMARY_DATA);
+        }
+        return CardSummaryAmountResponse.builder()
+                .balance(card.getBalance())
+                .bankName(card.getBankName())
+                .asOfDate(today)
+                .build();
+    }
+
+    private CardSummaryCardResponse toSummaryCard(CardSummaryCardInfo card) {
+        return CardSummaryCardResponse.builder()
+                .cardId(card.getCardId())
+                .cardProductId(card.getCardProductId())
+                .cardName(card.getCardName())
+                .issuerName(card.getIssuerName())
+                .cardImageUrl(card.getCardImageUrl())
+                .cardType(card.getCardType())
+                .build();
+    }
+
+    private CardSummaryUsageResponse toSummaryUsage(CardUsageDetailResponse usage) {
+        boolean noRequirement = usage.getTierType() == CardUsageTierType.NO_REQUIREMENT;
+        return CardSummaryUsageResponse.builder()
+                .yearMonth(usage.getYearMonth())
+                .tierType(usage.getTierType())
+                .performanceStatus(usage.getPerformanceStatus())
+                .recognizedAmount(noRequirement
+                        ? null : usage.getUsageSummary().getRecognizedAmount())
+                .currentTier(toSummaryTier(usage.getCurrentTier()))
+                .nextTier(toSummaryTier(usage.getNextTier()))
+                .amountUntilNextTier(usage.getAmountUntilNextTier())
+                .tierProgressRate(usage.getTierProgressRate())
+                .build();
+    }
+
+    private CardSummaryTierResponse toSummaryTier(CardUsageTierSummaryResponse tier) {
+        if (tier == null) {
+            return null;
+        }
+        return CardSummaryTierResponse.builder()
+                .tierName(tier.getTierName())
+                .build();
+    }
+
     /**
      * 카드를 등록한다.
      * <p>
@@ -221,20 +341,7 @@ public class DefaultCardService implements CardService {
     private CardTransactionSummaryResponse createPaymentSummary(
             Long userId,
             Long cardId,
-            CardTransactionCardInfo card,
-            boolean currentMonth,
             CardTransactionSearchCondition condition) {
-        if (card.getCardType() == CardType.CREDIT && currentMonth) {
-            BigDecimal scheduledPaymentAmount = card.getScheduledPaymentAmount();
-            if (scheduledPaymentAmount == null) {
-                throw new BusinessException(CardErrorCode.INVALID_CARD_PAYMENT_DATA);
-            }
-            return CardTransactionSummaryResponse.builder()
-                    .summaryType(CardTransactionSummaryType.SCHEDULED_PAYMENT)
-                    .amount(scheduledPaymentAmount)
-                    .build();
-        }
-
         return CardTransactionSummaryResponse.builder()
                 .summaryType(CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT)
                 .amount(cardMapper.sumTransactionAmount(userId, cardId, condition))

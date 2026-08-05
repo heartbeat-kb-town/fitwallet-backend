@@ -1,15 +1,19 @@
 package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
+import com.fitwallet.domain.card.dto.CardListSortType;
+import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
 import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
 import com.fitwallet.domain.card.dto.CardUsageCardInfo;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.MyDataTransaction;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
+import com.fitwallet.domain.card.dto.request.CardRecentTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryTransactionResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -28,6 +32,16 @@ import java.util.Map;
  */
 @Mapper
 public interface CardMapper {
+
+    /** 로그인 사용자가 보유한 카드의 내 카드 탭 요약용 내부 정보를 조회한다. */
+    CardSummaryCardInfo findSummaryCardInfo(@Param("userId") Long userId,
+                                            @Param("cardId") Long cardId);
+
+    /** KST 기준 오늘과 어제의 결제 내역을 최신순으로 조회한다. */
+    List<CardSummaryTransactionResponse> findRecentTransactions(
+            @Param("userId") Long userId,
+            @Param("cardId") Long cardId,
+            @Param("condition") CardRecentTransactionSearchCondition condition);
 
     /**
      * 로그인 사용자가 보유한 카드의 결제 내역 조회용 내부 정보를 조회한다.
@@ -64,8 +78,9 @@ public interface CardMapper {
     List<CardUsageBenefitRule> findUsageBenefitRules(
             @Param("cardProductId") Long cardProductId);
 
-    /** 사용자의 카드 목록을 {@code display_order} 순으로 조회한다. 삭제된 카드는 제외된다. */
-    List<CardListResponse> findByUserId(@Param("userId") Long userId);
+    /** 사용자의 카드 목록을 요청한 기준으로 조회한다. 삭제된 카드는 제외된다. */
+    List<CardListResponse> findByUserId(@Param("userId") Long userId,
+                                        @Param("sortType") CardListSortType sortType);
 
     /** 사용자의 카드 한 건. 없거나 삭제됐으면 null. */
     CardListResponse findByUserIdAndUserCardId(@Param("userId") Long userId,
