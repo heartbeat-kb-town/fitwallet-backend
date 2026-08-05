@@ -34,6 +34,7 @@
             <mapping path="/api/**"/>
             <exclude-mapping path="/api/user/signup"/>
             <exclude-mapping path="/api/user/login"/>
+            <exclude-mapping path="/api/user/reissue"/>
             <beans:bean class="com.fitwallet.global.config.AuthInterceptor" autowire="constructor"/>
         </interceptor>
     </interceptors>

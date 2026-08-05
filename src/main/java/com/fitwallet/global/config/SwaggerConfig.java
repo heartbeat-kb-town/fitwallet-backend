@@ -48,7 +48,8 @@ public class SwaggerConfig {
     private static final String BEARER_AUTH = "bearerAuth";
 
     /** 인증 없이 호출하는 엔드포인트. servlet-context.xml의 AuthInterceptor exclude-mapping과 같아야 한다. */
-    private static final List<String> PUBLIC_PATHS = List.of("/api/user/signup", "/api/user/login");
+    private static final List<String> PUBLIC_PATHS =
+            List.of("/api/user/signup", "/api/user/login", "/api/user/reissue");
 
     @Bean
     public Docket api() {
