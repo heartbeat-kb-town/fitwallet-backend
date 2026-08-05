@@ -1,6 +1,7 @@
 package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardType;
+import com.fitwallet.domain.card.dto.CardListSortType;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.MyDataTransaction;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
@@ -54,7 +55,8 @@ class CardMapperIntegrationTest {
 
     @Test
     void 사용자의_카드를_표시순서대로_조회한다() {
-        List<CardListResponse> cards = cardMapper.findByUserId(SEED_USER_ID);
+        List<CardListResponse> cards = cardMapper.findByUserId(
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER);
 
         assertThat(cards).hasSize(5)
                 .isSortedAccordingTo(Comparator.comparing(CardListResponse::getDisplayOrder));
@@ -62,7 +64,8 @@ class CardMapperIntegrationTest {
 
     @Test
     void 조인한_카드상품과_카드사_정보가_함께_채워진다() {
-        List<CardListResponse> cards = cardMapper.findByUserId(SEED_USER_ID);
+        List<CardListResponse> cards = cardMapper.findByUserId(
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER);
 
         assertThat(cards).allSatisfy(card -> {
             assertThat(card.getCardName()).isNotBlank();
@@ -73,7 +76,8 @@ class CardMapperIntegrationTest {
 
     @Test
     void CHECK_제약_문자열이_CardType_enum으로_변환된다() {
-        List<CardListResponse> cards = cardMapper.findByUserId(SEED_USER_ID);
+        List<CardListResponse> cards = cardMapper.findByUserId(
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER);
 
         assertThat(cards).extracting(CardListResponse::getCardType)
                 .containsAnyOf(CardType.CREDIT, CardType.DEBIT)
@@ -82,7 +86,8 @@ class CardMapperIntegrationTest {
 
     @Test
     void 신용카드는_한도가_체크카드는_잔액이_BigDecimal로_채워진다() {
-        List<CardListResponse> cards = cardMapper.findByUserId(SEED_USER_ID);
+        List<CardListResponse> cards = cardMapper.findByUserId(
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER);
 
         assertThat(cards).filteredOn(c -> c.getCardType() == CardType.CREDIT)
                 .isNotEmpty()
@@ -97,7 +102,7 @@ class CardMapperIntegrationTest {
     void 소프트_삭제된_카드는_목록에서_제외된다() {
         jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
 
-        assertThat(cardMapper.findByUserId(SEED_USER_ID)).hasSize(4)
+        assertThat(cardMapper.findByUserId(SEED_USER_ID, CardListSortType.DISPLAY_ORDER)).hasSize(4)
                 .extracting(CardListResponse::getUserCardId)
                 .doesNotContain(1L);
     }

@@ -2,9 +2,11 @@ package com.fitwallet.domain.card.controller;
 
 import com.fitwallet.domain.card.dto.CardSuccessCode;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
+import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
 import com.fitwallet.domain.card.service.CardService;
@@ -52,23 +54,45 @@ public class CardController {
         binder.initDirectFieldAccess();
     }
 
+    @ApiOperation(value = "보유 카드 목록 조회", notes = """
+            로그인 사용자의 보유 카드 목록을 조회한다.
+
+            - `sort`를 생략하면 결제 탭에서 사용하는 `displayOrder` 순으로 반환한다.
+            - `sort=RECENTLY_USED`이면 최근 승인 거래 시각 내림차순으로 반환한다.
+            - 최근 거래가 없는 카드는 뒤로 보내고 동률이면 `displayOrder`, `userCardId` 순으로 정렬한다.
+            - 보유 카드가 없으면 빈 배열을 반환한다.
+            """)
     @GetMapping("/user-cards")
-    public ResponseEntity<ApiResponse<List<CardListResponse>>> findMyCards(@LoginUserId Long userId) {
-        return ApiResponse.of(CardSuccessCode.USER_CARDS_FOUND, cardService.findMyCards(userId));
+    public ResponseEntity<ApiResponse<List<CardListResponse>>> findMyCards(
+            @LoginUserId Long userId,
+            @ModelAttribute CardListSearchRequest request) {
+        return ApiResponse.of(CardSuccessCode.USER_CARDS_FOUND,
+                cardService.findMyCards(userId, request));
     }
 
-    /**
-     * 명세의 "내 카드 요약 조회". 명세가 경로 변수를 {@code cardId}로 적었지만
-     * 실제로 가리키는 값은 {@code user_card_id}다 (다른 API는 {@code userCardId}로 적혀 있어
-     * 명세 쪽 표기 통일이 필요하다).
-     */
+    @ApiOperation(value = "내 카드 요약 조회", notes = """
+            내 카드 탭에서 선택한 보유 카드의 기본 정보, 카드 유형별 금액, 최근 이용 내역과
+            현재 월 이용 실적 요약을 조회한다.
+
+            - 신용카드 결제 이용금액과 실적은 현재 월 1일부터 전날까지 반영한다.
+            - 체크카드는 현재 잔액을 반환하고 실적은 오늘까지 반영한다.
+            - 최근 이용 내역은 카드 유형과 관계없이 KST 기준 오늘과 어제의 전체 승인 거래다.
+            - 최근 이용 내역은 `paidAt DESC`, `transactionId DESC` 순이며 접힘·펼침은 클라이언트가 처리한다.
+            - 실적 조건이 없으면 `tierType`과 `performanceStatus`가 `NO_REQUIREMENT`이고 표시 값은 null이다.
+
+            | HTTP | code | message |
+            |---|---|---|
+            | 404 | CARD_NOT_FOUND | 요청한 카드를 찾을 수 없습니다. |
+            | 500 | INVALID_CARD_SUMMARY_DATA | 카드 요약 데이터가 올바르지 않습니다. |
+            """)
     @GetMapping("/card/{cardId}/summary")
-    public ResponseEntity<ApiResponse<CardListResponse>> findMyCard(
+    public ResponseEntity<ApiResponse<CardSummaryResponse>> findCardSummary(
             @LoginUserId Long userId,
+            @ApiParam(value = "보유 카드 ID(user_card_id)", example = "1", required = true)
             @PathVariable("cardId") Long userCardId) {
 
         return ApiResponse.of(CardSuccessCode.CARD_SUMMARY_FOUND,
-                cardService.findMyCard(userId, userCardId));
+                cardService.findCardSummary(userId, userCardId));
     }
 
     @ApiOperation(value = "카드별 세부 결제 내역 조회", notes = """
@@ -76,7 +100,7 @@ public class CardController {
 
             - `yearMonth`를 생략하면 현재 월을 조회하며, 현재 월을 포함한 최근 3개월만 조회할 수 있다.
             - 정렬 기준은 `paidAt DESC`, `transactionId DESC`이며 `nextCursor`로 다음 내역을 조회한다.
-            - 현재 월 신용카드는 전날까지 반영된 저장 결제 이용금액을 반환한다.
+            - 현재 월 신용카드는 전날까지의 `amount` 합계를 결제 이용금액으로 반환한다.
             - 현재 월 체크카드는 오늘까지, 과거 월 카드는 해당 월 전체 거래의 `amount` 합계를 반환한다.
             - 실적 미인정 거래도 목록과 합계에 포함하며 `performanceIncluded=false`로 구분한다.
             - 가맹점 정보가 없으면 `storeName`, `categoryName`, `categoryImageUrl`은 null이다.
@@ -88,7 +112,6 @@ public class CardController {
             | 400 | INVALID_TRANSACTION_PAGE_SIZE | 조회 개수는 1개 이상 100개 이하여야 합니다. |
             | 400 | INVALID_TRANSACTION_CURSOR | 유효하지 않은 결제 내역 커서입니다. |
             | 404 | CARD_NOT_FOUND | 요청한 카드를 찾을 수 없습니다. |
-            | 500 | INVALID_CARD_PAYMENT_DATA | 카드 결제 이용금액 데이터가 올바르지 않습니다. |
             """)
     @GetMapping("/card/{cardId}/transactions")
     public ResponseEntity<ApiResponse<CardTransactionDetailResponse>> getCardTransactions(
