@@ -74,9 +74,14 @@ class CardMapperIntegrationTest {
             assertThat(card.getIssuerName()).isNotBlank();
         });
 
-        // 카드 이미지는 카드상품에 값이 있을 때만 채워지는 nullable 컬럼이라 allSatisfy로는 못 묶는다.
+        // card_image_url은 nullable이라 allSatisfy로 묶을 수 없다. 여기서 보는 것은
+        // "매퍼 XML이 이 컬럼을 SELECT하고 매핑하는가" 하나뿐이다 — resultType 매핑은
+        // SQL이 안 뽑은 컬럼을 조용히 버리므로(AGENTS.md §6) 이 단언이 그걸 잡는다.
+        //
+        // 반대로 "이미지가 null인 카드가 있다"는 단언은 두지 않는다. 어느 카드에 이미지를
+        // 넣을지는 제품 결정이라 시드가 바뀌면 함께 바뀌고, 실제로 #119가 신한카드 20종을
+        // 채우면서 그 단언이 깨져 develop이 빨개졌다(#129). 매퍼 테스트는 매퍼만 본다.
         assertThat(cards).filteredOn(c -> c.getCardImageUrl() != null).isNotEmpty();
-        assertThat(cards).filteredOn(c -> c.getCardImageUrl() == null).isNotEmpty();
     }
 
     @Test
