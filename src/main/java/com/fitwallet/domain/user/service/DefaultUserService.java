@@ -2,6 +2,7 @@ package com.fitwallet.domain.user.service;
 
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
+import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
@@ -19,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 
 @Service
 @RequiredArgsConstructor
@@ -86,6 +88,13 @@ public class DefaultUserService implements UserService {
                         jwtProvider.getRefreshTokenExpirationSeconds()
                 )
                 .build();
+    }
+
+    /** 최근 1개월간 가장 자주 결제한 장소를 최대 3개 조회한다. 집계는 Mapper가 전담한다. */
+    @Override
+    @Transactional(readOnly = true)
+    public List<FrequentPlaceResponse> findFrequentPlaces(Long userId) {
+        return userMapper.findFrequentPlaces(userId);
     }
 
     /**

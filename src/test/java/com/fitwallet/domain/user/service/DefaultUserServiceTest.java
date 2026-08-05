@@ -2,6 +2,7 @@ package com.fitwallet.domain.user.service;
 
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
+import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
@@ -22,6 +23,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -162,6 +164,23 @@ class DefaultUserServiceTest {
                 .isEqualTo(UserErrorCode.INVALID_CREDENTIALS);
 
         then(jwtProvider).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void 자주찾는장소_조회는_매퍼_집계결과를_그대로_반환한다() {
+        List<FrequentPlaceResponse> places = List.of(
+                FrequentPlaceResponse.builder()
+                        .storeId(1L)
+                        .storeName("스타벅스 강남점")
+                        .address("서울 강남구")
+                        .categoryName("카페/디저트")
+                        .build()
+        );
+        given(userMapper.findFrequentPlaces(1L)).willReturn(places);
+
+        List<FrequentPlaceResponse> result = userService.findFrequentPlaces(1L);
+
+        assertThat(result).isEqualTo(places);
     }
 
     @Test

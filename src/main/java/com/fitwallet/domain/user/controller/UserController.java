@@ -3,10 +3,12 @@ package com.fitwallet.domain.user.controller;
 import com.fitwallet.domain.user.dto.UserSuccessCode;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
+import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.service.UserService;
+import com.fitwallet.global.common.annotation.LoginUserId;
 import com.fitwallet.global.common.dto.ApiResponse;
 import com.fitwallet.global.config.RefreshTokenCookieProvider;
 import lombok.RequiredArgsConstructor;
@@ -14,6 +16,7 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import javax.servlet.http.HttpServletResponse;
 import javax.validation.Valid;
+import java.util.List;
 
 /**
  * 사용자 도메인의 요청을 처리한다.
@@ -75,6 +79,16 @@ public class UserController {
         return ApiResponse.of(
                 UserSuccessCode.LOGIN_SUCCESS,
                 loginResponse
+        );
+    }
+
+    @GetMapping("/user/frequent-places")
+    public ResponseEntity<ApiResponse<List<FrequentPlaceResponse>>> findFrequentPlaces(
+            @LoginUserId Long userId) {
+
+        return ApiResponse.of(
+                UserSuccessCode.FREQUENT_PLACES_FOUND,
+                userService.findFrequentPlaces(userId)
         );
     }
 
