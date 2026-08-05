@@ -5,10 +5,15 @@ on:
     branches: [main, develop]
   push:
     branches: [main, develop]
+  # main을 골라 수동 실행하면 배포까지 그대로 이어진다. 릴리스와 분리해서
+  # 배선(OIDC 수임·IAM 권한)만 먼저 확인하거나, 재배포가 필요할 때 쓴다.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # main에서는 취소하지 않는다. deploy 잡이 S3 업로드와 update-environment 사이에서
+  # 죽으면 EB에 어느 환경도 쓰지 않는 애플리케이션 버전만 남는다.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 permissions:
   contents: read
@@ -63,3 +68,129 @@ jobs:
           name: test-report
           path: build/reports/tests/test
           retention-days: 7
+
+      # deploy 잡이 이 WAR를 그대로 EB에 올린다. 배포 시점에 다시 빌드하지 않으므로
+      # 테스트를 통과한 바이너리와 배포된 바이너리가 같다는 것이 보장된다.
+      - name: Upload WAR
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: war
+          path: build/libs/*.war
+          retention-days: 7
+
+  # main에 커밋이 들어가면(릴리스 PR 머지) EB 환경을 새 버전으로 갱신한다.
+  # PR에서는 돌지 않는다 — main ruleset의 필수 상태 체크는 build 하나뿐이다.
+  deploy:
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+      id-token: write     # OIDC 토큰 발급용. build 잡에는 주지 않는다
+
+    env:
+      AWS_REGION: ap-northeast-2
+      EB_APP: fitwallet-backend
+      EB_ENV: fitwallet-prod
+      EB_BUCKET: elasticbeanstalk-ap-northeast-2-715975222399
+      APP_URL: http://fitwallet-backend-prod.ap-northeast-2.elasticbeanstalk.com
+
+    steps:
+      - name: Download WAR
+        uses: actions/download-artifact@v4
+        with:
+          name: war
+          path: dist
+
+      # 장기 액세스 키를 저장소에 두지 않는다. IAM 역할의 신뢰 정책이
+      # 이 저장소의 main ref에서 온 토큰만 수임을 허용한다.
+      - name: Configure AWS credentials (OIDC)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      # 비용 절감으로 환경을 내려둔 상태에서 배포하면 여기서 걸린다.
+      # 그냥 두면 update-environment가 애매한 에러를 내며 실패한다.
+      - name: Check environment is Ready
+        run: |
+          STATUS=$(aws elasticbeanstalk describe-environments \
+            --application-name "$EB_APP" --environment-names "$EB_ENV" --no-include-deleted \
+            --query 'Environments[0].Status' --output text)
+          echo "현재 상태: $STATUS"
+          if [ "$STATUS" != "Ready" ]; then
+            echo "::error::EB 환경 $EB_ENV 이 Ready가 아니다 (현재: $STATUS). 환경이 내려가 있거나 다른 배포가 진행 중이다."
+            exit 1
+          fi
+
+      - name: Deploy to Elastic Beanstalk
+        run: |
+          set -euo pipefail
+          LABEL="gh-${{ github.run_number }}-${GITHUB_SHA:0:7}"
+          WAR=$(ls dist/*.war)
+          echo "LABEL=$LABEL" >> "$GITHUB_ENV"
+          echo "버전 라벨 $LABEL / 번들 $WAR"
+
+          # Tomcat 플랫폼은 단일 WAR 번들을 ROOT 컨텍스트로 배포한다 — 파일명은 무관하다.
+          aws s3 cp "$WAR" "s3://$EB_BUCKET/$EB_APP/$LABEL.war"
+
+          aws elasticbeanstalk create-application-version \
+            --application-name "$EB_APP" \
+            --version-label "$LABEL" \
+            --source-bundle S3Bucket="$EB_BUCKET",S3Key="$EB_APP/$LABEL.war" \
+            --description "${{ github.event_name }} by ${{ github.actor }} (run ${{ github.run_number }})" \
+            --no-auto-create-application
+
+          # --option-settings를 붙이지 않는다. JWT_SECRET·DB 접속정보·env=prod 같은
+          # 환경 속성은 EB에만 있고 저장소에는 없다 — 건드리면 그대로 날아간다.
+          aws elasticbeanstalk update-environment \
+            --environment-name "$EB_ENV" --version-label "$LABEL"
+
+      # `wait environment-updated`를 쓰지 않는다. update-environment 직후 환경이
+      # 아직 Ready로 보이는 순간이 있어 waiter가 즉시 성공을 돌려줄 수 있다.
+      # Ready인 것만으로는 부족하고 VersionLabel까지 새 라벨이어야 배포가 끝난 것이다.
+      - name: Wait for deployment
+        run: |
+          for i in $(seq 1 60); do
+            read -r STATUS VERSION HEALTH <<< "$(aws elasticbeanstalk describe-environments \
+              --application-name "$EB_APP" --environment-names "$EB_ENV" --no-include-deleted \
+              --query 'Environments[0].[Status,VersionLabel,Health]' --output text)"
+            echo "[$i] status=$STATUS version=$VERSION health=$HEALTH"
+            if [ "$STATUS" = "Ready" ] && [ "$VERSION" = "$LABEL" ]; then
+              if [ "$HEALTH" = "Red" ]; then
+                echo "::error::배포는 끝났지만 환경 Health가 Red다."
+                exit 1
+              fi
+              echo "배포 완료: $LABEL"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "::error::15분 안에 배포가 끝나지 않았다."
+          exit 1
+
+      # 위 단계 통과 직후에도 Tomcat 웜업 중이라 잠깐 502가 날 수 있어 재시도한다.
+      - name: Health check
+        run: |
+          for i in $(seq 1 12); do
+            if curl -fsS --max-time 10 "$APP_URL/health/db"; then
+              echo
+              echo "헬스체크 통과"
+              exit 0
+            fi
+            echo "[$i] 아직 응답이 없다 — 10초 후 재시도"
+            sleep 10
+          done
+          echo "::error::$APP_URL/health/db 가 200을 돌려주지 않는다."
+          exit 1
+
+      # 실패 원인은 대부분 Actions 로그가 아니라 EB 이벤트에 찍힌다.
+      - name: Dump EB events on failure
+        if: failure()
+        continue-on-error: true
+        run: |
+          aws elasticbeanstalk describe-events \
+            --application-name "$EB_APP" --environment-name "$EB_ENV" \
+            --max-items 25 --query 'Events[].[EventDate,Severity,Message]' --output text
