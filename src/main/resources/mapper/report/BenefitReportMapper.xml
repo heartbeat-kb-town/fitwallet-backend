@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fitwallet.domain.report.mapper.BenefitReportMapper">
+    <select id="getTotalReceivedBenefit" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(pt.discount_amount), 0)
+        FROM payment_transaction pt
+        JOIN user_card uc ON pt.user_card_id = uc.user_card_id
+        WHERE uc.user_id = #{userId}
+        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
+    </select>
+
+    <select id="getTotalMissedBenefit" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(pt.missed_amount), 0)
+        FROM payment_transaction pt
+        JOIN user_card uc ON pt.user_card_id = uc.user_card_id
+        WHERE uc.user_id = #{userId}
+        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
+    </select>
+
+    <select id="getCategoryBenefits" resultType="com.fitwallet.domain.report.dto.response.CategoryBenefitResponse">
+        SELECT
+        c.category_id ,
+        c.category_name ,
+        COALESCE(SUM(pt.discount_amount), 0) AS benefitAmount,
+        COALESCE(SUM(pt.amount), 0)           AS spendAmount
+        FROM payment_transaction pt
+        JOIN user_card uc ON pt.user_card_id = uc.user_card_id
+        JOIN store s ON pt.store_id = s.store_id
+        JOIN category c ON s.category_id = c.category_id
+        WHERE uc.user_id = #{userId}
+        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
+        GROUP BY c.category_id, c.category_name
+        ORDER BY benefitAmount DESC
+        LIMIT 5
+    </select>
+
+    <!-- 1) 이번 달 지출 상위 카테고리 추출 (카테고리별 지출액 포함) -->
+    <select id="getTopSpendingCategories" resultType="com.fitwallet.domain.report.dto.response.CategorySpendResponse">
+        SELECT
+        c.category_id AS categoryId,
+        c.category_name AS categoryName,
+        SUM(pt.amount) AS spendAmount
+        FROM payment_transaction pt
+        JOIN user_card uc ON pt.user_card_id = uc.user_card_id
+        JOIN store s ON pt.store_id = s.store_id
+        JOIN category c ON s.category_id = c.category_id
+        WHERE uc.user_id = #{userId}
+        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
+        GROUP BY c.category_id, c.category_name
+        ORDER BY spendAmount DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 2) 그 카테고리에 혜택 있는, 아직 보유 안 한 카드 후보 조회 -->
+    <select id="getRecommendedCards" resultType="com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse">
+        SELECT DISTINCT
+        cp.card_product_id,
+        cp.card_name,
+        cp.card_image_url,
+        c.category_id,
+        c.category_name,
+        bs.value_number AS discountRate,
+        bt.min_prev_month_spend,
+        bl.limit_value
+        FROM benefit_service bs
+        JOIN service_category sc ON bs.service_id = sc.service_id
+        JOIN category c ON sc.category_id = c.category_id
+        JOIN card_product cp ON bs.card_product_id = cp.card_product_id
+        LEFT JOIN benefit_tier bt ON bt.service_id = bs.service_id
+        LEFT JOIN benefit_limit bl ON bl.tier_id = bt.tier_id
+        WHERE c.category_id IN
+        <foreach collection="categoryIds" item="categoryId" open="(" separator="," close=")">
+            #{categoryId}
+        </foreach>
+        AND cp.card_product_id NOT IN (
+        SELECT card_product_id FROM user_card WHERE user_id = #{userId}
+        )
+    </select>
+</mapper>

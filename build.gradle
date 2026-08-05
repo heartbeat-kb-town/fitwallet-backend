@@ -19,7 +19,18 @@ repositories {
 
 ext {
     springVersion = '5.3.39'
+    jjwtVersion = '0.13.0'
 }
+
+// docker-compose.yml이 읽는 .env를 애플리케이션도 같이 보게 한다.
+// 포트나 계정을 바꾼 개발자가 컨테이너 설정과 접속 설정을 따로 맞추지 않아도 되도록,
+// .env의 값을 시스템 프로퍼티로 넘겨 application-local.properties의 기본값을 덮어쓴다.
+// .env가 없는 환경(CI)에서는 기본값이 그대로 쓰인다.
+def dotenv = new Properties()
+if (file('.env').exists()) {
+    file('.env').withInputStream { dotenv.load(it) }
+}
+def dotenvJvmArgs = dotenv.collect { k, v -> "-D${k}=${v}".toString() }
 
 dependencies {
     // Spring
@@ -34,11 +45,25 @@ dependencies {
 
     // JDBC / DB
     runtimeOnly 'com.mysql:mysql-connector-j:8.4.0'
+    implementation 'com.zaxxer:HikariCP:5.1.0'
 
     // Servlet / JSON
     providedCompile 'javax.servlet:javax.servlet-api:4.0.1'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
     implementation 'com.fasterxml.jackson.datatype:jackson-datatype-jsr310:2.17.2'
+
+    // Validation
+    // javax.servlet 기반이므로 jakarta 계열(Hibernate Validator 7/8)을 쓰면 안 된다.
+    implementation 'javax.validation:validation-api:2.0.1.Final'
+    implementation 'org.hibernate.validator:hibernate-validator:6.2.5.Final'
+    implementation 'org.glassfish:jakarta.el:3.0.4'
+
+    // API 문서 (Swagger UI / OpenAPI 3)
+    // Boot가 아니므로 springfox-boot-starter를 쓸 수 없다. springfox 3.0.0은 javax 기반 마지막
+    // 버전이라 이 스택과 맞는다 — "springfox는 죽었다"는 평판은 전부 Boot 3/jakarta 전환 맥락이다.
+    // springfox-oas가 OpenAPI 3.0(/v3/api-docs)을, springfox-swagger-ui가 UI 정적 리소스를 준다.
+    implementation 'io.springfox:springfox-oas:3.0.0'
+    implementation 'io.springfox:springfox-swagger-ui:3.0.0'
 
     // Lombok
     compileOnly 'org.projectlombok:lombok:1.18.34'
@@ -53,14 +78,60 @@ dependencies {
     testImplementation 'org.junit.jupiter:junit-jupiter'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
     testImplementation "org.springframework:spring-test:${springVersion}"
+    // MockMvcResultMatchers.jsonPath()가 런타임에 필요로 한다 (StoreControllerTest).
+    testImplementation 'com.jayway.jsonpath:json-path:2.9.0'
+    testImplementation 'org.hamcrest:hamcrest:2.2'
+    testImplementation 'org.assertj:assertj-core:3.26.3'
+    testImplementation 'org.mockito:mockito-core:5.12.0'
+    testImplementation 'org.mockito:mockito-junit-jupiter:5.12.0'
+    testCompileOnly 'org.projectlombok:lombok:1.18.34'
+    testAnnotationProcessor 'org.projectlombok:lombok:1.18.34'
+
+    // Spring Security
+    implementation 'org.springframework.security:spring-security-crypto:5.7.1'
+
+    // JWT
+    implementation "io.jsonwebtoken:jjwt-api:${jjwtVersion}"
+    runtimeOnly "io.jsonwebtoken:jjwt-impl:${jjwtVersion}"
+    runtimeOnly "io.jsonwebtoken:jjwt-jackson:${jjwtVersion}"
 }
+
+// JVM 기본 타임존을 KST로 고정한다 (AGENTS.md §10).
+// MySQL 컨테이너를 KST로 맞춰도(docker-compose.yml) 자바 쪽이 러너 기본값을 쓰면
+// CI(UTC 러너)에서만 LocalDateTime.now()가 DB 시각과 9시간 어긋난다. 시각 소스를 하나로 둔다.
+def timezoneJvmArg = '-Duser.timezone=Asia/Seoul'
 
 test {
     useJUnitPlatform()
+    // 프로파일 미지정 시 local. CI도 이 기본값으로 동작한다.
+    systemProperty 'env', System.getProperty('env', 'local')
+    jvmArgs timezoneJvmArg
+    dotenv.each { k, v -> systemProperty(k.toString(), v.toString()) }
 }
 
 gretty {
     contextPath = '/'
     servletContainer = 'tomcat9'
     httpPort = 8080
+    jvmArgs = ['-Denv=local', timezoneJvmArg] + dotenvJvmArgs
+
+    // openapiDump를 Gretty의 통합테스트 훅에 태운다. Gretty가 이 태스크 앞뒤로
+    // appBeforeIntegrationTest(서버 기동) / appAfterIntegrationTest(종료)를 자동으로 끼워준다.
+    // appStart를 dependsOn으로 걸면 그 자리에서 빌드가 멈추므로 이 경로를 쓴다.
+    integrationTestTask = 'openapiDump'
+}
+
+// OpenAPI 스펙 스냅샷(docs/openapi.json)을 뽑는다. 경로 목록을 훑을 때 쓰는 보조 수단이며
+// API 계약의 정본이 아니다 — 정본은 코드다 (AGENTS.md §5).
+// Springfox는 런타임에 스펙을 만들므로 앱을 띄워야 뽑을 수 있다.
+// docker compose MySQL이 떠 있어야 한다.
+//   ./gradlew openapiDump
+tasks.register('openapiDump') {
+    group = 'documentation'
+    description = '앱을 띄워 /v3/api-docs를 docs/openapi.json에 저장한다.'
+    doLast {
+        def spec = new URL("http://localhost:${gretty.httpPort}/v3/api-docs").text
+        // 한 줄 JSON으로 두면 diff가 통째로 바뀌어 리뷰가 불가능하다.
+        file('docs/openapi.json').text = groovy.json.JsonOutput.prettyPrint(spec) + '\n'
+    }
 }

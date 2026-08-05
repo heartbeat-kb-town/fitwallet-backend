@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fitwallet.domain.payment.mapper.PaymentMapper">
+
+    <select id="findUserPinInfo" resultType="com.fitwallet.domain.payment.dto.UserPinInfo">
+        SELECT payment_pin_hash, pin_fail_count
+        FROM users
+        WHERE user_id = #{userId}
+    </select>
+
+    <update id="incrementPinFailCount">
+        UPDATE users
+        SET pin_fail_count = pin_fail_count + 1
+        WHERE user_id = #{userId}
+    </update>
+
+    <update id="issuePinAuth">
+        UPDATE users
+        SET pin_auth_id = #{pinAuthId},
+            auth_expires_at = #{expiresAt},
+            auth_is_used = 0,
+            pin_fail_count = 0
+        WHERE user_id = #{userId}
+    </update>
+
+    <select id="findPinAuthInfo" resultType="com.fitwallet.domain.payment.dto.PinAuthInfo">
+        SELECT pin_auth_id, auth_expires_at, auth_is_used
+        FROM users
+        WHERE user_id = #{userId}
+    </select>
+
+    <select id="existsUserCard" resultType="boolean">
+        SELECT EXISTS (
+        SELECT 1 FROM user_card
+        WHERE user_card_id = #{userCardId}
+        AND user_id = #{userId}
+        AND is_deleted = 0
+        )
+    </select>
+
+    <update id="markPinAuthUsed">
+        UPDATE users
+        SET auth_is_used = 1
+        WHERE user_id = #{userId}
+    </update>
+
+    <insert id="insertPaymentSession">
+        INSERT INTO payment_session (user_card_id, session_token, status, expires_at)
+        VALUES (#{userCardId}, #{sessionToken}, #{status}, #{expiresAt})
+    </insert>
+
+    <select id="findQrSessionByToken" resultType="com.fitwallet.domain.payment.dto.QrSessionInfo">
+        SELECT ps.status, ps.payment_id, ps.expires_at, ps.created_at
+        FROM payment_session ps
+        JOIN user_card uc ON uc.user_card_id = ps.user_card_id
+        WHERE ps.session_token = #{qrToken}
+        AND uc.user_id = #{userId}
+        AND uc.is_deleted = 0
+    </select>
+
+    <update id="markSessionScanned">
+        UPDATE payment_session
+        SET status = 'SCANNED',
+        payment_id = #{paymentId}
+        WHERE session_token = #{qrToken}
+    </update>
+
+    <update id="markSessionExpired">
+        UPDATE payment_session
+        SET status = 'EXPIRED'
+        WHERE session_token = #{qrToken}
+    </update>
+
+</mapper>

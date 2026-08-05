@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.fitwallet.global.common.mapper.HealthMapper">
 
-    <select id="findLatest" resultType="com.fitwallet.global.common.HealthCheck">
-        SELECT id, message, checked_at AS checkedAt
+    <!-- checked_at → checkedAt 은 mapUnderscoreToCamelCase가 처리한다 (수동 별칭 불필요) -->
+    <select id="findLatest" resultType="com.fitwallet.global.common.dto.HealthCheckResponse">
+        SELECT id, message, checked_at
         FROM health_check
         ORDER BY id DESC
         LIMIT 1

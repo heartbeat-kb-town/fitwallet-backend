@@ -29,15 +29,19 @@ git clone https://github.com/heartbeat-kb-town/fitwallet-backend.git
 cd fitwallet-backend
 ```
 
-### 3. 환경 변수 / DB 접속 정보 파일 준비
+### 3. 환경 변수 파일 준비
 
-`.sample` 파일을 복사해서 실제 설정 파일을 만듭니다. (두 파일 모두 `.gitignore`
-대상이라 커밋되지 않습니다)
+`.env.sample`을 복사해서 `.env`를 만듭니다. (`.gitignore` 대상이라 커밋되지 않습니다)
 
-| | macOS / Linux / Git Bash | Windows (cmd) | Windows (PowerShell) |
-|---|---|---|---|
-| `.env` | `cp .env.sample .env` | `copy .env.sample .env` | `Copy-Item .env.sample .env` |
-| `db.properties` | `cp src/main/resources/db.properties.sample src/main/resources/db.properties` | `copy src\main\resources\db.properties.sample src\main\resources\db.properties` | `Copy-Item src\main\resources\db.properties.sample src\main\resources\db.properties` |
+| macOS / Linux / Git Bash | Windows (cmd) | Windows (PowerShell) |
+|---|---|---|
+| `cp .env.sample .env` | `copy .env.sample .env` | `Copy-Item .env.sample .env` |
+
+DB 접속 정보는 따로 만들 필요가 없습니다. `src/main/resources/config/application-local.properties`가
+저장소에 들어 있고, 그 값이 `.env`와 짝이 맞습니다.
+
+> 3306 포트가 이미 쓰이고 있어 `.env`의 `MYSQL_PORT`를 바꿔야 한다면 `.env`만 고치면 됩니다.
+> 빌드 스크립트가 `.env`를 읽어 애플리케이션 설정에 그대로 넘겨주므로 두 곳을 맞출 필요가 없습니다.
 
 ### 4. Docker로 로컬 MySQL 기동
 
@@ -55,6 +59,17 @@ docker compose ps   # mysql 서비스가 healthy 상태인지 확인
 > 이 초기화 스크립트는 **데이터 볼륨이 비어 있을 때만** 실행됩니다. 스키마나 시드가
 > 바뀌었다면 `docker compose down -v && docker compose up -d`로 볼륨을 지우고 다시 띄워야
 > 반영됩니다.
+
+> ⚠️ **이미 컨테이너를 띄워 둔 상태에서 이 저장소를 pull 했다면 한 번 재생성하세요.**
+> MySQL 서버 타임존을 KST로 고정(`--default-time-zone=+09:00`)했는데, `docker-compose.yml`
+> 변경은 기존 컨테이너에 반영되지 않습니다. 그 전에 쌓인 `created_at` 등은 UTC 값이라
+> 시드(KST)와 9시간 어긋나 있으므로 볼륨까지 지우고 다시 띄우는 편이 깔끔합니다.
+>
+> ```bash
+> docker compose down -v && docker compose up -d
+> docker exec fitwallet-mysql mysql -uroot -p"$MYSQL_ROOT_PASSWORD" \
+>   -e "SELECT @@global.time_zone, NOW();"   # +09:00 / 현재 KST 시각
+> ```
 
 ### 5. 빌드 & 서버 기동
 
@@ -84,6 +99,33 @@ docker compose down       # 컨테이너만 정리 (데이터는 유지됨)
 docker compose down -v    # 데이터까지 완전히 초기화하고 싶을 때
 ```
 
+## 배포 (운영 서버)
+
+프로파일은 시스템 프로퍼티 `-Denv`로 고릅니다. 지정하지 않으면 `local`입니다.
+
+운영에서는 `-Denv=prod`로 띄우고, DB 접속 정보는 **환경 변수로만** 주입합니다.
+`application-prod.properties`에는 값이 아니라 환경 변수 참조만 들어 있어서,
+아래 세 변수가 없으면 기동 단계에서 실패합니다. (운영 비밀번호가 저장소에 남지 않도록 한 의도된 동작입니다)
+
+```bash
+export DB_URL='jdbc:mysql://{호스트}:3306/fitwallet?serverTimezone=Asia/Seoul&characterEncoding=UTF-8'
+export DB_USERNAME='{계정}'
+export DB_PASSWORD='{비밀번호}'
+```
+
+WAR는 `./gradlew build`로 `build/libs/`에 생성됩니다. Tomcat에 배포할 때는
+`CATALINA_OPTS`에 `-Denv=prod`를 넣습니다.
+
+## 코드 컨벤션
+
+패키지 구조, 네이밍, DTO·예외·MyBatis·테스트 규칙은 [AGENTS.md](./AGENTS.md)에 정리돼 있습니다.
+새 도메인을 시작할 때는 참조 구현인 `src/main/java/com/fitwallet/domain/card`를 복제하세요.
+
 ## 기여 가이드
 
-브랜치 전략, 커밋 컨벤션, PR 규칙, 코드 리뷰 규칙은 [CONTRIBUTING.md](./CONTRIBUTING.md)를 참고하세요.
+브랜치는 두 개를 축으로 씁니다.
+
+- `main` — 배포 브랜치. 배포된 것만 담기며, `develop`에서 올라오는 릴리스 PR로만 갱신됩니다.
+- `develop` — 통합 브랜치이자 기본 브랜치. 모든 작업 브랜치는 여기서 분기하고 여기로 PR합니다.
+
+브랜치 전략 상세, 커밋 컨벤션, PR 규칙, 코드 리뷰 규칙은 [CONTRIBUTING.md](./CONTRIBUTING.md)를 참고하세요.

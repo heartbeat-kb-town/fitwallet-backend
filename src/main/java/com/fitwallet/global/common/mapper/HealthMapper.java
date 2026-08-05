@@ -1,11 +1,10 @@
 package com.fitwallet.global.common.mapper;
 
+import com.fitwallet.global.common.dto.HealthCheckResponse;
 import org.apache.ibatis.annotations.Mapper;
-
-import com.fitwallet.global.common.HealthCheck;
 
 @Mapper
 public interface HealthMapper {
 
-    HealthCheck findLatest();
+    HealthCheckResponse findLatest();
 }

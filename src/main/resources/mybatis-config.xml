@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE configuration
+        PUBLIC "-//mybatis.org//DTD Config 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-config.dtd">
+<configuration>
+
+    <settings>
+        <!--
+            DB는 snake_case, 자바는 camelCase.
+            이 설정이 없으면 XML마다 checked_at AS checkedAt 같은 수동 별칭을 붙여야 한다.
+        -->
+        <setting name="mapUnderscoreToCamelCase" value="true"/>
+
+        <!-- 파라미터가 null일 때 JDBC 타입을 추론하지 못해 나는 오류 방지 -->
+        <setting name="jdbcTypeForNull" value="NULL"/>
+    </settings>
+
+    <!--
+        커스텀 TypeHandler는 기본적으로 만들지 않는다.
+        DDL의 CHECK 제약 값이 모두 자바 enum 상수 이름과 일치해 기본 EnumTypeHandler가 처리하고,
+        TINYINT(1)↔Boolean / DECIMAL↔BigDecimal / DATETIME↔LocalDateTime도 기본 핸들러로 해결된다.
+        정말 필요해지면 global/config/typehandler/에 만들고 아래에 등록한다.
+
+        <typeHandlers>
+            <typeHandler handler="com.fitwallet.global.config.typehandler.XxxTypeHandler"/>
+        </typeHandlers>
+    -->
+
+</configuration>

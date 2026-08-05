@@ -8,8 +8,38 @@
 
 ## 브랜치 전략
 
-`main` 브랜치는 항상 배포 가능한 상태를 유지합니다.
-직접 push는 금지이며, 모든 변경은 Pull Request를 통해 반영합니다.
+배포되는 브랜치와 개발이 쌓이는 브랜치를 분리합니다.
+`main`, `develop` 모두 직접 push는 금지이며, 모든 변경은 Pull Request를 통해 반영합니다.
+
+| 브랜치 | 역할 | 어떻게 갱신되나 | 병합 방식 |
+|------|------|----------------|----------|
+| `main` | 배포 브랜치. 배포된 것만 담습니다 | `develop` → `main` 릴리스 PR로만 | **Merge commit** |
+| `develop` | 통합 브랜치(기본 브랜치). 다음 배포에 들어갈 작업이 모입니다 | 작업 브랜치 → `develop` PR | **Squash and Merge** |
+| 작업 브랜치 | 이슈 하나 단위의 작업 | `develop`에서 분기 | (머지 후 삭제) |
+
+```
+feat/login-page ─┐
+fix/calc-error ──┼─▶ develop ─(릴리스 PR)─▶ main
+docs/update ─────┘
+```
+
+- 작업 브랜치는 **항상 최신 `develop`에서 분기**하고, PR의 base도 `develop`입니다
+- `main`으로 가는 PR은 릴리스 PR 하나뿐입니다
+- 릴리스 PR은 Merge commit으로 합칩니다. Squash로 합치면 `main`과 `develop`의 히스토리가 갈라져
+  다음 릴리스마다 충돌이 반복됩니다
+
+### 릴리스 (develop → main)
+
+배포 시점에 `develop`의 내용을 `main`으로 올립니다.
+
+```bash
+gh pr create --base main --head develop --title "release: 2026-07-28 배포"
+```
+
+- 제목: `release: {날짜 또는 버전} 배포` — 이슈 번호는 붙이지 않습니다
+- 본문에는 이번 배포에 포함된 PR 목록을 적습니다
+- **Merge commit**으로 머지합니다 (Squash 금지)
+- 머지 후 `main`은 `develop`의 조상이 되므로, `main`을 `develop`으로 되돌려 머지하는 작업은 필요 없습니다
 
 ### 브랜치 네이밍 규칙
 
@@ -74,12 +104,15 @@ fix: 모바일에서 클릭 이벤트 미작동 수정
 ## Pull Request 규칙
 
 - PR은 하나의 목적만 담습니다 (기능 하나, 버그 하나)
+- PR의 base는 `develop`입니다
 - PR 제목 형식: `[#이슈번호] type: 작업 내용`
   - 예시: `[#1] chore: 프로젝트 초기 세팅`
   - 예시: `[#12] fix: 이자율 계산 오류 수정`
 - 최소 1명의 승인(Approve) 이후 merge 가능합니다
 - 리뷰어는 48시간 내 리뷰를 완료합니다
 - merge 방식은 **Squash and Merge**를 기본으로 합니다
+- 단, 릴리스 PR(`develop` → `main`)은 예외입니다. 제목은 `release: {날짜 또는 버전} 배포` 형식이고
+  이슈 번호를 붙이지 않으며, **Merge commit**으로 합칩니다 (위 "릴리스" 절 참고)
 
 ## 코드 리뷰 규칙
 
