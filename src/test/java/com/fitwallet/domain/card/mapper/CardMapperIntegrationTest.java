@@ -71,7 +71,12 @@ class CardMapperIntegrationTest {
             assertThat(card.getCardName()).isNotBlank();
             assertThat(card.getCardProductId()).isNotNull();
             assertThat(card.getCardType()).isNotNull();
+            assertThat(card.getIssuerName()).isNotBlank();
         });
+
+        // 카드 이미지는 카드상품에 값이 있을 때만 채워지는 nullable 컬럼이라 allSatisfy로는 못 묶는다.
+        assertThat(cards).filteredOn(c -> c.getCardImageUrl() != null).isNotEmpty();
+        assertThat(cards).filteredOn(c -> c.getCardImageUrl() == null).isNotEmpty();
     }
 
     @Test
