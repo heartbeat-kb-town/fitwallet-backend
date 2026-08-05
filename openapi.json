@@ -191,13 +191,14 @@
                 "tags": [
                     "\uce74\ub4dc"
                 ],
-                "summary": "findMyCard",
-                "operationId": "findMyCardUsingGET",
+                "summary": "\ub0b4 \uce74\ub4dc \uc694\uc57d \uc870\ud68c",
+                "description": "\ub0b4 \uce74\ub4dc \ud0ed\uc5d0\uc11c \uc120\ud0dd\ud55c \ubcf4\uc720 \uce74\ub4dc\uc758 \uae30\ubcf8 \uc815\ubcf4, \uce74\ub4dc \uc720\ud615\ubcc4 \uae08\uc561, \ucd5c\uadfc \uc774\uc6a9 \ub0b4\uc5ed\uacfc\n\ud604\uc7ac \uc6d4 \uc774\uc6a9 \uc2e4\uc801 \uc694\uc57d\uc744 \uc870\ud68c\ud55c\ub2e4.\n\n- \uc2e0\uc6a9\uce74\ub4dc \uacb0\uc81c \uc774\uc6a9\uae08\uc561\uacfc \uc2e4\uc801\uc740 \ud604\uc7ac \uc6d4 1\uc77c\ubd80\ud130 \uc804\ub0a0\uae4c\uc9c0 \ubc18\uc601\ud55c\ub2e4.\n- \uccb4\ud06c\uce74\ub4dc\ub294 \ud604\uc7ac \uc794\uc561\uc744 \ubc18\ud658\ud558\uace0 \uc2e4\uc801\uc740 \uc624\ub298\uae4c\uc9c0 \ubc18\uc601\ud55c\ub2e4.\n- \ucd5c\uadfc \uc774\uc6a9 \ub0b4\uc5ed\uc740 \uce74\ub4dc \uc720\ud615\uacfc \uad00\uacc4\uc5c6\uc774 KST \uae30\uc900 \uc624\ub298\uacfc \uc5b4\uc81c\uc758 \uc804\uccb4 \uc2b9\uc778 \uac70\ub798\ub2e4.\n- \ucd5c\uadfc \uc774\uc6a9 \ub0b4\uc5ed\uc740 `paidAt DESC`, `transactionId DESC` \uc21c\uc774\uba70 \uc811\ud798\u00b7\ud3bc\uce68\uc740 \ud074\ub77c\uc774\uc5b8\ud2b8\uac00 \ucc98\ub9ac\ud55c\ub2e4.\n- \uc2e4\uc801 \uc870\uac74\uc774 \uc5c6\uc73c\uba74 `tierType`\uacfc `performanceStatus`\uac00 `NO_REQUIREMENT`\uc774\uace0 \ud45c\uc2dc \uac12\uc740 null\uc774\ub2e4.\n\n| HTTP | code | message |\n|---|---|---|\n| 404 | CARD_NOT_FOUND | \uc694\uccad\ud55c \uce74\ub4dc\ub97c \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. |\n| 500 | INVALID_CARD_SUMMARY_DATA | \uce74\ub4dc \uc694\uc57d \ub370\uc774\ud130\uac00 \uc62c\ubc14\ub974\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4. |\n",
+                "operationId": "findCardSummaryUsingGET",
                 "parameters": [
                     {
                         "name": "cardId",
                         "in": "path",
-                        "description": "cardId",
+                        "description": "\ubcf4\uc720 \uce74\ub4dc ID(user_card_id)",
                         "required": true,
                         "style": "simple",
                         "schema": {
@@ -212,7 +213,7 @@
                         "content": {
                             "*/*": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/ApiResponse\u00abCardListResponse\u00bb"
+                                    "$ref": "#/components/schemas/ApiResponse\u00abCardSummaryResponse\u00bb"
                                 }
                             }
                         }
@@ -242,7 +243,7 @@
                     "\uce74\ub4dc"
                 ],
                 "summary": "\uce74\ub4dc\ubcc4 \uc138\ubd80 \uacb0\uc81c \ub0b4\uc5ed \uc870\ud68c",
-                "description": "\ub85c\uadf8\uc778 \uc0ac\uc6a9\uc790\uac00 \ubcf4\uc720\ud55c \uce74\ub4dc\uc758 \uc6d4\ubcc4 \uacb0\uc81c \ub0b4\uc5ed\uc744 \ucee4\uc11c \ubc29\uc2dd\uc73c\ub85c \uc870\ud68c\ud55c\ub2e4.\n\n- `yearMonth`\ub97c \uc0dd\ub7b5\ud558\uba74 \ud604\uc7ac \uc6d4\uc744 \uc870\ud68c\ud558\uba70, \ud604\uc7ac \uc6d4\uc744 \ud3ec\ud568\ud55c \ucd5c\uadfc 3\uac1c\uc6d4\ub9cc \uc870\ud68c\ud560 \uc218 \uc788\ub2e4.\n- \uc815\ub82c \uae30\uc900\uc740 `paidAt DESC`, `transactionId DESC`\uc774\uba70 `nextCursor`\ub85c \ub2e4\uc74c \ub0b4\uc5ed\uc744 \uc870\ud68c\ud55c\ub2e4.\n- \ud604\uc7ac \uc6d4 \uc2e0\uc6a9\uce74\ub4dc\ub294 \uc804\ub0a0\uae4c\uc9c0 \ubc18\uc601\ub41c \uc800\uc7a5 \uacb0\uc81c \uc774\uc6a9\uae08\uc561\uc744 \ubc18\ud658\ud55c\ub2e4.\n- \ud604\uc7ac \uc6d4 \uccb4\ud06c\uce74\ub4dc\ub294 \uc624\ub298\uae4c\uc9c0, \uacfc\uac70 \uc6d4 \uce74\ub4dc\ub294 \ud574\ub2f9 \uc6d4 \uc804\uccb4 \uac70\ub798\uc758 `amount` \ud569\uacc4\ub97c \ubc18\ud658\ud55c\ub2e4.\n- \uc2e4\uc801 \ubbf8\uc778\uc815 \uac70\ub798\ub3c4 \ubaa9\ub85d\uacfc \ud569\uacc4\uc5d0 \ud3ec\ud568\ud558\uba70 `performanceIncluded=false`\ub85c \uad6c\ubd84\ud55c\ub2e4.\n- \uac00\ub9f9\uc810 \uc815\ubcf4\uac00 \uc5c6\uc73c\uba74 `storeName`, `categoryName`, `categoryImageUrl`\uc740 null\uc774\ub2e4.\n\n| HTTP | code | message |\n|---|---|---|\n| 400 | INVALID_YEAR_MONTH | \uc870\ud68c \uc5f0\uc6d4 \ud615\uc2dd\uc774 \uc62c\ubc14\ub974\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4. |\n| 400 | YEAR_MONTH_OUT_OF_RANGE | \ucd5c\uadfc 3\uac1c\uc6d4\uc758 \ub0b4\uc5ed\ub9cc \uc870\ud68c\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4. |\n| 400 | INVALID_TRANSACTION_PAGE_SIZE | \uc870\ud68c \uac1c\uc218\ub294 1\uac1c \uc774\uc0c1 100\uac1c \uc774\ud558\uc5ec\uc57c \ud569\ub2c8\ub2e4. |\n| 400 | INVALID_TRANSACTION_CURSOR | \uc720\ud6a8\ud558\uc9c0 \uc54a\uc740 \uacb0\uc81c \ub0b4\uc5ed \ucee4\uc11c\uc785\ub2c8\ub2e4. |\n| 404 | CARD_NOT_FOUND | \uc694\uccad\ud55c \uce74\ub4dc\ub97c \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. |\n| 500 | INVALID_CARD_PAYMENT_DATA | \uce74\ub4dc \uacb0\uc81c \uc774\uc6a9\uae08\uc561 \ub370\uc774\ud130\uac00 \uc62c\ubc14\ub974\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4. |\n",
+                "description": "\ub85c\uadf8\uc778 \uc0ac\uc6a9\uc790\uac00 \ubcf4\uc720\ud55c \uce74\ub4dc\uc758 \uc6d4\ubcc4 \uacb0\uc81c \ub0b4\uc5ed\uc744 \ucee4\uc11c \ubc29\uc2dd\uc73c\ub85c \uc870\ud68c\ud55c\ub2e4.\n\n- `yearMonth`\ub97c \uc0dd\ub7b5\ud558\uba74 \ud604\uc7ac \uc6d4\uc744 \uc870\ud68c\ud558\uba70, \ud604\uc7ac \uc6d4\uc744 \ud3ec\ud568\ud55c \ucd5c\uadfc 3\uac1c\uc6d4\ub9cc \uc870\ud68c\ud560 \uc218 \uc788\ub2e4.\n- \uc815\ub82c \uae30\uc900\uc740 `paidAt DESC`, `transactionId DESC`\uc774\uba70 `nextCursor`\ub85c \ub2e4\uc74c \ub0b4\uc5ed\uc744 \uc870\ud68c\ud55c\ub2e4.\n- \ud604\uc7ac \uc6d4 \uc2e0\uc6a9\uce74\ub4dc\ub294 \uc804\ub0a0\uae4c\uc9c0\uc758 `amount` \ud569\uacc4\ub97c \uacb0\uc81c \uc774\uc6a9\uae08\uc561\uc73c\ub85c \ubc18\ud658\ud55c\ub2e4.\n- \ud604\uc7ac \uc6d4 \uccb4\ud06c\uce74\ub4dc\ub294 \uc624\ub298\uae4c\uc9c0, \uacfc\uac70 \uc6d4 \uce74\ub4dc\ub294 \ud574\ub2f9 \uc6d4 \uc804\uccb4 \uac70\ub798\uc758 `amount` \ud569\uacc4\ub97c \ubc18\ud658\ud55c\ub2e4.\n- \uc2e4\uc801 \ubbf8\uc778\uc815 \uac70\ub798\ub3c4 \ubaa9\ub85d\uacfc \ud569\uacc4\uc5d0 \ud3ec\ud568\ud558\uba70 `performanceIncluded=false`\ub85c \uad6c\ubd84\ud55c\ub2e4.\n- \uac00\ub9f9\uc810 \uc815\ubcf4\uac00 \uc5c6\uc73c\uba74 `storeName`, `categoryName`, `categoryImageUrl`\uc740 null\uc774\ub2e4.\n\n| HTTP | code | message |\n|---|---|---|\n| 400 | INVALID_YEAR_MONTH | \uc870\ud68c \uc5f0\uc6d4 \ud615\uc2dd\uc774 \uc62c\ubc14\ub974\uc9c0 \uc54a\uc2b5\ub2c8\ub2e4. |\n| 400 | YEAR_MONTH_OUT_OF_RANGE | \ucd5c\uadfc 3\uac1c\uc6d4\uc758 \ub0b4\uc5ed\ub9cc \uc870\ud68c\ud560 \uc218 \uc788\uc2b5\ub2c8\ub2e4. |\n| 400 | INVALID_TRANSACTION_PAGE_SIZE | \uc870\ud68c \uac1c\uc218\ub294 1\uac1c \uc774\uc0c1 100\uac1c \uc774\ud558\uc5ec\uc57c \ud569\ub2c8\ub2e4. |\n| 400 | INVALID_TRANSACTION_CURSOR | \uc720\ud6a8\ud558\uc9c0 \uc54a\uc740 \uacb0\uc81c \ub0b4\uc5ed \ucee4\uc11c\uc785\ub2c8\ub2e4. |\n| 404 | CARD_NOT_FOUND | \uc694\uccad\ud55c \uce74\ub4dc\ub97c \ucc3e\uc744 \uc218 \uc5c6\uc2b5\ub2c8\ub2e4. |\n",
                 "operationId": "getCardTransactionsUsingGET",
                 "parameters": [
                     {
@@ -425,8 +426,25 @@
                 "tags": [
                     "\uce74\ub4dc"
                 ],
-                "summary": "findMyCards",
+                "summary": "\ubcf4\uc720 \uce74\ub4dc \ubaa9\ub85d \uc870\ud68c",
+                "description": "\ub85c\uadf8\uc778 \uc0ac\uc6a9\uc790\uc758 \ubcf4\uc720 \uce74\ub4dc \ubaa9\ub85d\uc744 \uc870\ud68c\ud55c\ub2e4.\n\n- `sort`\ub97c \uc0dd\ub7b5\ud558\uba74 \uacb0\uc81c \ud0ed\uc5d0\uc11c \uc0ac\uc6a9\ud558\ub294 `displayOrder` \uc21c\uc73c\ub85c \ubc18\ud658\ud55c\ub2e4.\n- `sort=RECENTLY_USED`\uc774\uba74 \ucd5c\uadfc \uc2b9\uc778 \uac70\ub798 \uc2dc\uac01 \ub0b4\ub9bc\ucc28\uc21c\uc73c\ub85c \ubc18\ud658\ud55c\ub2e4.\n- \ucd5c\uadfc \uac70\ub798\uac00 \uc5c6\ub294 \uce74\ub4dc\ub294 \ub4a4\ub85c \ubcf4\ub0b4\uace0 \ub3d9\ub960\uc774\uba74 `displayOrder`, `userCardId` \uc21c\uc73c\ub85c \uc815\ub82c\ud55c\ub2e4.\n- \ubcf4\uc720 \uce74\ub4dc\uac00 \uc5c6\uc73c\uba74 \ube48 \ubc30\uc5f4\uc744 \ubc18\ud658\ud55c\ub2e4.\n",
                 "operationId": "findMyCardsUsingGET",
+                "parameters": [
+                    {
+                        "name": "sort",
+                        "in": "query",
+                        "description": "\uce74\ub4dc \uc815\ub82c \uae30\uc900. \ubbf8\uc785\ub825 \uc2dc DISPLAY_ORDER",
+                        "required": false,
+                        "style": "form",
+                        "schema": {
+                            "type": "string",
+                            "enum": [
+                                "DISPLAY_ORDER",
+                                "RECENTLY_USED"
+                            ]
+                        }
+                    }
+                ],
                 "responses": {
                     "200": {
                         "description": "OK",
@@ -993,6 +1011,30 @@
                     }
                 }
             },
+            "ApiResponse\u00abCardSummaryResponse\u00bb": {
+                "title": "ApiResponse\u00abCardSummaryResponse\u00bb",
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/CardSummaryResponse"
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FieldErrorDetail"
+                        }
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "success": {
+                        "type": "boolean"
+                    }
+                }
+            },
             "ApiResponse\u00abCardTransactionDetailResponse\u00bb": {
                 "title": "ApiResponse\u00abCardTransactionDetailResponse\u00bb",
                 "type": "object",
@@ -1493,6 +1535,214 @@
                         "type": "string"
                     }
                 }
+            },
+            "CardSummaryAmountResponse": {
+                "title": "CardSummaryAmountResponse",
+                "type": "object",
+                "properties": {
+                    "asOfDate": {
+                        "type": "string",
+                        "description": "\uae08\uc561 \ubc18\uc601 \uae30\uc900\uc77c. \uc2e0\uc6a9\uce74\ub4dc\ub294 \uc5b4\uc81c, \uccb4\ud06c\uce74\ub4dc\ub294 \uc624\ub298",
+                        "format": "date",
+                        "example": "2026-08-05T00:00:00.000+00:00"
+                    },
+                    "balance": {
+                        "type": "number",
+                        "description": "\uccb4\ud06c\uce74\ub4dc\uc758 \ud604\uc7ac \uc794\uc561. \uc2e0\uc6a9\uce74\ub4dc\uc774\uba74 null",
+                        "format": "bigdecimal",
+                        "example": 1250000.00
+                    },
+                    "bankName": {
+                        "type": "string",
+                        "description": "\uccb4\ud06c\uce74\ub4dc\uc758 \uacb0\uc81c \uc740\ud589\uba85. \uc2e0\uc6a9\uce74\ub4dc\uc774\uba74 null",
+                        "example": "KB\uad6d\ubbfc\uc740\ud589"
+                    },
+                    "creditUsageAmount": {
+                        "type": "number",
+                        "description": "\uc2e0\uc6a9\uce74\ub4dc\uc758 \ud604\uc7ac \uc6d4 \uacb0\uc81c \uc774\uc6a9\uae08\uc561. \uccb4\ud06c\uce74\ub4dc\uc774\uba74 null",
+                        "format": "bigdecimal",
+                        "example": 1240000.00
+                    }
+                },
+                "description": "\uce74\ub4dc \uc720\ud615\ubcc4 \uc0c1\ub2e8 \uae08\uc561 \uc815\ubcf4"
+            },
+            "CardSummaryCardResponse": {
+                "title": "CardSummaryCardResponse",
+                "type": "object",
+                "properties": {
+                    "cardId": {
+                        "type": "integer",
+                        "description": "\ubcf4\uc720 \uce74\ub4dc ID(user_card_id)",
+                        "format": "int64",
+                        "example": 1
+                    },
+                    "cardImageUrl": {
+                        "type": "string",
+                        "description": "\uc2e4\uc81c \uce74\ub4dc \uc774\ubbf8\uc9c0 URL. \ub4f1\ub85d\ub41c \uc774\ubbf8\uc9c0\uac00 \uc5c6\uc73c\uba74 null",
+                        "example": "https://cdn.fitwallet.app/cards/kb-gold-more.png"
+                    },
+                    "cardName": {
+                        "type": "string",
+                        "description": "\uce74\ub4dc \uc0c1\ud488\uba85",
+                        "example": "KB Gold & More"
+                    },
+                    "cardProductId": {
+                        "type": "integer",
+                        "description": "\uce74\ub4dc \uc0c1\ud488 ID",
+                        "format": "int64",
+                        "example": 47
+                    },
+                    "cardType": {
+                        "type": "string",
+                        "description": "\uce74\ub4dc \uc720\ud615(CREDIT: \uc2e0\uc6a9\uce74\ub4dc, DEBIT: \uccb4\ud06c\uce74\ub4dc)",
+                        "example": "CREDIT",
+                        "enum": [
+                            "CREDIT",
+                            "DEBIT"
+                        ]
+                    },
+                    "issuerName": {
+                        "type": "string",
+                        "description": "\uce74\ub4dc\uc0ac\uba85",
+                        "example": "KB\uad6d\ubbfc\uce74\ub4dc"
+                    }
+                },
+                "description": "\ub0b4 \uce74\ub4dc \ud0ed\uc758 \ubcf4\uc720 \uce74\ub4dc \uae30\ubcf8 \uc815\ubcf4"
+            },
+            "CardSummaryResponse": {
+                "title": "CardSummaryResponse",
+                "type": "object",
+                "properties": {
+                    "amountSummary": {
+                        "description": "\uce74\ub4dc \uc720\ud615\ubcc4 \uc0c1\ub2e8 \uae08\uc561 \uc815\ubcf4",
+                        "$ref": "#/components/schemas/CardSummaryAmountResponse"
+                    },
+                    "card": {
+                        "description": "\uc120\ud0dd\ud55c \ubcf4\uc720 \uce74\ub4dc \uae30\ubcf8 \uc815\ubcf4",
+                        "$ref": "#/components/schemas/CardSummaryCardResponse"
+                    },
+                    "recentTransactions": {
+                        "type": "array",
+                        "description": "KST \uae30\uc900 \uc624\ub298\uacfc \uc5b4\uc81c\uc758 \uc804\uccb4 \uacb0\uc81c \ub0b4\uc5ed. \ucd5c\uc2e0\uc21c",
+                        "items": {
+                            "$ref": "#/components/schemas/CardSummaryTransactionResponse"
+                        }
+                    },
+                    "usageSummary": {
+                        "description": "\ud604\uc7ac \uc6d4 \uc774\uc6a9 \uc2e4\uc801 \uc694\uc57d",
+                        "$ref": "#/components/schemas/CardSummaryUsageResponse"
+                    }
+                },
+                "description": "\ub0b4 \uce74\ub4dc \ud0ed\uc758 \uc120\ud0dd \uce74\ub4dc \uc694\uc57d"
+            },
+            "CardSummaryTierResponse": {
+                "title": "CardSummaryTierResponse",
+                "type": "object",
+                "properties": {
+                    "tierName": {
+                        "type": "string",
+                        "description": "\ud654\uba74 \ud45c\uc2dc\uc6a9 \uad6c\uac04\uba85",
+                        "example": "1\uad6c\uac04"
+                    }
+                },
+                "description": "\ub0b4 \uce74\ub4dc \ud0ed\uc758 \uc2e4\uc801 \uad6c\uac04 \uc694\uc57d"
+            },
+            "CardSummaryTransactionResponse": {
+                "title": "CardSummaryTransactionResponse",
+                "type": "object",
+                "properties": {
+                    "categoryImageUrl": {
+                        "type": "string",
+                        "description": "\uce74\ud14c\uace0\ub9ac \uc774\ubbf8\uc9c0 URL. \uac00\ub9f9\uc810 \uc815\ubcf4\uac00 \uc5c6\uc73c\uba74 null",
+                        "example": "https://cdn.fitwallet.app/categories/cafe.png"
+                    },
+                    "categoryName": {
+                        "type": "string",
+                        "description": "\uce74\ud14c\uace0\ub9ac\uba85. \uac00\ub9f9\uc810 \uc815\ubcf4\uac00 \uc5c6\uc73c\uba74 null",
+                        "example": "\uce74\ud398"
+                    },
+                    "paidAt": {
+                        "type": "string",
+                        "description": "\uacb0\uc81c \uc77c\uc2dc(Asia/Seoul, ISO-8601)",
+                        "format": "date-time"
+                    },
+                    "paymentAmount": {
+                        "type": "number",
+                        "description": "\ud560\uc778 \uc801\uc6a9 \uc804 \uacb0\uc81c \uae08\uc561(payment_transaction.amount)",
+                        "format": "bigdecimal",
+                        "example": 5800.00
+                    },
+                    "storeName": {
+                        "type": "string",
+                        "description": "\uac00\ub9f9\uc810\uba85. \uac00\ub9f9\uc810 \uc815\ubcf4\uac00 \uc5c6\uc73c\uba74 null",
+                        "example": "\uc2a4\ud0c0\ubc85\uc2a4 \uac15\ub0a8\uc810"
+                    },
+                    "transactionId": {
+                        "type": "integer",
+                        "description": "\uacb0\uc81c \uac70\ub798 ID",
+                        "format": "int64",
+                        "example": 348
+                    }
+                },
+                "description": "\ub0b4 \uce74\ub4dc \ud0ed\uc758 \ucd5c\uadfc \uc774\uc6a9 \ub0b4\uc5ed"
+            },
+            "CardSummaryUsageResponse": {
+                "title": "CardSummaryUsageResponse",
+                "type": "object",
+                "properties": {
+                    "amountUntilNextTier": {
+                        "type": "number",
+                        "description": "\ub2e4\uc74c \uad6c\uac04\uae4c\uc9c0 \ud544\uc694\ud55c \uc778\uc815\uae08\uc561. \ub2e4\uc74c \uad6c\uac04\uc774 \uc5c6\uc73c\uba74 null",
+                        "format": "bigdecimal",
+                        "example": 500000.00
+                    },
+                    "currentTier": {
+                        "description": "\ud604\uc7ac \uc801\uc6a9 \uad6c\uac04. \uc2e4\uc801 \uc870\uac74\uc774 \uc5c6\uc73c\uba74 null",
+                        "$ref": "#/components/schemas/CardSummaryTierResponse"
+                    },
+                    "nextTier": {
+                        "description": "\ub2e4\uc74c \uc2e4\uc801 \uad6c\uac04. \ucd5c\uace0 \uad6c\uac04\uc774\uac70\ub098 \uc2e4\uc801 \uc870\uac74\uc774 \uc5c6\uc73c\uba74 null",
+                        "$ref": "#/components/schemas/CardSummaryTierResponse"
+                    },
+                    "performanceStatus": {
+                        "type": "string",
+                        "description": "\ud604\uc7ac \uc6d4 \uc774\uc6a9 \uc2e4\uc801 \ub2ec\uc131 \uc0c1\ud0dc",
+                        "example": "ACHIEVED",
+                        "enum": [
+                            "ACHIEVED",
+                            "INSUFFICIENT",
+                            "NO_REQUIREMENT"
+                        ]
+                    },
+                    "recognizedAmount": {
+                        "type": "number",
+                        "description": "\uc2e4\uc801 \uc778\uc815 \uac70\ub798\uc758 \ud560\uc778 \uc804 \uc774\uc6a9\uae08\uc561 \ud569\uacc4. \uc2e4\uc801 \uc870\uac74\uc774 \uc5c6\uc73c\uba74 null",
+                        "format": "bigdecimal",
+                        "example": 500000.00
+                    },
+                    "tierProgressRate": {
+                        "type": "number",
+                        "description": "\ud604\uc7ac \uad6c\uac04 \uc2dc\uc791\uc810\ubd80\ud130 \ub2e4\uc74c \uad6c\uac04\uae4c\uc9c0\uc758 \uc9c4\ud589\ub960. \uc18c\uc218\uc810 \uccab\uc9f8 \uc790\ub9ac",
+                        "format": "bigdecimal",
+                        "example": 50.0
+                    },
+                    "tierType": {
+                        "type": "string",
+                        "description": "\uce74\ub4dc \uc0c1\ud488\uc758 \uc2e4\uc801 \uad6c\uac04 \uc720\ud615",
+                        "example": "MULTIPLE_TIERS",
+                        "enum": [
+                            "MULTIPLE_TIERS",
+                            "NO_REQUIREMENT",
+                            "SINGLE_TIER"
+                        ]
+                    },
+                    "yearMonth": {
+                        "type": "string",
+                        "description": "\uc2e4\uc801 \uc870\ud68c \uc5f0\uc6d4(yyyy-MM)",
+                        "example": "2026-08"
+                    }
+                },
+                "description": "\ud604\uc7ac \uc6d4 \uce74\ub4dc \uc774\uc6a9 \uc2e4\uc801 \uc694\uc57d"
             },
             "CardTransactionCardResponse": {
                 "title": "CardTransactionCardResponse",
