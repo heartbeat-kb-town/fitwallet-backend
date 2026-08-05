@@ -1,5 +1,6 @@
 package com.fitwallet.domain.user.service;
 
+import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
@@ -118,6 +119,29 @@ public class DefaultUserService implements UserService {
         return TokenReissueResponse.builder()
                 .accessToken(accessToken)
                 .build();
+    }
+
+    /**
+     * 결제 PIN을 등록한다.
+     * <p>
+     * PIN과 PIN 확인값의 일치 여부만 검증하고 암호화해 저장한다. 이미 등록된 PIN이
+     * 있어도 그대로 덮어쓴다.
+     */
+    @Override
+    @Transactional
+    public void registerPaymentPin(Long userId, PinRegisterRequest request) {
+        validatePinConfirmation(request);
+
+        String pinHash = passwordEncoder.encode(request.getPin());
+
+        userMapper.registerPaymentPin(userId, pinHash);
+    }
+
+    /** PIN과 PIN 확인값이 일치하는지 검증한다. */
+    private void validatePinConfirmation(PinRegisterRequest request) {
+        if (!request.getPin().equals(request.getPinConfirm())) {
+            throw new BusinessException(UserErrorCode.PIN_CONFIRM_MISMATCH);
+        }
     }
 
     /**

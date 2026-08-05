@@ -1,5 +1,6 @@
 package com.fitwallet.domain.user.service;
 
+import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
@@ -21,4 +22,7 @@ public interface UserService {
 
     /** Refresh Token을 검증하고 새 Access Token을 발급한다. */
     TokenReissueResponse reissueAccessToken(String refreshToken);
+
+    /** 로그인 사용자의 결제 PIN을 등록한다. 이미 등록돼 있어도 그대로 덮어쓴다. */
+    void registerPaymentPin(Long userId, PinRegisterRequest request);
 }

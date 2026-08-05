@@ -1,5 +1,6 @@
 package com.fitwallet.domain.user.service;
 
+import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
@@ -224,6 +225,39 @@ class DefaultUserServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+    }
+
+    @Test
+    void PIN과_PIN확인이_다르면_PIN_CONFIRM_MISMATCH_예외를_던진다() {
+        PinRegisterRequest request = pinRegisterRequest("123456", "654321");
+
+        assertThatThrownBy(() -> userService.registerPaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.PIN_CONFIRM_MISMATCH);
+
+        then(userMapper).shouldHaveNoInteractions();
+        then(passwordEncoder).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void PIN_등록시_암호화해_저장한다() {
+        PinRegisterRequest request = pinRegisterRequest("123456", "123456");
+        given(passwordEncoder.encode("123456")).willReturn("encoded-pin");
+
+        userService.registerPaymentPin(1L, request);
+
+        then(passwordEncoder).should().encode("123456");
+        then(userMapper).should().registerPaymentPin(1L, "encoded-pin");
+    }
+
+    private PinRegisterRequest pinRegisterRequest(String pin, String pinConfirm) {
+        PinRegisterRequest request = new PinRegisterRequest();
+
+        ReflectionTestUtils.setField(request, "pin", pin);
+        ReflectionTestUtils.setField(request, "pinConfirm", pinConfirm);
+
+        return request;
     }
 
     private UserLoginRequest loginRequest(String loginId, String password) {
