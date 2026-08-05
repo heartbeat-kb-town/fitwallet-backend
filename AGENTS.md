@@ -488,6 +488,34 @@ gh pr create --repo heartbeat-kb-town/fitwallet-backend \
 - 본문에 이번 배포에 포함된 PR 목록을 적는다 (`git log main..develop --oneline`)
 - **Merge commit**으로 머지한다 (Squash 금지 — 히스토리가 갈라져 다음 릴리스에서 충돌한다)
 
+#### 자동 배포 (CD)
+
+**이 PR이 머지되면 운영 환경이 갱신된다.** `.github/workflows/ci.yml`의 `deploy` 잡이
+main push에서 실행돼, `build` 잡이 만든 WAR를 그대로 Elastic Beanstalk
+`fitwallet-backend` / `fitwallet-prod`(`ap-northeast-2`)에 올린다. 배포 시점에 다시
+빌드하지 않으므로 테스트를 통과한 바이너리가 그대로 올라간다.
+
+인증은 GitHub OIDC로 IAM 역할 `fitwallet-github-actions-deploy`를 수임한다 — 저장소에
+AWS 액세스 키를 두지 않는다. 역할 ARN만 저장소 Variable `AWS_ROLE_ARN`에 있다.
+
+- 버전 라벨은 `gh-{run_number}-{sha 앞 7자}`
+- 배포 후 EB 상태와 `GET /health/db`를 확인하고, 실패하면 EB 이벤트를 로그에 찍는다
+- **환경 속성은 워크플로가 건드리지 않는다.** `JWT_SECRET`·DB 접속정보·`env=prod`는
+  EB에만 있고 저장소에 없다 (§12)
+- 비용 절감으로 환경을 내려둔 상태면 `Check environment is Ready`에서 실패한다.
+  환경을 먼저 띄우고 Actions에서 workflow_dispatch로 재실행한다
+- 릴리스와 무관하게 배선만 확인하거나 재배포하려면 Actions 탭에서 main을 골라
+  workflow_dispatch로 실행한다
+
+롤백은 자동이 아니다. 이전 애플리케이션 버전으로 되돌린다:
+
+```bash
+aws elasticbeanstalk describe-application-versions \
+  --application-name fitwallet-backend --query 'ApplicationVersions[].VersionLabel'
+aws elasticbeanstalk update-environment \
+  --environment-name fitwallet-prod --version-label {이전 라벨}
+```
+
 ## 라벨 전체 목록
 
 | 라벨 | 설명 |
