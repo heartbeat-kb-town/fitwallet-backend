@@ -858,6 +858,48 @@
                 }
             }
         },
+        "/api/user/reissue": {
+            "post": {
+                "tags": [
+                    "user-controller"
+                ],
+                "summary": "reissueAccessToken",
+                "operationId": "reissueAccessTokenUsingPOST",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "content": {
+                            "*/*": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/ApiResponse\u00abTokenReissueResponse\u00bb"
+                                }
+                            }
+                        }
+                    },
+                    "201": {
+                        "description": "Created"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Not Found"
+                    }
+                }
+            }
+        },
         "/api/user/signup": {
             "post": {
                 "tags": [
@@ -1155,6 +1197,30 @@
                     },
                     "data": {
                         "$ref": "#/components/schemas/StoreSearchResponse"
+                    },
+                    "errors": {
+                        "type": "array",
+                        "items": {
+                            "$ref": "#/components/schemas/FieldErrorDetail"
+                        }
+                    },
+                    "message": {
+                        "type": "string"
+                    },
+                    "success": {
+                        "type": "boolean"
+                    }
+                }
+            },
+            "ApiResponse\u00abTokenReissueResponse\u00bb": {
+                "title": "ApiResponse\u00abTokenReissueResponse\u00bb",
+                "type": "object",
+                "properties": {
+                    "code": {
+                        "type": "string"
+                    },
+                    "data": {
+                        "$ref": "#/components/schemas/TokenReissueResponse"
                     },
                     "errors": {
                         "type": "array",
@@ -2150,6 +2216,15 @@
                         "format": "int64"
                     },
                     "storeName": {
+                        "type": "string"
+                    }
+                }
+            },
+            "TokenReissueResponse": {
+                "title": "TokenReissueResponse",
+                "type": "object",
+                "properties": {
+                    "accessToken": {
                         "type": "string"
                     }
                 }
