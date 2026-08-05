@@ -197,49 +197,44 @@ throw new BusinessException(PaymentErrorCode.PIN_MISMATCH,
         PinMismatchResponse.builder().remainingAttempts(remainingAttempts).build());
 ```
 
-### API 문서 (Swagger / OpenAPI)
+### API 계약의 정본은 코드다
 
-Springfox 3.0.0이 컨트롤러를 읽어 **`/v3/api-docs`(OpenAPI 3.0 JSON)**와
-**`/swagger-ui/index.html`**을 만든다. 프론트엔드가 이 JSON을 그대로 AI 코딩 도구에 물리므로,
-어노테이션을 빠뜨린 엔드포인트는 프론트 입장에서 "설명 없는 API"가 된다.
+**프론트엔드는 이 저장소를 직접 읽는다.** 컨트롤러·DTO·`ErrorCode`·매퍼 XML이 곧 API 문서다.
+Swagger는 경로 목록을 훑는 보조 수단이며 **정본이 아니다.**
 
-> 노션 API 명세를 대체하지 않는다. **노션은 "왜/무엇을"의 정본, Swagger는 "실제 계약"의 정본**이다.
+> 노션 API 명세도 대체 관계가 아니다. **노션은 "왜/무엇을"의 정본, 코드는 "실제 계약"의 정본**이다.
 > 둘이 어긋나면 코드가 맞고 노션을 고친다.
 
-#### 스펙 발행 (`openapi-spec` 브랜치)
+#### 코드가 문서다
 
-Springfox는 런타임 생성이라 **앱을 띄우지 않으면 스펙을 볼 수 없다.** 프론트엔드까지 그 부담을
-지지 않도록, CI가 스펙을 뽑아 **`openapi-spec` 브랜치에 발행**한다. 프론트엔드는 이 URL을 읽는다:
+어노테이션을 강제하지 않는 대신, **아래 세 가지는 프론트가 그대로 읽는다는 전제로 쓴다.**
+어차피 써야 하는 것들이라 추가 부담이 없고, 손으로 베낀 사본과 달리 드리프트하지 않는다.
 
-```
-https://raw.githubusercontent.com/heartbeat-kb-town/fitwallet-backend/openapi-spec/openapi.json
-```
+- **`{도메인}ErrorCode`의 `message`** — 에러 계약의 정본. 프론트가 화면에 띄울 문구다
+- **검증 어노테이션의 `message`** — `@Pattern(regexp = "\\d{4}", message = "카드번호 앞 4자리를 숫자로 입력해주세요.")`
+  처럼 규칙과 문구를 함께 적는다. 폼 검증이 이걸 그대로 쓴다
+- **DTO 필드명과 `{도메인}SuccessCode`** — 이름 자체가 설명이 되도록 짓는다
 
-**아무도 손으로 갱신하지 않는다.** `develop`에 머지될 때마다 CI(`openapi-spec` 잡)가 백엔드를 띄워
-스펙을 받아 발행한다. 컨트롤러·DTO·어노테이션을 고치고 잊어버려도 따라온다.
+의미가 이름만으로 안 드러나면 **주석/Javadoc에 적는다.** 예를 들어 `cardId` 경로 변수는
+`card_product_id`가 아니라 `user_card_id`인데, 이런 건 읽는 쪽이 조용히 틀리는 지점이라 반드시 남긴다.
 
-- **`docs/openapi.json`은 커밋 대상이 아니다** (`.gitignore`). 로컬에서 뽑아보는 산출물일 뿐이며,
-  정본은 `openapi-spec` 브랜치다. 저장소 트리에도 두면 정본이 둘이 된다
-- 그 브랜치는 **발행물이지 소스가 아니다.** 직접 고치지 말고, 고칠 게 있으면 컨트롤러나 어노테이션을 고친다
-- 커밋 이력이 곧 **API 계약 변경 이력**이다. 언제 어떤 필드가 바뀌었는지 여기서 추적한다
+> ⚠️ `resultType` 매핑은 SQL이 안 뽑은 컬럼을 조용히 버린다(§6). **Java DTO에 필드가 있어도
+> 매퍼 XML이 그 컬럼을 SELECT하지 않으면 항상 `null`이다.** 응답 모양을 확인할 때는 DTO와
+> 매퍼 XML을 함께 본다 — 이건 Swagger 스펙으로는 절대 드러나지 않는다.
 
-> 왜 저장소 트리에 커밋하지 않는가 — `develop`은 룰셋으로 보호돼 있어(PR 필수) CI의 `GITHUB_TOKEN`이
-> 직접 push할 수 없다. 뚫으려면 배포 키나 PAT를 만들어 보호를 완화해야 한다. PR 브랜치에 커밋을
-> 얹는 방법도 되지만, 봇 커밋 뒤에 팀원이 매번 `git pull`을 해야 해서 접었다.
-> 보호가 없는 전용 브랜치는 기본 토큰으로 충분하고 아무에게도 부담을 주지 않는다.
+#### Swagger 어노테이션 — 권장, 강제 아님
 
-로컬에서 즉시 확인하고 싶을 때만 직접 돌린다:
-
-```bash
-./gradlew openapiDump      # 앱을 띄워 /v3/api-docs를 받아 스냅샷 갱신 (docker compose MySQL 필요)
-```
-
-Gretty의 `integrationTestTask` 훅에 얹어 서버 기동·종료를 자동으로 처리한다
-(`appStart`를 `dependsOn`으로 걸면 그 자리에서 빌드가 멈춘다). 출력은 pretty-print라 diff가 읽힌다.
-
+Springfox 3.0.0이 `/v3/api-docs`(OpenAPI 3.0 JSON)와 `/swagger-ui/index.html`을 만든다.
 설정은 `global/config/SwaggerConfig`에 있다 — **이 저장소의 유일한 자바 `@Configuration`**이며
 §1의 "설정은 전부 XML" 관례에 대한 의도된 예외다(Docket은 빌더 체인이라 XML로 옮기면 더 읽기 어렵다).
-새 컨트롤러를 만들 때 설정은 건드릴 필요가 없다. 아래 네 가지만 지킨다.
+
+- **기존 코드를 소급해 채우지 않는다.** benefit·card에 붙어 있는 것은 그대로 두고, 나머지 도메인에
+  맞추려 백필하지 않는다
+- **새 엔드포인트에는 여력이 될 때만 붙인다.** 짜면서 쓰면 1분이고 그때는 머릿속에 다 있다.
+  빠뜨렸다고 리뷰에서 막지 않는다
+- 어노테이션이 없으면 Swagger는 자바 메서드명·파라미터명을 fallback으로 쓴다. 비지 않는다
+
+붙일 때만 아래를 지킨다.
 
 ```java
 @Api(tags = "혜택")                                    // ① 컨트롤러 클래스
@@ -256,25 +251,38 @@ public class BenefitController {
     @GetMapping("/benefit/expected")
     public ResponseEntity<ApiResponse<ExpectedBenefitResponse>> findExpectedBenefits(
             @LoginUserId Long userId,                                        // ④ 아무것도 달지 않는다
-            @ApiParam(value = "가맹점 ID(숫자 문자열)", example = "1")          // ③ 파라미터
+            @ApiParam(value = "가맹점 ID(숫자 문자열)")                        // ③ 파라미터
             @RequestParam(required = false) String storeId) { ... }
 }
 ```
 
 - **`@ApiResponses` / `io.swagger.annotations.ApiResponse`를 쓰지 않는다.** 응답 봉투
   `global/common/dto/ApiResponse`와 클래스명이 정면 충돌해 풀 패키지명을 써야 한다.
-  에러 응답은 위처럼 `@ApiOperation(notes)`에 **마크다운 표**로 적는다(Swagger UI가 렌더링해준다).
-  표의 `code`/`message`는 도메인 `ErrorCode` enum 상수와 메시지를 그대로 옮긴다 — **정본은 enum이다**
-- Request·Response DTO 필드에는 `@ApiModelProperty(value = "...", example = "...")`.
-  중첩 응답은 안쪽 DTO까지 내려간다 (프론트에 값이 가장 큰 부분이다)
+  에러 응답은 위처럼 `@ApiOperation(notes)`에 마크다운 표로 적는다 — **정본은 `ErrorCode` enum이다**
+- Request·Response DTO 필드에는 `@ApiModelProperty(value = "...", example = "...")`
+- **`@ApiParam`에 `example`을 쓰지 않는다.** Springfox 3의 OAS30 출력에서 조용히 누락된다
+  (`value`와 `required`만 살아남는다)
 - **`@LoginUserId` 파라미터에는 아무것도 달지 않는다.** Docket이 통째로 무시한다 —
   클라이언트가 보내는 값이 아니라 `AuthInterceptor`가 넣어준 값이라 문서에 뜨면 안 된다.
   `HttpServletResponse`도 같은 이유로 무시된다
-- 문서에 나오는 범위는 **`com.fitwallet.domain` 패키지 + `/api/**` 경로**뿐이다.
-  그 밖에 두면 문서에서 조용히 빠진다(`HomeController`가 그래서 빠져 있다)
-- 401은 `securitySchemes`가 자동으로 표시하므로 에러 표에 적지 않아도 된다.
-  인증이 필요 없는 엔드포인트는 `SwaggerConfig.PUBLIC_PATHS`에 추가한다
+- 문서에 나오는 범위는 **`com.fitwallet.domain` 패키지 + `/api/**` 경로**뿐이다
+  (`HomeController`가 그래서 빠져 있다)
+- 인증이 필요 없는 엔드포인트는 `SwaggerConfig.PUBLIC_PATHS`에 추가한다
   (`servlet-context.xml`의 `AuthInterceptor` exclude-mapping과 **같은 목록을 유지한다**)
+
+> **JSR-303 검증 규칙은 스펙에 반영되지 않는다.** `springfox-bean-validators`가 없어
+> `@Pattern`·`@Size`·`@NotNull`이 스키마에 0건 실린다. 프론트가 폼 검증에 필요한 정규식과
+> 에러 문구는 **소스에만 있다** — 어노테이션을 아무리 더 달아도 채워지지 않는 항목이다.
+> Swagger를 정본으로 삼지 않는 이유 중 하나다.
+
+로컬에서 스펙을 확인하고 싶을 때만 직접 돌린다. 커밋 대상이 아니다(`.gitignore`).
+
+```bash
+./gradlew openapiDump      # 앱을 띄워 /v3/api-docs를 docs/openapi.json에 저장 (docker compose MySQL 필요)
+```
+
+Gretty의 `integrationTestTask` 훅에 얹어 서버 기동·종료를 자동으로 처리한다
+(`appStart`를 `dependsOn`으로 걸면 그 자리에서 빌드가 멈춘다).
 
 ⚠️ **XML 배선을 잡아주는 자동 테스트가 없다.** 컨트롤러 테스트가 전부 `standaloneSetup`이라 XML을
 안 탄다 — `./gradlew build`가 green이어도 Swagger는 깨져 있을 수 있다. 설정을 건드렸으면
