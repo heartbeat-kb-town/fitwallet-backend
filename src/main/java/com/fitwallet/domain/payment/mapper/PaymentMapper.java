@@ -1,12 +1,11 @@
 package com.fitwallet.domain.payment.mapper;
 
-import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
-import com.fitwallet.domain.payment.dto.PinAuthInfo;
-import com.fitwallet.domain.payment.dto.QrSessionInfo;
-import com.fitwallet.domain.payment.dto.UserPinInfo;
+import com.fitwallet.domain.payment.dto.*;
+import com.fitwallet.domain.payment.dto.response.PaymentResultResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -29,7 +28,23 @@ public interface PaymentMapper {
                               @Param("sessionToken") String sessionToken,
                               @Param("status") PaymentSessionStatus status,
                               @Param("expiresAt") LocalDateTime expiresAt);
+
     QrSessionInfo findQrSessionByToken(@Param("userId") Long userId, @Param("qrToken") String qrToken);
     void markSessionScanned(@Param("qrToken") String qrToken, @Param("paymentId") String paymentId);
     void markSessionExpired(@Param("qrToken") String qrToken);
+
+    PaymentResultSessionInfo findSessionByPaymentId(@Param("userId") Long userId, @Param("paymentId") String paymentId);
+    void markSessionProcessing(@Param("paymentId") String paymentId, @Param("storeId") Long storeId, @Param("amount") BigDecimal amount);
+    void markSessionFailed(@Param("paymentId") String paymentId);
+    void markSessionCompleted(@Param("paymentId") String paymentId);
+    BenefitAmountInfo findBenefitAmountInfo(@Param("serviceId") Long serviceId);
+    void insertPaymentTransaction(@Param("userCardId") Long userCardId,
+                                  @Param("storeId") Long storeId,
+                                  @Param("paymentSessionId") Long paymentSessionId,
+                                  @Param("amount") BigDecimal amount,
+                                  @Param("discountAmount") BigDecimal discountAmount,
+                                  @Param("finalAmount") BigDecimal finalAmount,
+                                  @Param("paidAt") LocalDateTime paidAt,
+                                  @Param("appliedBenefitServiceId") Long appliedBenefitServiceId);
+    PaymentResultResponse findPaymentResultBySessionId(@Param("paymentSessionId") Long paymentSessionId);
 }

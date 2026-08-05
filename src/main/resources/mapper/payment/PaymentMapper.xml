@@ -71,4 +71,67 @@
         WHERE session_token = #{qrToken}
     </update>
 
+    <select id="findSessionByPaymentId" resultType="com.fitwallet.domain.payment.dto.PaymentResultSessionInfo">
+        SELECT ps.payment_session_id, ps.status, ps.store_id, ps.amount, ps.user_card_id, ps.updated_at, ps.fail_reason
+        FROM payment_session ps
+        JOIN user_card uc ON uc.user_card_id = ps.user_card_id
+        WHERE ps.payment_id = #{paymentId}
+        AND uc.user_id = #{userId}
+        AND uc.is_deleted = 0
+    </select>
+
+    <update id="markSessionProcessing">
+        UPDATE payment_session
+        SET status = 'PROCESSING',
+        store_id = #{storeId},
+        amount = #{amount}
+        WHERE payment_id = #{paymentId}
+    </update>
+
+    <update id="markSessionFailed">
+        UPDATE payment_session
+        SET status = 'FAILED',
+        fail_reason = 'MOCK_RANDOM_DECLINE'
+        WHERE payment_id = #{paymentId}
+    </update>
+
+    <update id="markSessionCompleted">
+        UPDATE payment_session
+        SET status = 'COMPLETED'
+        WHERE payment_id = #{paymentId}
+    </update>
+
+    <select id="findBenefitAmountInfo" resultType="com.fitwallet.domain.payment.dto.BenefitAmountInfo">
+        SELECT value_type, value_number, per_tx_limit_amount
+        FROM benefit_service
+        WHERE service_id = #{serviceId}
+    </select>
+
+    <insert id="insertPaymentTransaction">
+        INSERT INTO payment_transaction (user_card_id, store_id, payment_session_id, amount,
+        discount_amount, final_amount, paid_at,
+        is_used_app, applied_benefit_service_id)
+        VALUES (#{userCardId}, #{storeId}, #{paymentSessionId}, #{amount},
+        #{discountAmount}, #{finalAmount}, #{paidAt},
+        1, #{appliedBenefitServiceId})
+    </insert>
+
+    <select id="findPaymentResultBySessionId" resultType="com.fitwallet.domain.payment.dto.response.PaymentResultResponse">
+        SELECT ps.payment_id,
+            ps.status,
+            pt.payment_transaction_id,
+            s.store_name,
+            cp.card_name AS payment_method,
+            pt.amount,
+            pt.discount_amount AS expected_benefit_amount,
+            pt.paid_at
+        FROM payment_session ps
+        JOIN payment_transaction pt ON pt.payment_session_id = ps.payment_session_id
+        JOIN store s ON s.store_id = pt.store_id
+        JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+        JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+        WHERE ps.payment_session_id = #{paymentSessionId}
+    </select>
+
+
 </mapper>

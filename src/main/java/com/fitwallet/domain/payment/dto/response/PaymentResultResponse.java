@@ -19,7 +19,7 @@ public class PaymentResultResponse {
     private String paymentId;
     private Long paymentTransactionId;
     private PaymentSessionStatus status;
-    private String merchantName;
+    private String storeName;
     private String paymentMethod;
     private BigDecimal amount;
     private BigDecimal expectedBenefitAmount;
