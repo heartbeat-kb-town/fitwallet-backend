@@ -2,9 +2,14 @@ package com.fitwallet.domain.user.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.service.UserService;
+import com.fitwallet.global.config.AuthInterceptor;
+import com.fitwallet.global.config.JwtProvider;
+import com.fitwallet.global.config.LoginUserIdArgumentResolver;
 import com.fitwallet.global.config.RefreshTokenCookieProvider;
+import com.fitwallet.global.exception.GlobalExceptionHandler;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentMatchers;
@@ -17,9 +22,15 @@ import org.springframework.mock.web.MockHttpServletResponse;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
+import static org.mockito.BDDMockito.then;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
@@ -33,6 +44,9 @@ class UserControllerTest {
 
     @Mock
     private RefreshTokenCookieProvider refreshTokenCookieProvider;
+
+    @Mock
+    private JwtProvider jwtProvider;
 
     @Test
     void 로그인_성공시_응답_바디에는_AccessToken만_담기고_RefreshToken은_쿠키로만_내려간다() throws Exception {
@@ -79,5 +93,35 @@ class UserControllerTest {
         assertThat(setCookieHeader).contains("SameSite=Strict");
         assertThat(setCookieHeader).contains("Path=/");
         assertThat(setCookieHeader).contains("Max-Age=1209600");
+    }
+
+    @Test
+    void 자주찾는장소_조회는_LoginUserId를_서비스에_전달하고_공통_성공_응답을_반환한다() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new UserController(userService, refreshTokenCookieProvider))
+                .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
+                .addInterceptors(new AuthInterceptor(jwtProvider))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(userService.findFrequentPlaces(1L)).willReturn(List.of(
+                FrequentPlaceResponse.builder()
+                        .storeId(10L)
+                        .storeName("스타벅스 강남점")
+                        .address("서울 강남구")
+                        .categoryName("카페/디저트")
+                        .build()
+        ));
+
+        mockMvc.perform(get("/api/user/frequent-places")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("FREQUENT_PLACES_FOUND"))
+                .andExpect(jsonPath("$.message").value("자주 찾는 장소를 조회했습니다."))
+                .andExpect(jsonPath("$.data[0].storeId").value(10));
+
+        then(userService).should().findFrequentPlaces(eq(1L));
     }
 }

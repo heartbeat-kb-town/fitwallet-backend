@@ -1,9 +1,12 @@
 package com.fitwallet.domain.user.mapper;
 
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
+import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
 
 /**
  * 사용자 도메인의 데이터 접근을 담당한다.
@@ -36,5 +39,11 @@ public interface UserMapper {
      * 이미 있으면 갱신하고 없으면 새로 만든다.
      */
     void saveOrUpdateRefreshToken(@Param("userId") Long userId, @Param("tokenHash") String tokenHash);
+
+    /**
+     * 최근 1개월 결제내역을 가맹점 기준으로 집계해, 결제 건수 내림차순(동률이면 최근 결제일
+     * 내림차순)으로 최대 3개만 조회한다. 결제내역이 없으면 빈 리스트를 반환한다.
+     */
+    List<FrequentPlaceResponse> findFrequentPlaces(@Param("userId") Long userId);
 
 }

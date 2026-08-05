@@ -54,4 +54,27 @@
             token_hash = #{tokenHash}
     </insert>
 
+    <!--
+        INTERVAL 1 MONTH는 고정 정책값이라 #{} 바인딩하지 않는다(StoreMapper.findPopularKeywords와 동일).
+        category는 store.category_id가 NOT NULL FK라 INNER JOIN으로 충분하다.
+        결제 건수는 정렬에만 쓰고 응답엔 안 내려서 SELECT엔 없다.
+    -->
+    <select id="findFrequentPlaces"
+            resultType="com.fitwallet.domain.user.dto.response.FrequentPlaceResponse">
+        SELECT s.store_id,
+               s.store_name,
+               s.address,
+               c.category_name
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+                 JOIN store s ON s.store_id = pt.store_id
+                 JOIN category c ON c.category_id = s.category_id
+        WHERE uc.user_id = #{userId}
+          AND uc.is_deleted = 0
+          AND pt.paid_at >= (NOW() - INTERVAL 1 MONTH)
+        GROUP BY s.store_id, s.store_name, s.address, c.category_name
+        ORDER BY COUNT(*) DESC, MAX(pt.paid_at) DESC
+        LIMIT 3
+    </select>
+
 </mapper>

@@ -10,7 +10,8 @@ import org.springframework.http.HttpStatus;
 public enum UserSuccessCode implements SuccessCode {
 
     USER_SIGNUP_SUCCESS(HttpStatus.CREATED, "회원가입이 완료되었습니다."),
-    LOGIN_SUCCESS(HttpStatus.OK, "로그인에 성공했습니다.");
+    LOGIN_SUCCESS(HttpStatus.OK, "로그인에 성공했습니다."),
+    FREQUENT_PLACES_FOUND(HttpStatus.OK, "자주 찾는 장소를 조회했습니다.");
 
     private final HttpStatus status;
     private final String message;
