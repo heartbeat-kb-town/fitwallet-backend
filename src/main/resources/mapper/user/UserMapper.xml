@@ -84,4 +84,12 @@
         WHERE user_id = #{userId}
     </select>
 
+    <!-- 이미 값이 있어도 덮어쓴다. -->
+    <update id="registerPaymentPin">
+        UPDATE users
+        SET payment_pin_hash = #{pinHash}
+        WHERE user_id = #{userId}
+    </update>
+
+
 </mapper>

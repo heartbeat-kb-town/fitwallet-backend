@@ -1,6 +1,7 @@
 package com.fitwallet.domain.user.controller;
 
 import com.fitwallet.domain.user.dto.UserSuccessCode;
+import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
@@ -105,6 +106,19 @@ public class UserController {
         return ApiResponse.of(
                 UserSuccessCode.TOKEN_REISSUE_SUCCESS,
                 response
+        );
+    }
+
+    @PostMapping("/user/payment-pin")
+    public ResponseEntity<ApiResponse<Void>> registerPaymentPin(
+            @LoginUserId Long userId,
+            @Valid @RequestBody PinRegisterRequest request) {
+
+        userService.registerPaymentPin(userId, request);
+
+        return ApiResponse.of(
+                UserSuccessCode.PAYMENT_PIN_CREATED,
+                null
         );
     }
 }

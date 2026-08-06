@@ -52,4 +52,7 @@ public interface UserMapper {
      */
     String findRefreshTokenHashByUserId(@Param("userId") Long userId);
 
+    /** 결제 PIN 해시를 저장한다. 이미 등록돼 있어도 덮어쓴다. PIN은 서비스에서 암호화한 값을 전달한다. */
+    void registerPaymentPin(@Param("userId") Long userId, @Param("pinHash") String pinHash);
+
 }

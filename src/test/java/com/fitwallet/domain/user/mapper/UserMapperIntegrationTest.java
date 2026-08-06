@@ -27,6 +27,8 @@ class UserMapperIntegrationTest {
     private static final String PASSWORD_HASH = "$2a$10$testPasswordHash";
     private static final String TOKEN_HASH_A = "a".repeat(64);
     private static final String TOKEN_HASH_B = "b".repeat(64);
+    private static final String PIN_HASH = "$2a$10$testPinHash";
+    private static final String PIN_HASH_B = "$2a$10$testPinHashB";
 
     @Autowired
     private UserMapper userMapper;
@@ -123,6 +125,35 @@ class UserMapperIntegrationTest {
         Long userId = registerAndGetUserId();
 
         assertThat(userMapper.findRefreshTokenHashByUserId(userId)).isNull();
+    }
+
+    @Test
+    void 결제_PIN_해시를_저장하면_그대로_조회된다() {
+        Long userId = registerAndGetUserId();
+
+        userMapper.registerPaymentPin(userId, PIN_HASH);
+
+        String savedHash = jdbcTemplate.queryForObject(
+                "SELECT payment_pin_hash FROM users WHERE user_id = ?",
+                String.class,
+                userId
+        );
+        assertThat(savedHash).isEqualTo(PIN_HASH);
+    }
+
+    @Test
+    void 결제_PIN을_다시_등록하면_해시만_갱신된다() {
+        Long userId = registerAndGetUserId();
+        userMapper.registerPaymentPin(userId, PIN_HASH);
+
+        userMapper.registerPaymentPin(userId, PIN_HASH_B);
+
+        String savedHash = jdbcTemplate.queryForObject(
+                "SELECT payment_pin_hash FROM users WHERE user_id = ?",
+                String.class,
+                userId
+        );
+        assertThat(savedHash).isEqualTo(PIN_HASH_B);
     }
 
     private Long registerAndGetUserId() {

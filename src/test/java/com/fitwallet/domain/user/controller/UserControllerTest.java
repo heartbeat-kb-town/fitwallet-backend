@@ -181,4 +181,27 @@ class UserControllerTest {
         assertThat(body.get("success").asBoolean()).isFalse();
         assertThat(body.get("code").asText()).isEqualTo("UNAUTHORIZED");
     }
+
+    @Test
+    void 결제_PIN_등록은_LoginUserId를_서비스에_전달하고_201과_PAYMENT_PIN_CREATED를_반환한다() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new UserController(userService, refreshTokenCookieProvider))
+                .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
+                .addInterceptors(new AuthInterceptor(jwtProvider))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+
+        mockMvc.perform(post("/api/user/payment-pin")
+                        .header("Authorization", "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"pin\":\"123456\",\"pinConfirm\":\"123456\"}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("PAYMENT_PIN_CREATED"))
+                .andExpect(jsonPath("$.message").value("결제 PIN을 등록했습니다."));
+
+        then(userService).should().registerPaymentPin(eq(1L), ArgumentMatchers.any());
+    }
 }
