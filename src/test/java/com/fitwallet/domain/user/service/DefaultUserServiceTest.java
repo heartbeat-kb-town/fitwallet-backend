@@ -1,5 +1,6 @@
 package com.fitwallet.domain.user.service;
 
+import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
@@ -249,6 +250,23 @@ class DefaultUserServiceTest {
 
         then(passwordEncoder).should().encode("123456");
         then(userMapper).should().registerPaymentPin(1L, "encoded-pin");
+    }
+
+    @Test
+    void 위치_정보_동의여부를_저장한다() {
+        LocationAgreeRequest request = locationAgreeRequest(true);
+
+        userService.updateLocationAgreement(1L, request);
+
+        then(userMapper).should().updateLocationAgreement(1L, true);
+    }
+
+    private LocationAgreeRequest locationAgreeRequest(boolean agreed) {
+        LocationAgreeRequest request = new LocationAgreeRequest();
+
+        ReflectionTestUtils.setField(request, "agreed", agreed);
+
+        return request;
     }
 
     private PinRegisterRequest pinRegisterRequest(String pin, String pinConfirm) {

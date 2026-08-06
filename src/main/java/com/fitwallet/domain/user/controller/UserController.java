@@ -1,6 +1,7 @@
 package com.fitwallet.domain.user.controller;
 
 import com.fitwallet.domain.user.dto.UserSuccessCode;
+import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
@@ -18,6 +19,7 @@ import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.CookieValue;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -118,6 +120,19 @@ public class UserController {
 
         return ApiResponse.of(
                 UserSuccessCode.PAYMENT_PIN_CREATED,
+                null
+        );
+    }
+
+    @PatchMapping("/user/location-agreement")
+    public ResponseEntity<ApiResponse<Void>> updateLocationAgreement(
+            @LoginUserId Long userId,
+            @Valid @RequestBody LocationAgreeRequest request) {
+
+        userService.updateLocationAgreement(userId, request);
+
+        return ApiResponse.of(
+                UserSuccessCode.LOCATION_AGREEMENT_UPDATED,
                 null
         );
     }

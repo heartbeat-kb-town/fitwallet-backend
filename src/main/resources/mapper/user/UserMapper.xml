@@ -91,5 +91,10 @@
         WHERE user_id = #{userId}
     </update>
 
+    <update id="updateLocationAgreement">
+        UPDATE users
+        SET is_location_agreed = #{agreed}
+        WHERE user_id = #{userId}
+    </update>
 
 </mapper>
