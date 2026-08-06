@@ -366,7 +366,7 @@ class DefaultPaymentServiceTest {
 
         assertThat(response.getStatus()).isEqualTo(PaymentSessionStatus.PROCESSING);
         assertThat(response.getPaymentId()).isEqualTo("pay_abc");
-        then(paymentMapper).should().markSessionProcessing(eq("pay_abc"), eq(1L), eq(BigDecimal.valueOf(4500)));
+        then(paymentMapper).should().markSessionProcessing(eq("pay_abc"), eq(20L), eq(BigDecimal.valueOf(4500)));
     }
 
     @Test
