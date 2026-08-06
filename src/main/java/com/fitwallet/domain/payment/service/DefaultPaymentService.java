@@ -31,7 +31,7 @@ public class DefaultPaymentService implements PaymentService {
     private static final int PIN_AUTH_TTL_SECONDS = 180;
     private static final int QR_SESSION_TTL_SECONDS = 180;
     private static final int MOCK_SCAN_DELAY_SECONDS = 3;
-    private static final Long MOCK_STORE_ID = 1L;
+    private static final Long MOCK_STORE_ID = 20L;
     private static final BigDecimal MOCK_AMOUNT = BigDecimal.valueOf(4500);
     private static final int MOCK_PROCESS_DELAY_SECONDS = 2;
     private static final double MOCK_SUCCESS_RATE = 0.9;
