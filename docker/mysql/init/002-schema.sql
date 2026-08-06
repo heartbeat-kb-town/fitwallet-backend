@@ -433,13 +433,16 @@ CREATE TABLE payment_session (
     -- v23: 세션 상태: PENDING -> SCANNED -> PROCESSING -> COMPLETED, 그 외 EXPIRED/FAILED.
     CONSTRAINT ck_payment_session_status
         CHECK (status IN ('PENDING','SCANNED','PROCESSING','COMPLETED','EXPIRED','FAILED')),
+    -- v26: MOCK_RANDOM_DECLINE 추가. 결제 결과 조회 Mock이 무작위로 승인을 거절시킬 때
+    -- 쓰는 임시 값이다. 실제 PG 연동 시 진짜 거절 사유 코드로 대체될 예정.
     CONSTRAINT ck_payment_session_fail_reason
         CHECK (fail_reason IS NULL OR fail_reason IN (
-            'PIN_MISMATCH',      -- 결제 PIN 불일치
-            'PIN_LOCKED',        -- PIN 연속 실패로 잠금 (users.pin_fail_count)
-            'CANCELED_BY_USER',  -- 사용자 직접 취소
-            'CARD_UNAVAILABLE',  -- 카드 삭제/사용 불가
-            'SYSTEM_ERROR'       -- 그 외 산발 오류
+            'PIN_MISMATCH',        -- 결제 PIN 불일치
+            'PIN_LOCKED',          -- PIN 연속 실패로 잠금 (users.pin_fail_count)
+            'CANCELED_BY_USER',    -- 사용자 직접 취소
+            'CARD_UNAVAILABLE',    -- 카드 삭제/사용 불가
+            'SYSTEM_ERROR',        -- 그 외 산발 오류
+            'MOCK_RANDOM_DECLINE'  -- v26: 결제 결과 Mock의 무작위 승인 거절 (임시)
         ))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
