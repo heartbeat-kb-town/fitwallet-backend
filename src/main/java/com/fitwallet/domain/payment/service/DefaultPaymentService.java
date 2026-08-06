@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -192,11 +193,46 @@ public class DefaultPaymentService implements PaymentService {
 
         BigDecimal finalAmount = amount.subtract(discountAmount);
 
+        MissedBenefitInfo missedBenefit = calculateMissedBenefit(expected.getCards(), userCardId, amount, discountAmount);
+
         paymentMapper.insertPaymentTransaction(userCardId, storeId, session.getPaymentSessionId(),
-                amount, discountAmount, finalAmount, LocalDateTime.now(), appliedBenefitServiceId);
+                amount, discountAmount, finalAmount, LocalDateTime.now(), appliedBenefitServiceId,
+                missedBenefit.getBetterUserCardId(), missedBenefit.getAlternativeDiscountAmount(), missedBenefit.getMissedAmount());
         paymentMapper.markSessionCompleted(paymentId);
 
         return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
+    }
+
+    //놓친 혜택(더 유리한 카드) 계산 — 실제 쓴 카드를 제외한 나머지 중 AVAILABLE인 카드들만 비교
+    //package-private: DefaultPaymentServiceTest에서 Math.random() 분기 없이 직접 테스트하기 위함
+    MissedBenefitInfo calculateMissedBenefit(List<CardBenefitResponse> cards, Long usedUserCardId,
+                                              BigDecimal amount, BigDecimal actualDiscountAmount) {
+        Long betterUserCardId = null;
+        BigDecimal alternativeDiscountAmount = null;
+
+        for (CardBenefitResponse card : cards) {
+            if (card.getUserCardId().equals(usedUserCardId) || card.getStatus() != CardBenefitStatus.AVAILABLE) {
+                continue;
+            }
+
+            BenefitAmountInfo candidateInfo = paymentMapper.findBenefitAmountInfo(card.getBenefit().getBenefitServiceId());
+            BigDecimal candidateDiscount = calculateDiscountAmount(candidateInfo, amount);
+
+            if (alternativeDiscountAmount == null || candidateDiscount.compareTo(alternativeDiscountAmount) > 0) { //처음 바로 갱신, 두번째부터는 최댓값보다 더 크면 갱신
+                alternativeDiscountAmount = candidateDiscount;
+                betterUserCardId = card.getUserCardId();
+            }
+        }
+
+        if (alternativeDiscountAmount != null && alternativeDiscountAmount.compareTo(actualDiscountAmount) > 0) {
+            return MissedBenefitInfo.builder()
+                    .betterUserCardId(betterUserCardId)
+                    .alternativeDiscountAmount(alternativeDiscountAmount)
+                    .missedAmount(alternativeDiscountAmount.subtract(actualDiscountAmount))
+                    .build();
+        }
+
+        return MissedBenefitInfo.builder().build();
     }
 
     private BigDecimal calculateDiscountAmount(BenefitAmountInfo info, BigDecimal amount) {

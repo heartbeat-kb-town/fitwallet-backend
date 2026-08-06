@@ -45,6 +45,9 @@ public interface PaymentMapper {
                                   @Param("discountAmount") BigDecimal discountAmount,
                                   @Param("finalAmount") BigDecimal finalAmount,
                                   @Param("paidAt") LocalDateTime paidAt,
-                                  @Param("appliedBenefitServiceId") Long appliedBenefitServiceId);
+                                  @Param("appliedBenefitServiceId") Long appliedBenefitServiceId,
+                                  @Param("betterUserCardId") Long betterUserCardId,
+                                  @Param("alternativeDiscountAmount") BigDecimal alternativeDiscountAmount,
+                                  @Param("missedAmount") BigDecimal missedAmount);
     PaymentResultResponse findPaymentResultBySessionId(@Param("paymentSessionId") Long paymentSessionId);
 }
