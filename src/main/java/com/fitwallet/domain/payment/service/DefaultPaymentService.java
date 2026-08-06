@@ -1,5 +1,9 @@
 package com.fitwallet.domain.payment.service;
 
+import com.fitwallet.domain.benefit.dto.CardBenefitStatus;
+import com.fitwallet.domain.benefit.dto.ValueType;
+import com.fitwallet.domain.benefit.dto.response.CardBenefitResponse;
+import com.fitwallet.domain.benefit.dto.response.ExpectedBenefitResponse;
 import com.fitwallet.domain.benefit.service.BenefitService;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.payment.dto.*;
@@ -15,6 +19,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.UUID;
 
@@ -165,7 +170,41 @@ public class DefaultPaymentService implements PaymentService {
         return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
     }
 
-    private PaymentResultResponse completeAndBuildResponse(Long userId, String paymentId, PaymentResultSessionInfo session){
+    private PaymentResultResponse completeAndBuildResponse(Long userId, String paymentId, PaymentResultSessionInfo session) {
+        Long userCardId = session.getUserCardId();
+        Long storeId = session.getStoreId();
+        BigDecimal amount = session.getAmount();
 
+        Long appliedBenefitServiceId = null;
+        BigDecimal discountAmount = BigDecimal.ZERO;
+
+        ExpectedBenefitResponse expected = benefitService.findExpectedBenefits(userId, String.valueOf(storeId));
+        CardBenefitResponse matched = expected.getCards().stream()
+                .filter(card -> card.getUserCardId().equals(userCardId))
+                .findFirst()
+                .orElse(null);
+
+        if (matched != null && matched.getStatus() == CardBenefitStatus.AVAILABLE) {
+            appliedBenefitServiceId = matched.getBenefit().getBenefitServiceId();
+            BenefitAmountInfo benefitInfo = paymentMapper.findBenefitAmountInfo(appliedBenefitServiceId);
+            discountAmount = calculateDiscountAmount(benefitInfo, amount);
+        }
+
+        BigDecimal finalAmount = amount.subtract(discountAmount);
+
+        paymentMapper.insertPaymentTransaction(userCardId, storeId, session.getPaymentSessionId(),
+                amount, discountAmount, finalAmount, LocalDateTime.now(), appliedBenefitServiceId);
+        paymentMapper.markSessionCompleted(paymentId);
+
+        return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
+    }
+
+    private BigDecimal calculateDiscountAmount(BenefitAmountInfo info, BigDecimal amount) {
+        BigDecimal raw = info.getValueType() == ValueType.RATE
+                ? amount.multiply(info.getValueNumber()).divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN) //정률일때 amount × valueNumber ÷ 100
+                : info.getValueNumber(); //정액일때는 그대로
+
+        BigDecimal capped = info.getPerTxLimitAmount() != null ? raw.min(info.getPerTxLimitAmount()) : raw;
+        return capped.min(amount);
     }
 }

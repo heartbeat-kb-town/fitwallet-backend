@@ -4,6 +4,7 @@ import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
 import com.fitwallet.domain.payment.dto.PaymentSuccessCode;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
+import com.fitwallet.domain.payment.dto.response.PaymentResultResponse;
 import com.fitwallet.domain.payment.dto.response.PinVerifyResponse;
 import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
 import com.fitwallet.domain.payment.dto.response.QrStatusResponse;
@@ -43,6 +44,18 @@ public class PaymentController {
         QrStatusResponse response = paymentService.getQrStatus(userId, qrToken);
         PaymentSuccessCode successCode = response.getStatus() == PaymentSessionStatus.SCANNED ?
                 PaymentSuccessCode.QR_STATUS_SCANNED : PaymentSuccessCode.QR_STATUS_CREATED;
+        return ApiResponse.of(successCode, response);
+    }
+
+    @GetMapping("/payment/{paymentId}/result")
+    public ResponseEntity<ApiResponse<PaymentResultResponse>> getPaymentResult(@LoginUserId Long userId,
+                                                                               @PathVariable String paymentId){
+        PaymentResultResponse response = paymentService.getPaymentResult(userId, paymentId);
+        PaymentSuccessCode successCode = switch(response.getStatus()){
+            case COMPLETED -> PaymentSuccessCode.PAYMENT_COMPLETED;
+            case FAILED -> PaymentSuccessCode.PAYMENT_FAILED;
+            default -> PaymentSuccessCode.PAYMENT_PROCESSING;
+        };
         return ApiResponse.of(successCode, response);
     }
 }
