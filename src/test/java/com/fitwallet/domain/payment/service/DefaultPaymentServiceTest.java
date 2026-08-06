@@ -1,20 +1,20 @@
 package com.fitwallet.domain.payment.service;
 
-import com.fitwallet.domain.payment.dto.UserPinInfo;
+import com.fitwallet.domain.benefit.dto.CardBenefitStatus;
+import com.fitwallet.domain.benefit.dto.ValueType;
+import com.fitwallet.domain.benefit.dto.response.BenefitDetailResponse;
+import com.fitwallet.domain.benefit.dto.response.CardBenefitResponse;
+import com.fitwallet.domain.payment.dto.*;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
 import com.fitwallet.domain.payment.dto.response.PinVerifyResponse;
 import com.fitwallet.domain.payment.exception.PaymentErrorCode;
 import com.fitwallet.domain.payment.mapper.PaymentMapper;
 import com.fitwallet.global.exception.BusinessException;
 import com.fitwallet.domain.card.exception.CardErrorCode;
-import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
-import com.fitwallet.domain.payment.dto.PinAuthInfo;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
 import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
-import com.fitwallet.domain.payment.dto.QrSessionInfo;
 import com.fitwallet.domain.payment.dto.response.QrStatusResponse;
 import com.fitwallet.domain.benefit.service.BenefitService;
-import com.fitwallet.domain.payment.dto.PaymentResultSessionInfo;
 import com.fitwallet.domain.payment.dto.response.PaymentResultResponse;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -26,6 +26,7 @@ import org.springframework.test.util.ReflectionTestUtils;
 
 import java.time.LocalDateTime;
 import java.math.BigDecimal;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -383,7 +384,7 @@ class DefaultPaymentServiceTest {
         then(paymentMapper).should(never()).markSessionFailed(any());
         then(paymentMapper).should(never()).markSessionCompleted(any());
         then(paymentMapper).should(never())
-                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any());
+                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -421,6 +422,53 @@ class DefaultPaymentServiceTest {
         assertThat(response.getStoreName()).isEqualTo("스타벅스 강남점");
         then(paymentMapper).should(never()).markSessionCompleted(any());
         then(paymentMapper).should(never())
-                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any());
+                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    //놓친혜택
+    @Test
+    void 실제_받은_혜택보다_더_유리한_카드가_있으면_놓친혜택을_계산한다() {
+        CardBenefitResponse usedCard = CardBenefitResponse.builder()
+                .userCardId(1L)
+                .status(CardBenefitStatus.CONDITION_NOT_MET)
+                .build();
+        CardBenefitResponse betterCard = CardBenefitResponse.builder()
+                .userCardId(5L)
+                .status(CardBenefitStatus.AVAILABLE)
+                .benefit(BenefitDetailResponse.builder().benefitServiceId(125L).build())
+                .build();
+
+        given(paymentMapper.findBenefitAmountInfo(125L)).willReturn(
+                BenefitAmountInfo.builder()
+                        .valueType(ValueType.RATE)
+                        .valueNumber(BigDecimal.valueOf(20))
+                        .perTxLimitAmount(BigDecimal.valueOf(4000))
+                        .build());
+
+        MissedBenefitInfo result = paymentService.calculateMissedBenefit(
+                List.of(usedCard, betterCard), 1L, BigDecimal.valueOf(4500), BigDecimal.ZERO);
+
+        assertThat(result.getBetterUserCardId()).isEqualTo(5L);
+        assertThat(result.getAlternativeDiscountAmount()).isEqualByComparingTo("900");
+        assertThat(result.getMissedAmount()).isEqualByComparingTo("900");
+    }
+
+    @Test
+    void 더_유리한_카드가_없으면_놓친혜택은_전부_null이다() {
+        CardBenefitResponse usedCard = CardBenefitResponse.builder()
+                .userCardId(1L)
+                .status(CardBenefitStatus.AVAILABLE)
+                .build();
+        CardBenefitResponse worseCard = CardBenefitResponse.builder()
+                .userCardId(2L)
+                .status(CardBenefitStatus.NO_BENEFIT)
+                .build();
+
+        MissedBenefitInfo result = paymentService.calculateMissedBenefit(
+                List.of(usedCard, worseCard), 1L, BigDecimal.valueOf(4500), BigDecimal.valueOf(500));
+
+        assertThat(result.getBetterUserCardId()).isNull();
+        assertThat(result.getAlternativeDiscountAmount()).isNull();
+        assertThat(result.getMissedAmount()).isNull();
     }
 }
