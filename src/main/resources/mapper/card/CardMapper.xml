@@ -106,6 +106,29 @@
         <result column="max_prev_month_spend" property="tierMaximumAmount"/>
     </resultMap>
 
+    <resultMap id="cardMonthlyBenefitRuleMap"
+               type="com.fitwallet.domain.card.dto.CardMonthlyBenefitRule">
+        <result column="service_id" property="serviceId"/>
+        <result column="benefit_name" property="benefitName"/>
+        <result column="benefit_type" property="benefitType"/>
+        <result column="value_type" property="valueType"/>
+        <result column="value_number" property="valueNumber"/>
+        <result column="scope_type" property="scopeType"/>
+        <result column="min_payment_amount" property="benefitMinimumAmount"/>
+        <result column="max_payment_amount" property="benefitMaximumAmount"/>
+        <result column="per_tx_limit_amount" property="perTransactionLimitAmount"/>
+        <result column="currency_name" property="pointCurrencyName"/>
+        <result column="krw_per_point" property="krwPerPoint"/>
+        <result column="tier_id" property="tierId"/>
+        <result column="plan_group_id" property="limitPlanGroupId"/>
+        <result column="tier_order" property="tierOrder"/>
+        <result column="min_prev_month_spend" property="tierMinimumAmount"/>
+        <result column="max_prev_month_spend" property="tierMaximumAmount"/>
+        <result column="limit_id" property="limitId"/>
+        <result column="limit_basis" property="limitBasis"/>
+        <result column="limit_value" property="limitValue"/>
+    </resultMap>
+
     <select id="findTransactionCardInfo"
             resultMap="cardTransactionCardInfoMap">
         SELECT uc.user_card_id,
@@ -256,6 +279,106 @@
         ORDER BY bs.service_id,
                  bt.tier_order,
                  bt.tier_id
+    </select>
+
+    <!--
+        plan group 공유 티어와 서비스별 티어가 동시에 존재할 수 있으므로 둘 다 조회한다.
+        한 서비스의 대상과 한도를 한 SQL에서 조인하면 곱집합이 생기므로 여기서는 월 한도까지만
+        평면 행으로 반환하고 카테고리·브랜드 대상은 별도 일괄 조회한다.
+    -->
+    <select id="findMonthlyBenefitRules" resultMap="cardMonthlyBenefitRuleMap">
+        SELECT bs.service_id,
+               bs.benefit_name,
+               bs.benefit_type,
+               bs.value_type,
+               bs.value_number,
+               bs.scope_type,
+               bs.min_payment_amount,
+               bs.max_payment_amount,
+               bs.per_tx_limit_amount,
+               pc.currency_name,
+               pc.krw_per_point,
+               bt.tier_id,
+               bt.plan_group_id,
+               bt.tier_order,
+               bt.min_prev_month_spend,
+               bt.max_prev_month_spend,
+               bl.limit_id,
+               bl.limit_basis,
+               bl.limit_value
+        FROM benefit_service bs
+                 JOIN benefit_tier bt
+                      ON (bs.plan_group_id IS NOT NULL
+                          AND bt.plan_group_id = bs.plan_group_id)
+                         OR bt.service_id = bs.service_id
+                 JOIN benefit_limit bl
+                      ON bl.tier_id = bt.tier_id
+                         AND bl.limit_period = 'MONTH'
+                 LEFT JOIN point_currency pc
+                           ON pc.point_currency_id = bs.point_currency_id
+        WHERE bs.card_product_id = #{cardProductId}
+        ORDER BY bs.service_id,
+                 bt.tier_id,
+                 bl.limit_id
+    </select>
+
+    <select id="findMonthlyBenefitCategoryTargets"
+            resultType="com.fitwallet.domain.card.dto.CardMonthlyBenefitCategoryTarget">
+        SELECT bs.service_id,
+               c.category_id,
+               c.category_name,
+               c.category_image_url
+        FROM benefit_service bs
+                 JOIN service_category sc ON sc.service_id = bs.service_id
+                 JOIN category c ON c.category_id = sc.category_id
+        WHERE bs.card_product_id = #{cardProductId}
+          AND bs.scope_type = 'INDUSTRY'
+        ORDER BY bs.service_id,
+                 c.category_id
+    </select>
+
+    <select id="findMonthlyBenefitBrandTargets"
+            resultType="com.fitwallet.domain.card.dto.CardMonthlyBenefitBrandTarget">
+        SELECT bs.service_id,
+               b.brand_id,
+               b.brand_name,
+               b.brand_image_url
+        FROM benefit_service bs
+                 JOIN service_brand sb ON sb.service_id = bs.service_id
+                 JOIN brand b ON b.brand_id = sb.brand_id
+        WHERE bs.card_product_id = #{cardProductId}
+          AND bs.scope_type = 'BRAND'
+        ORDER BY bs.service_id,
+                 b.brand_id
+    </select>
+
+    <!--
+        transactionCount는 카테고리·브랜드 전체 거래가 아니라 실제 혜택 서비스가 적용된 거래 건수다.
+        store가 없는 적용 거래도 서비스/공유 한도 사용량에는 포함돼야 하므로 LEFT JOIN을 사용한다.
+    -->
+    <select id="findMonthlyBenefitTargetUsages"
+            resultType="com.fitwallet.domain.card.dto.CardMonthlyBenefitTargetUsage">
+        SELECT pt.applied_benefit_service_id service_id,
+               s.category_id,
+               s.brand_id,
+               COUNT(*) transaction_count,
+               COALESCE(SUM(pt.amount), 0) total_payment_amount,
+               COALESCE(SUM(pt.discount_amount), 0) received_benefit_amount
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+                 LEFT JOIN store s ON s.store_id = pt.store_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+          AND pt.applied_benefit_service_id IS NOT NULL
+          AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
+          AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
+        GROUP BY pt.applied_benefit_service_id,
+                 s.category_id,
+                 s.brand_id
+        ORDER BY pt.applied_benefit_service_id,
+                 s.category_id,
+                 s.brand_id
     </select>
 
     <select id="findByUserId" resultType="com.fitwallet.domain.card.dto.response.CardListResponse">

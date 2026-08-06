@@ -2,6 +2,10 @@ package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.CardListSortType;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitBrandTarget;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitCategoryTarget;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitRule;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitTargetUsage;
 import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
 import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
@@ -77,6 +81,24 @@ public interface CardMapper {
     /** 카드상품에 속한 혜택과 조건부로 연결된 원본 실적 구간을 조회한다. */
     List<CardUsageBenefitRule> findUsageBenefitRules(
             @Param("cardProductId") Long cardProductId);
+
+    /** 카드 상품의 월 한도와 해당 한도를 적용받는 혜택 서비스를 평면 행으로 조회한다. */
+    List<CardMonthlyBenefitRule> findMonthlyBenefitRules(
+            @Param("cardProductId") Long cardProductId);
+
+    /** 카드 상품의 업종 범위 혜택과 대상 카테고리를 일괄 조회한다. */
+    List<CardMonthlyBenefitCategoryTarget> findMonthlyBenefitCategoryTargets(
+            @Param("cardProductId") Long cardProductId);
+
+    /** 카드 상품의 브랜드 범위 혜택과 대상 브랜드를 일괄 조회한다. */
+    List<CardMonthlyBenefitBrandTarget> findMonthlyBenefitBrandTargets(
+            @Param("cardProductId") Long cardProductId);
+
+    /** 조회 기간에 실제 적용된 혜택 거래를 서비스·카테고리·브랜드 조합으로 집계한다. */
+    List<CardMonthlyBenefitTargetUsage> findMonthlyBenefitTargetUsages(
+            @Param("userId") Long userId,
+            @Param("cardId") Long cardId,
+            @Param("condition") CardUsagePeriodCondition condition);
 
     /** 사용자의 카드 목록을 요청한 기준으로 조회한다. 삭제된 카드는 제외된다. */
     List<CardListResponse> findByUserId(@Param("userId") Long userId,

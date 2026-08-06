@@ -16,6 +16,8 @@ public enum CardErrorCode implements ErrorCode {
     INVALID_TRANSACTION_CURSOR(HttpStatus.BAD_REQUEST, "유효하지 않은 결제 내역 커서입니다."),
     INVALID_CARD_PAYMENT_DATA(HttpStatus.INTERNAL_SERVER_ERROR, "카드 결제 이용금액 데이터가 올바르지 않습니다."),
     INVALID_CARD_SUMMARY_DATA(HttpStatus.INTERNAL_SERVER_ERROR, "카드 요약 데이터가 올바르지 않습니다."),
+    INVALID_CARD_MONTHLY_BENEFIT_DATA(HttpStatus.INTERNAL_SERVER_ERROR,
+            "카드 월간 혜택 데이터가 올바르지 않습니다."),
     CARD_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록된 카드입니다.");
 
     private final HttpStatus status;
