@@ -145,6 +145,13 @@ public class DefaultUserService implements UserService {
         userMapper.updateLocationAgreement(userId, request.getAgreed());
     }
 
+    /** 저장된 Refresh Token을 삭제한다. 쿠키 만료는 Controller가 처리한다. */
+    @Override
+    @Transactional
+    public void logout(Long userId) {
+        userMapper.deleteRefreshToken(userId);
+    }
+
     /** PIN과 PIN 확인값이 일치하는지 검증한다. */
     private void validatePinConfirmation(PinRegisterRequest request) {
         if (!request.getPin().equals(request.getPinConfirm())) {

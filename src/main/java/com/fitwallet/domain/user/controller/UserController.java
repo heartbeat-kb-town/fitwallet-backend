@@ -136,4 +136,26 @@ public class UserController {
                 null
         );
     }
+
+    /**
+     * 로그아웃을 처리한다.
+     * 저장된 Refresh Token을 삭제하고, 로그인과 같은 이름·속성의 쿠키를 즉시 만료시켜 내려준다.
+     */
+    @PostMapping("/user/logout")
+    public ResponseEntity<ApiResponse<Void>> logout(
+            @LoginUserId Long userId,
+            HttpServletResponse servletResponse) {
+
+        userService.logout(userId);
+
+        servletResponse.addHeader(
+                HttpHeaders.SET_COOKIE,
+                refreshTokenCookieProvider.clear().toString()
+        );
+
+        return ApiResponse.of(
+                UserSuccessCode.LOGOUT_SUCCESS,
+                null
+        );
+    }
 }

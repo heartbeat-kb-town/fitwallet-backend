@@ -204,4 +204,39 @@ class UserControllerTest {
 
         then(userService).should().registerPaymentPin(eq(1L), ArgumentMatchers.any());
     }
+
+    @Test
+    void 로그아웃은_LoginUserId를_서비스에_전달하고_RefreshToken_쿠키를_만료시킨다() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new UserController(userService, refreshTokenCookieProvider))
+                .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
+                .addInterceptors(new AuthInterceptor(jwtProvider))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        ResponseCookie expiredCookie = ResponseCookie.from("refreshToken", "")
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("Strict")
+                .path("/")
+                .maxAge(0)
+                .build();
+        given(refreshTokenCookieProvider.clear()).willReturn(expiredCookie);
+
+        MockHttpServletResponse response = mockMvc.perform(post("/api/user/logout")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("LOGOUT_SUCCESS"))
+                .andExpect(jsonPath("$.message").value("로그아웃되었습니다."))
+                .andReturn()
+                .getResponse();
+
+        then(userService).should().logout(eq(1L));
+
+        String setCookieHeader = response.getHeader(HttpHeaders.SET_COOKIE);
+        assertThat(setCookieHeader).contains("refreshToken=");
+        assertThat(setCookieHeader).contains("Max-Age=0");
+    }
 }

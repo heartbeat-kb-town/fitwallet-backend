@@ -97,4 +97,10 @@
         WHERE user_id = #{userId}
     </update>
 
+    <!-- 로그아웃 시 삭제해 저장된 토큰이 없으면(재발급 시 findRefreshTokenHashByUserId가 null) 재발급을 차단한다. -->
+    <delete id="deleteRefreshToken">
+        DELETE FROM refresh_token
+        WHERE user_id = #{userId}
+    </delete>
+
 </mapper>

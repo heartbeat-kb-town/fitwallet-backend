@@ -261,6 +261,13 @@ class DefaultUserServiceTest {
         then(userMapper).should().updateLocationAgreement(1L, true);
     }
 
+    @Test
+    void 로그아웃시_저장된_리프레시_토큰을_삭제한다() {
+        userService.logout(1L);
+
+        then(userMapper).should().deleteRefreshToken(1L);
+    }
+
     private LocationAgreeRequest locationAgreeRequest(boolean agreed) {
         LocationAgreeRequest request = new LocationAgreeRequest();
 
