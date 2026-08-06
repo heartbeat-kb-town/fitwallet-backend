@@ -9,6 +9,10 @@ import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardTransactionCursorResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitCardResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitPerformanceResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryAmountResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryCardResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
@@ -24,6 +28,9 @@ import com.fitwallet.global.config.JwtProvider;
 import com.fitwallet.global.config.LoginUserIdArgumentResolver;
 import com.fitwallet.global.exception.BusinessException;
 import com.fitwallet.global.exception.GlobalExceptionHandler;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,6 +39,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -60,10 +68,14 @@ class CardControllerTest {
 
     @BeforeEach
     void setUp() {
+        ObjectMapper objectMapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mockMvc = MockMvcBuilders.standaloneSetup(new CardController(cardService))
                 .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
                 .addInterceptors(new AuthInterceptor(jwtProvider))
                 .setControllerAdvice(new GlobalExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .build();
     }
 
@@ -83,6 +95,53 @@ class CardControllerTest {
                 .andExpect(jsonPath("$.data.yearMonth").value("2026-07"))
                 .andExpect(jsonPath("$.data.paymentSummary.summaryType")
                         .value("MONTHLY_PAYMENT_AMOUNT"));
+    }
+
+    @Test
+    void 카드별_월간혜택_조회는_공통응답과_기준일을_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(cardService.getCardMonthlyBenefit(1L, 2L)).willReturn(
+                CardMonthlyBenefitResponse.builder()
+                        .card(CardMonthlyBenefitCardResponse.builder()
+                                .userCardId(2L)
+                                .cardName("신한카드 All Pass")
+                                .issuerName("신한카드")
+                                .cardType(CardType.CREDIT)
+                                .build())
+                        .yearMonth("2026-07")
+                        .asOfDate(LocalDate.of(2026, 7, 23))
+                        .monthlySummary(CardMonthlyBenefitSummaryResponse.builder()
+                                .potentialBenefitAmount(new BigDecimal("4000"))
+                                .receivedBenefitAmount(new BigDecimal("1000"))
+                                .totalBenefitLimit(new BigDecimal("5000"))
+                                .benefitUsageRate(new BigDecimal("20.0"))
+                                .receivedBenefitDetailAvailable(true)
+                                .build())
+                        .performance(CardMonthlyBenefitPerformanceResponse.builder()
+                                .performanceMonth("2026-06")
+                                .status(CardUsagePerformanceStatus.ACHIEVED)
+                                .message("전월 실적 조건이 적용 중이에요.")
+                                .build())
+                        .categoryBenefits(List.of())
+                        .brandBenefits(List.of())
+                        .build());
+
+        mockMvc.perform(get("/api/card/2/benefit")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("CARD_MONTHLY_BENEFIT_FOUND"))
+                .andExpect(jsonPath("$.message")
+                        .value("카드 월간 혜택 현황 조회에 성공했습니다."))
+                .andExpect(jsonPath("$.data.card.userCardId").value(2))
+                .andExpect(jsonPath("$.data.yearMonth").value("2026-07"))
+                .andExpect(jsonPath("$.data.asOfDate").value("2026-07-23"))
+                .andExpect(jsonPath("$.data.monthlySummary.potentialBenefitAmount").value(4000))
+                .andExpect(jsonPath("$.data.performance.status").value("ACHIEVED"))
+                .andExpect(jsonPath("$.data.categoryBenefits").isArray())
+                .andExpect(jsonPath("$.data.brandBenefits").isArray());
+
+        then(cardService).should().getCardMonthlyBenefit(1L, 2L);
     }
 
     @Test

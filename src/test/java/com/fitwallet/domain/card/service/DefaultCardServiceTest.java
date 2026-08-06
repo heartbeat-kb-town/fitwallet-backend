@@ -19,6 +19,7 @@ import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
@@ -87,6 +88,8 @@ class DefaultCardServiceTest {
         cardService = new DefaultCardService(
                 cardMapper,
                 new CardMonthlyPeriodResolver(clock),
+                new CardMonthlyBenefitPeriodResolver(clock),
+                new CardMonthlyBenefitCalculator(),
                 new CardUsageRuleNormalizer(),
                 new CardUsageTierIntegrator(),
                 new CardUsageBenefitAllocator(),
@@ -112,6 +115,54 @@ class DefaultCardServiceTest {
         given(cardMapper.findByUserId(1L, CardListSortType.DISPLAY_ORDER)).willReturn(List.of());
 
         assertThat(cardService.findMyCards(1L, null)).isEmpty();
+    }
+
+    @Test
+    void 카드_월간혜택은_기존_카드정보와_전월실적_조회를_재사용한다() {
+        given(cardMapper.findSummaryCardInfo(1L, 2L)).willReturn(CardSummaryCardInfo.builder()
+                .cardId(2L)
+                .cardProductId(15L)
+                .cardName("신한카드 All Pass")
+                .issuerName("신한카드")
+                .cardType(CardType.CREDIT)
+                .build());
+        given(cardMapper.findUsageAmounts(eq(1L), eq(2L), any()))
+                .willReturn(CardUsageAmountSummary.builder()
+                        .recognizedAmount(new BigDecimal("317300"))
+                        .excludedAmount(BigDecimal.ZERO)
+                        .build());
+        given(cardMapper.findMonthlyBenefitRules(15L)).willReturn(List.of());
+        given(cardMapper.findMonthlyBenefitCategoryTargets(15L)).willReturn(List.of());
+        given(cardMapper.findMonthlyBenefitBrandTargets(15L)).willReturn(List.of());
+        given(cardMapper.findMonthlyBenefitTargetUsages(eq(1L), eq(2L), any()))
+                .willReturn(List.of());
+
+        CardMonthlyBenefitResponse response = cardService.getCardMonthlyBenefit(1L, 2L);
+
+        assertThat(response.getYearMonth()).isEqualTo("2026-07");
+        assertThat(response.getAsOfDate()).isEqualTo(LocalDate.of(2026, 7, 23));
+        assertThat(response.getCategoryBenefits()).isEmpty();
+        assertThat(response.getBrandBenefits()).isEmpty();
+
+        ArgumentCaptor<CardUsagePeriodCondition> conditionCaptor =
+                ArgumentCaptor.forClass(CardUsagePeriodCondition.class);
+        then(cardMapper).should().findUsageAmounts(eq(1L), eq(2L), conditionCaptor.capture());
+        assertThat(conditionCaptor.getValue().getStartAt())
+                .isEqualTo(LocalDateTime.of(2026, 6, 1, 0, 0));
+        assertThat(conditionCaptor.getValue().getEndAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+    }
+
+    @Test
+    void 카드_월간혜택은_소유한_카드가_아니면_찾을수없음_예외를_던진다() {
+        given(cardMapper.findSummaryCardInfo(1L, 999L)).willReturn(null);
+
+        assertThatThrownBy(() -> cardService.getCardMonthlyBenefit(1L, 999L))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(exception -> assertThat(((BusinessException) exception).getErrorCode())
+                        .isEqualTo(CardErrorCode.CARD_NOT_FOUND));
+
+        then(cardMapper).should(never()).findUsageAmounts(any(), any(), any());
     }
 
     @Test

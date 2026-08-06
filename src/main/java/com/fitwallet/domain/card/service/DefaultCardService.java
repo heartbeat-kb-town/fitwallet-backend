@@ -6,6 +6,7 @@ import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.CardMonthlyPeriod;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitPeriod;
 import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
 import com.fitwallet.domain.card.dto.CardUsageBenefitAllocation;
 import com.fitwallet.domain.card.dto.CardUsageCardInfo;
@@ -22,6 +23,7 @@ import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryAmountResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryCardResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
@@ -75,6 +77,8 @@ public class DefaultCardService implements CardService {
 
     private final CardMapper cardMapper;
     private final CardMonthlyPeriodResolver monthlyPeriodResolver;
+    private final CardMonthlyBenefitPeriodResolver monthlyBenefitPeriodResolver;
+    private final CardMonthlyBenefitCalculator monthlyBenefitCalculator;
     private final CardUsageRuleNormalizer usageRuleNormalizer;
     private final CardUsageTierIntegrator usageTierIntegrator;
     private final CardUsageBenefitAllocator usageBenefitAllocator;
@@ -89,6 +93,39 @@ public class DefaultCardService implements CardService {
                 ? CardListSortType.DISPLAY_ORDER
                 : request.getSort();
         return cardMapper.findByUserId(userId, sortType);
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CardMonthlyBenefitResponse getCardMonthlyBenefit(Long userId, Long cardId) {
+        CardSummaryCardInfo card = cardMapper.findSummaryCardInfo(userId, cardId);
+        if (card == null) {
+            throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
+        }
+
+        CardMonthlyBenefitPeriod period = monthlyBenefitPeriodResolver.resolve();
+        CardUsagePeriodCondition performanceCondition = CardUsagePeriodCondition.builder()
+                .startAt(period.getPerformanceStartAt())
+                .endAt(period.getPerformanceEndAt())
+                .build();
+        CardUsageAmountSummary performanceAmounts = cardMapper.findUsageAmounts(
+                userId, cardId, performanceCondition);
+        if (performanceAmounts == null || performanceAmounts.getRecognizedAmount() == null) {
+            throw new BusinessException(CardErrorCode.INVALID_CARD_MONTHLY_BENEFIT_DATA);
+        }
+
+        CardUsagePeriodCondition benefitCondition = CardUsagePeriodCondition.builder()
+                .startAt(period.getBenefitStartAt())
+                .endAt(period.getBenefitEndAt())
+                .build();
+        return monthlyBenefitCalculator.calculate(
+                card,
+                period,
+                performanceAmounts.getRecognizedAmount(),
+                cardMapper.findMonthlyBenefitRules(card.getCardProductId()),
+                cardMapper.findMonthlyBenefitCategoryTargets(card.getCardProductId()),
+                cardMapper.findMonthlyBenefitBrandTargets(card.getCardProductId()),
+                cardMapper.findMonthlyBenefitTargetUsages(userId, cardId, benefitCondition));
     }
 
     @Override
