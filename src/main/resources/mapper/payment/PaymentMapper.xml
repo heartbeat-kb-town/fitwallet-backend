@@ -110,10 +110,10 @@
     <insert id="insertPaymentTransaction">
         INSERT INTO payment_transaction (user_card_id, store_id, payment_session_id, amount,
         discount_amount, final_amount, paid_at,
-        is_used_app, applied_benefit_service_id)
+        is_used_app, applied_benefit_service_id, better_user_card_id, alternative_discount_amount, missed_amount)
         VALUES (#{userCardId}, #{storeId}, #{paymentSessionId}, #{amount},
         #{discountAmount}, #{finalAmount}, #{paidAt},
-        1, #{appliedBenefitServiceId})
+        1, #{appliedBenefitServiceId}, #{betterUserCardId}, #{alternativeDiscountAmount}, #{missedAmount})
     </insert>
 
     <select id="findPaymentResultBySessionId" resultType="com.fitwallet.domain.payment.dto.response.PaymentResultResponse">
