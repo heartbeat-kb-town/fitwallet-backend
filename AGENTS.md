@@ -498,7 +498,10 @@ main push에서 실행돼, `build` 잡이 만든 WAR를 그대로 Elastic Beanst
 인증은 GitHub OIDC로 IAM 역할 `fitwallet-github-actions-deploy`를 수임한다 — 저장소에
 AWS 액세스 키를 두지 않는다. 역할 ARN만 저장소 Variable `AWS_ROLE_ARN`에 있다.
 
-- 버전 라벨은 `gh-{run_number}-{sha 앞 7자}`
+- 버전 라벨은 `gh-{run_number}.{run_attempt}-{sha 앞 7자}`.
+  **`run_attempt`를 빼면 안 된다** — `create-application-version` 이후 단계에서 실패하면
+  그 라벨이 EB에 남아, 재실행 때 "이미 존재함"으로 거부돼 사람이 버전을 지우기 전까지
+  재배포가 막힌다
 - 배포 후 EB 상태와 `GET /health/db`를 확인하고, 실패하면 EB 이벤트를 로그에 찍는다
 - **환경 속성은 워크플로가 건드리지 않는다.** `JWT_SECRET`·DB 접속정보·`env=prod`는
   EB에만 있고 저장소에 없다 (§12)
@@ -506,6 +509,37 @@ AWS 액세스 키를 두지 않는다. 역할 ARN만 저장소 Variable `AWS_ROL
   환경을 먼저 띄우고 Actions에서 workflow_dispatch로 재실행한다
 - 릴리스와 무관하게 배선만 확인하거나 재배포하려면 Actions 탭에서 main을 골라
   workflow_dispatch로 실행한다
+
+#### 배포 IAM 설정에서 실제로 겪은 함정 (2026-08-05 첫 자동 배포)
+
+**EB 배포용 최소 권한을 손으로 깎지 않는다.** `UpdateEnvironment`는 EB가 CloudFormation
+스택을 조작하는 작업이라 여러 서비스의 권한을 연쇄로 요구한다. 최소 권한에서 출발해
+거부될 때마다 하나씩 추가하는 방식은 수렴 지점이 없고, 매 시도가 운영 배포를 한 번씩 태운다.
+실제로 네 번 실패했다 — 신뢰 정책 `sub` 불일치 → `s3:GetObject` → `s3:CreateBucket` 등
+버킷 레벨 → `cloudformation:GetTemplate`. 지금은 관리형 정책
+`AdministratorAccess-AWSElasticBeanstalk`를 쓴다.
+
+> **IAM 정책 시뮬레이터는 내가 나열한 액션만 평가한다.** 누락된 액션은 찾아주지 못하므로
+> "시뮬레이터 통과 = 배포 가능"이 아니다.
+
+**이 조직은 OIDC immutable subject claim을 쓴다.** 토큰의 `sub`가 표준형이 아니라
+`repo:{org}@{orgId}/{repo}@{repoId}:ref:refs/heads/main` 형태로 온다. 표준형만 신뢰 정책에
+넣으면 `Not authorized to perform sts:AssumeRoleWithWebIdentity`로 막힌다.
+
+> GitHub의 `GET /repos/{owner}/{repo}/actions/oidc/customization/sub`는
+> `use_immutable_subject: false`로 응답하는데 실제 토큰은 ID형이다 — **이 API를 믿지 말 것.**
+> 같은 응답의 `sub_claim_prefix`가 실제로 쓰이는 값이다.
+
+`sub` 실측값은 추측하지 말고 CloudTrail에서 확인한다. 실패한 호출의 `sub`가
+`userIdentity.userName`에 그대로 남는다:
+
+```bash
+aws cloudtrail lookup-events --region ap-northeast-2 \
+  --lookup-attributes AttributeKey=EventName,AttributeValue=AssumeRoleWithWebIdentity
+```
+
+**GitHub Environment를 도입하면 `sub`의 `:ref:refs/heads/main` 부분이 `:environment:{이름}`으로
+바뀌어 수임이 깨진다.** 도입할 거면 신뢰 정책을 함께 고쳐야 한다.
 
 롤백은 자동이 아니다. 이전 애플리케이션 버전으로 되돌린다:
 
