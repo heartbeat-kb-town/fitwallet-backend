@@ -138,32 +138,34 @@ class UserMapperIntegrationTest {
     }
 
     @Test
-    void 결제_PIN_해시를_저장하면_그대로_조회된다() {
+    void 최초_등록시_UPDATE_결과가_1이고_해시가_그대로_조회된다() {
         Long userId = registerAndGetUserId();
 
-        userMapper.registerPaymentPin(userId, PIN_HASH);
+        int updatedRows = userMapper.registerPaymentPin(userId, PIN_HASH);
 
         String savedHash = jdbcTemplate.queryForObject(
                 "SELECT payment_pin_hash FROM users WHERE user_id = ?",
                 String.class,
                 userId
         );
+        assertThat(updatedRows).isEqualTo(1);
         assertThat(savedHash).isEqualTo(PIN_HASH);
     }
 
     @Test
-    void 결제_PIN을_다시_등록하면_해시만_갱신된다() {
+    void 이미_등록된_PIN은_UPDATE_결과가_0이고_기존_해시가_유지된다() {
         Long userId = registerAndGetUserId();
         userMapper.registerPaymentPin(userId, PIN_HASH);
 
-        userMapper.registerPaymentPin(userId, PIN_HASH_B);
+        int updatedRows = userMapper.registerPaymentPin(userId, PIN_HASH_B);
 
         String savedHash = jdbcTemplate.queryForObject(
                 "SELECT payment_pin_hash FROM users WHERE user_id = ?",
                 String.class,
                 userId
         );
-        assertThat(savedHash).isEqualTo(PIN_HASH_B);
+        assertThat(updatedRows).isEqualTo(0);
+        assertThat(savedHash).isEqualTo(PIN_HASH);
     }
 
     @Test

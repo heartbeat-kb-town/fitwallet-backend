@@ -24,7 +24,7 @@ public interface UserService {
     /** Refresh Token을 검증하고 새 Access Token을 발급한다. */
     TokenReissueResponse reissueAccessToken(String refreshToken);
 
-    /** 로그인 사용자의 결제 PIN을 등록한다. 이미 등록돼 있어도 그대로 덮어쓴다. */
+    /** 로그인 사용자의 결제 PIN을 최초 등록한다. 이미 등록돼 있으면 예외를 던진다. */
     void registerPaymentPin(Long userId, PinRegisterRequest request);
 
     /** 로그인 사용자의 위치 정보 동의 여부를 갱신한다. */

@@ -123,10 +123,11 @@ public class DefaultUserService implements UserService {
     }
 
     /**
-     * 결제 PIN을 등록한다.
+     * 결제 PIN을 최초 등록한다.
      * <p>
-     * PIN과 PIN 확인값의 일치 여부만 검증하고 암호화해 저장한다. 이미 등록된 PIN이
-     * 있어도 그대로 덮어쓴다.
+     * PIN과 PIN 확인값의 일치 여부를 검증한 뒤 암호화해 저장한다. Mapper의 조건부 UPDATE가
+     * {@code payment_pin_hash IS NULL}일 때만 적용되므로, UPDATE 결과가 0이면 이미 등록된
+     * 것으로 보고 덮어쓰지 않는다. 변경이 필요하면 별도의 PIN 변경 API를 쓴다.
      */
     @Override
     @Transactional
@@ -135,7 +136,10 @@ public class DefaultUserService implements UserService {
 
         String pinHash = passwordEncoder.encode(request.getPin());
 
-        userMapper.registerPaymentPin(userId, pinHash);
+        int updatedRows = userMapper.registerPaymentPin(userId, pinHash);
+        if (updatedRows == 0) {
+            throw new BusinessException(UserErrorCode.PAYMENT_PIN_ALREADY_REGISTERED);
+        }
     }
 
     /** 위치 정보 동의 여부를 갱신한다. */
