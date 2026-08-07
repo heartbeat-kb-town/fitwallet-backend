@@ -16,7 +16,7 @@ import java.math.RoundingMode;
 import java.util.ArrayList;
 import java.util.List;
 
-/** 인정 실적 금액을 기준으로 현재·다음 통합 구간과 구간 상대 진행률을 계산한다. */
+/** 인정 실적 금액을 기준으로 현재·다음 통합 구간과 전체 구간 바 진행률을 계산한다. */
 @Component
 public class CardUsageTierStateCalculator {
 
@@ -57,7 +57,12 @@ public class CardUsageTierStateCalculator {
                 toSummary(current, next),
                 next == null ? null : toSummary(next, tierAfter(integratedTiers, currentIndex + 1)),
                 next == null ? null : next.getMinimumAmount().subtract(recognizedAmount).max(BigDecimal.ZERO),
-                calculateProgressRate(recognizedAmount, current, next),
+                calculateProgressRate(
+                        recognizedAmount,
+                        currentIndex,
+                        current,
+                        next,
+                        integratedTiers.size()),
                 tiers);
     }
 
@@ -147,11 +152,32 @@ public class CardUsageTierStateCalculator {
 
     private BigDecimal calculateProgressRate(
             BigDecimal recognizedAmount,
+            int currentIndex,
             CardUsageIntegratedTier current,
-            CardUsageIntegratedTier next) {
+            CardUsageIntegratedTier next,
+            int tierCount) {
         if (next == null) {
             return HIGHEST_TIER_PROGRESS_RATE;
         }
+        int intervalCount = tierCount - 1;
+        if (intervalCount <= 0) {
+            throw new IllegalStateException("통합 구간 바의 간격이 없습니다.");
+        }
+
+        BigDecimal intervalProgressRate = calculateIntervalProgressRate(
+                recognizedAmount, current, next);
+        return BigDecimal.valueOf(currentIndex)
+                .multiply(ONE_HUNDRED)
+                .add(intervalProgressRate)
+                .divide(BigDecimal.valueOf(intervalCount), 1, RoundingMode.HALF_UP)
+                .max(BigDecimal.ZERO)
+                .min(HIGHEST_TIER_PROGRESS_RATE);
+    }
+
+    private BigDecimal calculateIntervalProgressRate(
+            BigDecimal recognizedAmount,
+            CardUsageIntegratedTier current,
+            CardUsageIntegratedTier next) {
         BigDecimal interval = next.getMinimumAmount().subtract(current.getMinimumAmount());
         if (interval.signum() <= 0) {
             throw new IllegalStateException("통합 구간의 금액 간격이 0 이하입니다.");
