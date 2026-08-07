@@ -4,10 +4,8 @@ import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
 import com.fitwallet.domain.payment.dto.PaymentSuccessCode;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
-import com.fitwallet.domain.payment.dto.response.PaymentResultResponse;
-import com.fitwallet.domain.payment.dto.response.PinVerifyResponse;
-import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
-import com.fitwallet.domain.payment.dto.response.QrStatusResponse;
+import com.fitwallet.domain.payment.dto.request.StoreQrScanRequest;
+import com.fitwallet.domain.payment.dto.response.*;
 import com.fitwallet.domain.payment.service.PaymentService;
 import com.fitwallet.global.common.annotation.LoginUserId;
 import com.fitwallet.global.common.dto.ApiResponse;
@@ -57,5 +55,11 @@ public class PaymentController {
             default -> PaymentSuccessCode.PAYMENT_PROCESSING;
         };
         return ApiResponse.of(successCode, response);
+    }
+
+    @PostMapping("/payment/qr/scan")
+    public ResponseEntity<ApiResponse<StoreQrScanResponse>> scanStoreQr(@LoginUserId Long userId,
+                                                                        @Valid @RequestBody StoreQrScanRequest request){
+        return ApiResponse.of(PaymentSuccessCode.STORE_QR_SCANNED, paymentService.scanStoreQr(userId, request));
     }
 }

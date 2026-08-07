@@ -2,10 +2,8 @@ package com.fitwallet.domain.payment.service;
 
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
-import com.fitwallet.domain.payment.dto.response.PaymentResultResponse;
-import com.fitwallet.domain.payment.dto.response.PinVerifyResponse;
-import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
-import com.fitwallet.domain.payment.dto.response.QrStatusResponse;
+import com.fitwallet.domain.payment.dto.request.StoreQrScanRequest;
+import com.fitwallet.domain.payment.dto.response.*;
 
 public interface PaymentService {
 
@@ -16,4 +14,6 @@ public interface PaymentService {
     QrStatusResponse getQrStatus(Long userId, String qrToken);
 
     PaymentResultResponse getPaymentResult(Long userId, String paymentId);
+
+    StoreQrScanResponse scanStoreQr(Long userId, StoreQrScanRequest request);
 }
