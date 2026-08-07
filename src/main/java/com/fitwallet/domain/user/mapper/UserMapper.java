@@ -57,4 +57,8 @@ public interface UserMapper {
 
     /** 위치 정보 동의 여부를 갱신한다. */
     void updateLocationAgreement(@Param("userId") Long userId, @Param("agreed") boolean agreed);
+
+    /** 로그아웃 시 저장된 리프레시 토큰을 삭제해 이후 재발급을 차단한다. */
+    void deleteRefreshToken(@Param("userId") Long userId);
+
 }

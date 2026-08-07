@@ -29,4 +29,7 @@ public interface UserService {
 
     /** 로그인 사용자의 위치 정보 동의 여부를 갱신한다. */
     void updateLocationAgreement(Long userId, LocationAgreeRequest request);
+
+    /** 로그인 사용자의 저장된 Refresh Token을 삭제해 로그아웃 처리한다. */
+    void logout(Long userId);
 }

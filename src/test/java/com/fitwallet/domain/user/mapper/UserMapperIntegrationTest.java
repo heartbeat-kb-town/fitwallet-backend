@@ -128,6 +128,16 @@ class UserMapperIntegrationTest {
     }
 
     @Test
+    void 리프레시_토큰을_삭제하면_더이상_조회되지_않는다() {
+        Long userId = registerAndGetUserId();
+        userMapper.saveOrUpdateRefreshToken(userId, TOKEN_HASH_A);
+
+        userMapper.deleteRefreshToken(userId);
+
+        assertThat(userMapper.findRefreshTokenHashByUserId(userId)).isNull();
+    }
+
+    @Test
     void 결제_PIN_해시를_저장하면_그대로_조회된다() {
         Long userId = registerAndGetUserId();
 
