@@ -16,6 +16,7 @@ import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardRecentTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
+import com.fitwallet.domain.card.dto.response.CardEventItemResponse;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryTransactionResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
@@ -23,6 +24,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -40,6 +42,11 @@ public interface CardMapper {
     /** 로그인 사용자가 보유한 카드의 내 카드 탭 요약용 내부 정보를 조회한다. */
     CardSummaryCardInfo findSummaryCardInfo(@Param("userId") Long userId,
                                             @Param("cardId") Long cardId);
+
+    /** 로그인 사용자의 보유 카드에 적용되는 현재 진행 중 이벤트를 정렬된 순서로 조회한다. */
+    List<CardEventItemResponse> findCardEventItems(@Param("userId") Long userId,
+                                                   @Param("cardId") Long cardId,
+                                                   @Param("today") LocalDate today);
 
     /** KST 기준 오늘과 어제의 결제 내역을 최신순으로 조회한다. */
     List<CardSummaryTransactionResponse> findRecentTransactions(

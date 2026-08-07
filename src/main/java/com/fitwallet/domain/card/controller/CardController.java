@@ -7,6 +7,7 @@ import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
+import com.fitwallet.domain.card.dto.response.CardEventResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
@@ -94,6 +95,15 @@ public class CardController {
 
         return ApiResponse.of(CardSuccessCode.CARD_SUMMARY_FOUND,
                 cardService.findCardSummary(userId, userCardId));
+    }
+
+    @GetMapping("/card/{cardId}/event")
+    public ResponseEntity<ApiResponse<CardEventResponse>> findCardEvents(
+            @LoginUserId Long userId,
+            @PathVariable("cardId") Long cardId) {
+
+        return ApiResponse.of(CardSuccessCode.CARD_EVENTS_FOUND,
+                cardService.findCardEvents(userId, cardId));
     }
 
     @ApiOperation(value = "카드별 월간 혜택 현황 조회", notes = """

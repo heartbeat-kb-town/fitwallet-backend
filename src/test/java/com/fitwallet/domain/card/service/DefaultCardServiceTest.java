@@ -1,6 +1,7 @@
 package com.fitwallet.domain.card.service;
 
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
+import com.fitwallet.domain.card.dto.CardEventTargetType;
 import com.fitwallet.domain.card.dto.CardListSortType;
 import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
@@ -19,6 +20,8 @@ import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardEventItemResponse;
+import com.fitwallet.domain.card.dto.response.CardEventResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
@@ -115,6 +118,96 @@ class DefaultCardServiceTest {
         given(cardMapper.findByUserId(1L, CardListSortType.DISPLAY_ORDER)).willReturn(List.of());
 
         assertThat(cardService.findMyCards(1L, null)).isEmpty();
+    }
+
+    @Test
+    void 카드별_이벤트는_today를_매퍼에_전달하고_응답을_조립한다() {
+        given(cardMapper.findSummaryCardInfo(1L, 1L)).willReturn(CardSummaryCardInfo.builder()
+                .cardId(1L)
+                .cardProductId(47L)
+                .cardName("KB국민 청춘대로 톡톡카드")
+                .issuerName("KB국민카드")
+                .build());
+        CardEventItemResponse event = CardEventItemResponse.builder()
+                .eventId(3L)
+                .targetType(CardEventTargetType.CARD_PRODUCT)
+                .summary("CGV 모바일 예매 시 할인")
+                .startsAt(LocalDate.of(2026, 7, 1))
+                .endsAt(LocalDate.of(2026, 7, 31))
+                .daysRemaining(7L)
+                .detailUrl("https://card.kbcard.com/")
+                .detailAvailable(true)
+                .build();
+        given(cardMapper.findCardEventItems(eq(1L), eq(1L), any(LocalDate.class)))
+                .willReturn(List.of(event));
+
+        CardEventResponse response = cardService.findCardEvents(1L, 1L);
+
+        assertThat(response.getCard().getCardId()).isEqualTo(1L);
+        assertThat(response.getCard().getCardProductId()).isEqualTo(47L);
+        assertThat(response.getCard().getCardName()).isEqualTo("KB국민 청춘대로 톡톡카드");
+        assertThat(response.getCard().getIssuerName()).isEqualTo("KB국민카드");
+        assertThat(response.getEventCount()).isEqualTo(1);
+        assertThat(response.getEvents()).containsExactly(event);
+
+        ArgumentCaptor<LocalDate> todayCaptor = ArgumentCaptor.forClass(LocalDate.class);
+        then(cardMapper).should().findCardEventItems(eq(1L), eq(1L), todayCaptor.capture());
+        assertThat(todayCaptor.getValue()).isEqualTo(LocalDate.of(2026, 7, 24));
+    }
+
+    @Test
+    void 카드별_이벤트는_카드가_없으면_CARD_NOT_FOUND를_던지고_이벤트를_조회하지_않는다() {
+        given(cardMapper.findSummaryCardInfo(1L, 999L)).willReturn(null);
+
+        assertErrorCode(
+                () -> cardService.findCardEvents(1L, 999L),
+                CardErrorCode.CARD_NOT_FOUND);
+        then(cardMapper).should(never()).findCardEventItems(any(), any(), any());
+    }
+
+    @Test
+    void 카드별_이벤트는_summary가_null이면_정합성_예외를_던진다() {
+        given(cardMapper.findSummaryCardInfo(1L, 1L)).willReturn(CardSummaryCardInfo.builder()
+                .cardId(1L)
+                .cardProductId(47L)
+                .build());
+        given(cardMapper.findCardEventItems(eq(1L), eq(1L), any(LocalDate.class)))
+                .willReturn(List.of(CardEventItemResponse.builder().summary(null).build()));
+
+        assertErrorCode(
+                () -> cardService.findCardEvents(1L, 1L),
+                CardErrorCode.INVALID_CARD_EVENT_DATA);
+    }
+
+    @Test
+    void 카드별_이벤트는_summary가_blank이면_정합성_예외를_던진다() {
+        given(cardMapper.findSummaryCardInfo(1L, 1L)).willReturn(CardSummaryCardInfo.builder()
+                .cardId(1L)
+                .cardProductId(47L)
+                .build());
+        given(cardMapper.findCardEventItems(eq(1L), eq(1L), any(LocalDate.class)))
+                .willReturn(List.of(CardEventItemResponse.builder().summary(" ").build()));
+
+        assertErrorCode(
+                () -> cardService.findCardEvents(1L, 1L),
+                CardErrorCode.INVALID_CARD_EVENT_DATA);
+    }
+
+    @Test
+    void 카드별_이벤트가_없으면_빈_배열과_0건을_반환한다() {
+        given(cardMapper.findSummaryCardInfo(1L, 1L)).willReturn(CardSummaryCardInfo.builder()
+                .cardId(1L)
+                .cardProductId(47L)
+                .cardName("테스트 카드")
+                .issuerName("테스트 카드사")
+                .build());
+        given(cardMapper.findCardEventItems(eq(1L), eq(1L), any(LocalDate.class)))
+                .willReturn(null);
+
+        CardEventResponse response = cardService.findCardEvents(1L, 1L);
+
+        assertThat(response.getEventCount()).isZero();
+        assertThat(response.getEvents()).isEmpty();
     }
 
     @Test
