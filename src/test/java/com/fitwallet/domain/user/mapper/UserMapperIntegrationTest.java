@@ -156,6 +156,20 @@ class UserMapperIntegrationTest {
         assertThat(savedHash).isEqualTo(PIN_HASH_B);
     }
 
+    @Test
+    void 위치_정보_동의로_저장하면_컬럼이_true가_된다() {
+        Long userId = registerAndGetUserId();
+
+        userMapper.updateLocationAgreement(userId, true);
+
+        Boolean agreed = jdbcTemplate.queryForObject(
+                "SELECT is_location_agreed FROM users WHERE user_id = ?",
+                Boolean.class,
+                userId
+        );
+        assertThat(agreed).isTrue();
+    }
+
     private Long registerAndGetUserId() {
         userMapper.insertUser(signUpRequest(), PASSWORD_HASH);
         return userMapper.findLoginInfoByLoginId(NEW_LOGIN_ID).getUserId();

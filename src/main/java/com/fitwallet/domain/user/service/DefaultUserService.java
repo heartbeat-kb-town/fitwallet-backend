@@ -1,5 +1,6 @@
 package com.fitwallet.domain.user.service;
 
+import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
@@ -135,6 +136,13 @@ public class DefaultUserService implements UserService {
         String pinHash = passwordEncoder.encode(request.getPin());
 
         userMapper.registerPaymentPin(userId, pinHash);
+    }
+
+    /** 위치 정보 동의 여부를 갱신한다. */
+    @Override
+    @Transactional
+    public void updateLocationAgreement(Long userId, LocationAgreeRequest request) {
+        userMapper.updateLocationAgreement(userId, request.getAgreed());
     }
 
     /** PIN과 PIN 확인값이 일치하는지 검증한다. */

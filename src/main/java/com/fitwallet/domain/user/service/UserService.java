@@ -1,5 +1,6 @@
 package com.fitwallet.domain.user.service;
 
+import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
@@ -25,4 +26,7 @@ public interface UserService {
 
     /** 로그인 사용자의 결제 PIN을 등록한다. 이미 등록돼 있어도 그대로 덮어쓴다. */
     void registerPaymentPin(Long userId, PinRegisterRequest request);
+
+    /** 로그인 사용자의 위치 정보 동의 여부를 갱신한다. */
+    void updateLocationAgreement(Long userId, LocationAgreeRequest request);
 }
