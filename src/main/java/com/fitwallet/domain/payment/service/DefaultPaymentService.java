@@ -202,10 +202,10 @@ public class DefaultPaymentService implements PaymentService {
 
         paymentMapper.markPinAuthUsed(userId);
 
-        String qrToken = "qrt_" + UUID.randomUUID().toString().replace("-", "");
+        String sessionToken = "mpm_" + UUID.randomUUID().toString().replace("-", "");
         String paymentId = "pay_" + UUID.randomUUID().toString().replace("-", "");
 
-        paymentMapper.insertScannedPaymentSession(request.getUserCardId(), qrToken, paymentId,
+        paymentMapper.insertScannedPaymentSession(request.getUserCardId(), sessionToken, paymentId,
                 storeInfo.getStoreId(), request.getAmount(), LocalDateTime.now().plusSeconds(QR_SESSION_TTL_SECONDS));
 
         return StoreQrScanResponse.builder()
