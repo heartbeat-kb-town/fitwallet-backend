@@ -207,6 +207,37 @@
           AND uc.is_deleted = 0
     </select>
 
+    <select id="findCardEventItems"
+            resultType="com.fitwallet.domain.card.dto.response.CardEventItemResponse">
+        SELECT ce.event_id,
+               CASE
+                   WHEN ce.card_product_id IS NOT NULL THEN 'CARD_PRODUCT'
+                   WHEN ce.issuer_id IS NOT NULL THEN 'ISSUER'
+               END AS target_type,
+               ce.summary,
+               ce.starts_at,
+               ce.ends_at,
+               DATEDIFF(ce.ends_at, #{today}) AS days_remaining,
+               ce.detail_url,
+               CASE
+                   WHEN ce.detail_url REGEXP '^https?://[^[:space:]]+$' THEN TRUE
+                   ELSE FALSE
+               END AS detail_available
+        FROM user_card uc
+                 JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+                 JOIN card_event ce
+                      ON ce.card_product_id = cp.card_product_id
+                          OR ce.issuer_id = cp.issuer_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+          AND ce.starts_at <![CDATA[<=]]> #{today}
+          AND ce.ends_at <![CDATA[>=]]> #{today}
+        ORDER BY ce.ends_at ASC,
+                 ce.starts_at DESC,
+                 ce.event_id ASC
+    </select>
+
     <select id="findRecentTransactions" resultMap="cardSummaryTransactionMap">
         SELECT pt.payment_transaction_id,
                s.store_name,

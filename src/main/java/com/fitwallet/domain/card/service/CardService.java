@@ -6,6 +6,7 @@ import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
+import com.fitwallet.domain.card.dto.response.CardEventResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
@@ -21,6 +22,8 @@ public interface CardService {
     List<CardListResponse> findMyCards(Long userId, CardListSearchRequest request);
 
     CardSummaryResponse findCardSummary(Long userId, Long cardId);
+
+    CardEventResponse findCardEvents(Long userId, Long cardId);
 
     /** 로그인 사용자가 보유한 카드의 현재 월 혜택 한도 현황을 조회한다. */
     CardMonthlyBenefitResponse getCardMonthlyBenefit(Long userId, Long cardId);

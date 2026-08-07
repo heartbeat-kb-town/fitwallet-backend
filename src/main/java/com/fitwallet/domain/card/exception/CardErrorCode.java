@@ -9,6 +9,8 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum CardErrorCode implements ErrorCode {
 
+    INVALID_CARD_EVENT_DATA(HttpStatus.INTERNAL_SERVER_ERROR, "카드 이벤트 데이터가 올바르지 않습니다."),
+
     CARD_NOT_FOUND(HttpStatus.NOT_FOUND, "요청한 카드를 찾을 수 없습니다."),
     INVALID_YEAR_MONTH(HttpStatus.BAD_REQUEST, "조회 연월 형식이 올바르지 않습니다."),
     YEAR_MONTH_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "최근 3개월의 내역만 조회할 수 있습니다."),

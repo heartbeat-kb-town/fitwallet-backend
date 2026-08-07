@@ -24,6 +24,9 @@ import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
+import com.fitwallet.domain.card.dto.response.CardEventCardResponse;
+import com.fitwallet.domain.card.dto.response.CardEventItemResponse;
+import com.fitwallet.domain.card.dto.response.CardEventResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryAmountResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryCardResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
@@ -162,6 +165,38 @@ public class DefaultCardService implements CardService {
                 .recentTransactions(cardMapper.findRecentTransactions(
                         userId, cardId, recentCondition))
                 .usageSummary(toSummaryUsage(usageDetail))
+                .build();
+    }
+
+    @Override
+    @Transactional(readOnly = true)
+    public CardEventResponse findCardEvents(Long userId, Long cardId) {
+        CardSummaryCardInfo card = cardMapper.findSummaryCardInfo(userId, cardId);
+        if (card == null) {
+            throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
+        }
+
+        LocalDate today = LocalDate.now(clock);
+        List<CardEventItemResponse> events = cardMapper.findCardEventItems(userId, cardId, today);
+        if (events == null) {
+            events = List.of();
+        }
+        for (CardEventItemResponse event : events) {
+            if (event.getSummary() == null || event.getSummary().isBlank()) {
+                throw new BusinessException(CardErrorCode.INVALID_CARD_EVENT_DATA);
+            }
+        }
+
+        CardEventCardResponse cardResponse = CardEventCardResponse.builder()
+                .cardId(card.getCardId())
+                .cardProductId(card.getCardProductId())
+                .cardName(card.getCardName())
+                .issuerName(card.getIssuerName())
+                .build();
+        return CardEventResponse.builder()
+                .card(cardResponse)
+                .eventCount(events.size())
+                .events(events)
                 .build();
     }
 
