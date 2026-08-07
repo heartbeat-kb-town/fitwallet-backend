@@ -26,8 +26,8 @@ public class CardMonthlyBenefitSummaryResponse {
     @ApiModelProperty(value = "공유 한도를 중복 제거한 전체 혜택 한도의 원화 합계", example = "39000")
     private BigDecimal totalBenefitLimit;
 
-    @ApiModelProperty(value = "혜택 한도 사용률. 전체 한도가 없거나 0이면 null", example = "64.6")
-    private BigDecimal benefitUsageRate;
+    @ApiModelProperty(value = "최대 혜택 한도 대비 잠재 혜택 비율. 전체 한도가 없거나 0이면 null", example = "35.4")
+    private BigDecimal potentialBenefitRate;
 
     @ApiModelProperty(value = "받은 혜택 상세 화면으로 이동할 수 있는지 여부", example = "true")
     private boolean receivedBenefitDetailAvailable;

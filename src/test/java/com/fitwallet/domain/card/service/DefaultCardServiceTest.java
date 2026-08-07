@@ -9,6 +9,7 @@ import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
 import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
 import com.fitwallet.domain.card.dto.CardUsageCardInfo;
+import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
 import com.fitwallet.domain.card.dto.CardUsageTierType;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.MyDataTransaction;
@@ -88,14 +89,16 @@ class DefaultCardServiceTest {
         Clock clock = Clock.fixed(
                 Instant.parse("2026-07-23T15:00:00Z"),
                 ZoneId.of("Asia/Seoul"));
+        CardBenefitValueLabelFormatter benefitValueLabelFormatter =
+                new CardBenefitValueLabelFormatter();
         cardService = new DefaultCardService(
                 cardMapper,
                 new CardMonthlyPeriodResolver(clock),
                 new CardMonthlyBenefitPeriodResolver(clock),
-                new CardMonthlyBenefitCalculator(),
+                new CardMonthlyBenefitCalculator(benefitValueLabelFormatter),
                 new CardUsageRuleNormalizer(),
                 new CardUsageTierIntegrator(),
-                new CardUsageBenefitAllocator(),
+                new CardUsageBenefitAllocator(benefitValueLabelFormatter),
                 new CardUsageTierStateCalculator(),
                 myDataProvider,
                 clock);
@@ -224,6 +227,15 @@ class DefaultCardServiceTest {
                         .recognizedAmount(new BigDecimal("317300"))
                         .excludedAmount(BigDecimal.ZERO)
                         .build());
+        given(cardMapper.findUsageBenefitRules(15L)).willReturn(List.of(
+                CardUsageBenefitRule.builder()
+                        .benefitId(53L)
+                        .benefitName("일반 할인")
+                        .benefitType(BenefitType.CASHBACK)
+                        .valueType(ValueType.RATE)
+                        .valueNumber(new BigDecimal("10"))
+                        .benefitMinimumAmount(new BigDecimal("300000"))
+                        .build()));
         given(cardMapper.findMonthlyBenefitRules(15L)).willReturn(List.of());
         given(cardMapper.findMonthlyBenefitCategoryTargets(15L)).willReturn(List.of());
         given(cardMapper.findMonthlyBenefitBrandTargets(15L)).willReturn(List.of());
@@ -234,6 +246,10 @@ class DefaultCardServiceTest {
 
         assertThat(response.getYearMonth()).isEqualTo("2026-07");
         assertThat(response.getAsOfDate()).isEqualTo(LocalDate.of(2026, 7, 23));
+        assertThat(response.getPerformance().getStatus())
+                .isEqualTo(CardUsagePerformanceStatus.ACHIEVED);
+        assertThat(response.getPerformance().getCurrentTier().getTierName())
+                .isEqualTo("1구간");
         assertThat(response.getCategoryBenefits()).isEmpty();
         assertThat(response.getBrandBenefits()).isEmpty();
 

@@ -13,6 +13,7 @@ import com.fitwallet.domain.card.dto.CardMonthlyBenefitTargetUsage;
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitUnit;
 import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
+import com.fitwallet.domain.card.dto.CardUsageTierState;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitCardResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitLimitResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitPerformanceResponse;
@@ -22,6 +23,7 @@ import com.fitwallet.domain.card.dto.response.CardMonthlyBrandBenefitResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyCategoryBenefitResponse;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.global.exception.BusinessException;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
@@ -39,6 +41,7 @@ import java.util.Set;
 
 /** 월간 혜택 원본 조회 결과를 검증하고 화면 응답으로 조합한다. */
 @Component
+@RequiredArgsConstructor
 public class CardMonthlyBenefitCalculator {
 
     private static final BigDecimal ONE_HUNDRED = BigDecimal.valueOf(100);
@@ -46,22 +49,25 @@ public class CardMonthlyBenefitCalculator {
     private static final String INSUFFICIENT_MESSAGE = "전월 실적 조건을 충족하지 못했어요.";
     private static final String NO_REQUIREMENT_MESSAGE = "전월 실적 조건이 없어요.";
 
+    private final CardBenefitValueLabelFormatter benefitValueLabelFormatter;
+
     public CardMonthlyBenefitResponse calculate(
             CardSummaryCardInfo card,
             CardMonthlyBenefitPeriod period,
             BigDecimal previousMonthSpend,
+            CardUsageTierState performanceTierState,
             List<CardMonthlyBenefitRule> rules,
             List<CardMonthlyBenefitCategoryTarget> categoryTargets,
             List<CardMonthlyBenefitBrandTarget> brandTargets,
             List<CardMonthlyBenefitTargetUsage> usages) {
-        requireNotNull(card, period, previousMonthSpend, rules, categoryTargets, brandTargets, usages);
+        requireNotNull(card, period, previousMonthSpend, performanceTierState,
+                rules, categoryTargets, brandTargets, usages);
 
         Map<Long, List<CardMonthlyBenefitRule>> rulesByService = groupRulesByService(rules);
         List<SelectedService> selectedServices = selectServices(rulesByService, previousMonthSpend);
         UsageIndex usageIndex = createUsageIndex(usages, rulesByService);
         validateSharedPointCurrencies(selectedServices);
 
-        CardUsagePerformanceStatus performanceStatus = resolvePerformanceStatus(rules, selectedServices);
         SummaryAmounts summaryAmounts = calculateSummary(selectedServices, rulesByService, usageIndex);
 
         List<CardMonthlyCategoryBenefitResponse> categoryBenefits = createCategoryBenefits(
@@ -83,13 +89,14 @@ public class CardMonthlyBenefitCalculator {
                         .potentialBenefitAmount(summaryAmounts.potential)
                         .receivedBenefitAmount(summaryAmounts.received)
                         .totalBenefitLimit(summaryAmounts.total)
-                        .benefitUsageRate(calculateUsageRate(summaryAmounts))
+                        .potentialBenefitRate(calculatePotentialBenefitRate(summaryAmounts))
                         .receivedBenefitDetailAvailable(summaryAmounts.received.signum() > 0)
                         .build())
                 .performance(CardMonthlyBenefitPerformanceResponse.builder()
                         .performanceMonth(period.getPerformanceMonth().toString())
-                        .status(performanceStatus)
-                        .message(performanceMessage(performanceStatus))
+                        .status(performanceTierState.getPerformanceStatus())
+                        .currentTier(performanceTierState.getCurrentTier())
+                        .message(performanceMessage(performanceTierState.getPerformanceStatus()))
                         .build())
                 .categoryBenefits(categoryBenefits)
                 .brandBenefits(brandBenefits)
@@ -147,25 +154,6 @@ public class CardMonthlyBenefitCalculator {
             }
         }
         return List.copyOf(selected);
-    }
-
-    private CardUsagePerformanceStatus resolvePerformanceStatus(
-            List<CardMonthlyBenefitRule> allRules,
-            List<SelectedService> selectedServices) {
-        if (selectedServices.isEmpty()) {
-            return allRules.isEmpty()
-                    ? CardUsagePerformanceStatus.NO_REQUIREMENT
-                    : CardUsagePerformanceStatus.INSUFFICIENT;
-        }
-
-        boolean hasRequirement = selectedServices.stream().anyMatch(service ->
-                !unrestricted(service.definition.getBenefitMinimumAmount(),
-                        service.definition.getBenefitMaximumAmount())
-                        || service.limits.stream().anyMatch(limit ->
-                        !unrestricted(limit.getTierMinimumAmount(), limit.getTierMaximumAmount())));
-        return hasRequirement
-                ? CardUsagePerformanceStatus.ACHIEVED
-                : CardUsagePerformanceStatus.NO_REQUIREMENT;
     }
 
     private List<CardMonthlyCategoryBenefitResponse> createCategoryBenefits(
@@ -575,8 +563,12 @@ public class CardMonthlyBenefitCalculator {
     }
 
     private String valueLabel(CardMonthlyBenefitRule definition) {
-        String suffix = definition.getBenefitType() == BenefitType.ACCUMULATE ? " 적립" : " 할인";
-        return format(definition.getValueNumber()) + unitSuffix(valueUnit(definition)) + suffix;
+        return benefitValueLabelFormatter.formatValueWithAction(
+                definition.getBenefitName(),
+                definition.getBenefitType(),
+                definition.getValueType(),
+                definition.getValueNumber(),
+                definition.getPointCurrencyName());
     }
 
     private BigDecimal perTransactionLimitValue(CardMonthlyBenefitRule definition) {
@@ -624,12 +616,12 @@ public class CardMonthlyBenefitCalculator {
                 : value;
     }
 
-    private BigDecimal calculateUsageRate(SummaryAmounts amounts) {
+    private BigDecimal calculatePotentialBenefitRate(SummaryAmounts amounts) {
         if (amounts.total.signum() <= 0) {
             return null;
         }
-        BigDecimal rate = BigDecimal.ONE
-                .subtract(amounts.potential.divide(amounts.total, 12, RoundingMode.HALF_UP))
+        BigDecimal rate = amounts.potential
+                .divide(amounts.total, 12, RoundingMode.HALF_UP)
                 .multiply(ONE_HUNDRED)
                 .setScale(1, RoundingMode.HALF_UP);
         return rate.max(BigDecimal.ZERO).min(ONE_HUNDRED);
@@ -680,10 +672,6 @@ public class CardMonthlyBenefitCalculator {
         }
         return value.compareTo(minimum) >= 0
                 && (maximum == null || value.compareTo(maximum) < 0);
-    }
-
-    private boolean unrestricted(BigDecimal minimum, BigDecimal maximum) {
-        return minimum != null && minimum.signum() == 0 && maximum == null;
     }
 
     private String ownerKey(CardMonthlyBenefitRule rule) {

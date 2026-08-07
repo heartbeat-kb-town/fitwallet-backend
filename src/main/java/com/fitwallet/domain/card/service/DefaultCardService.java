@@ -116,6 +116,8 @@ public class DefaultCardService implements CardService {
         if (performanceAmounts == null || performanceAmounts.getRecognizedAmount() == null) {
             throw new BusinessException(CardErrorCode.INVALID_CARD_MONTHLY_BENEFIT_DATA);
         }
+        CardUsageCalculation performanceCalculation = calculateCardUsage(
+                card.getCardProductId(), performanceAmounts.getRecognizedAmount());
 
         CardUsagePeriodCondition benefitCondition = CardUsagePeriodCondition.builder()
                 .startAt(period.getBenefitStartAt())
@@ -125,6 +127,7 @@ public class DefaultCardService implements CardService {
                 card,
                 period,
                 performanceAmounts.getRecognizedAmount(),
+                performanceCalculation.tierState,
                 cardMapper.findMonthlyBenefitRules(card.getCardProductId()),
                 cardMapper.findMonthlyBenefitCategoryTargets(card.getCardProductId()),
                 cardMapper.findMonthlyBenefitBrandTargets(card.getCardProductId()),
@@ -280,14 +283,11 @@ public class DefaultCardService implements CardService {
                     "카드 이용 실적 금액 집계 결과가 없습니다. cardId=" + cardId);
         }
 
-        CardUsageRuleSet ruleSet = usageRuleNormalizer.normalize(
-                card.getCardProductId(),
-                cardMapper.findUsageBenefitRules(card.getCardProductId()));
-        CardUsageTierStructure tierStructure = usageTierIntegrator.integrate(ruleSet);
-        CardUsageBenefitAllocation benefitAllocation = usageBenefitAllocator.allocate(
-                tierStructure, ruleSet.getBenefits());
-        CardUsageTierState tierState = usageTierStateCalculator.calculate(
-                amounts.getRecognizedAmount(), tierStructure, benefitAllocation);
+        CardUsageCalculation usageCalculation = calculateCardUsage(
+                card.getCardProductId(), amounts.getRecognizedAmount());
+        CardUsageTierStructure tierStructure = usageCalculation.tierStructure;
+        CardUsageBenefitAllocation benefitAllocation = usageCalculation.benefitAllocation;
+        CardUsageTierState tierState = usageCalculation.tierState;
 
         return CardUsageDetailResponse.builder()
                 .card(CardUsageCardResponse.builder()
@@ -309,6 +309,20 @@ public class DefaultCardService implements CardService {
                 .tiers(tierState.getTiers())
                 .defaultBenefits(benefitAllocation.getDefaultBenefits())
                 .build();
+    }
+
+    private CardUsageCalculation calculateCardUsage(
+            Long cardProductId,
+            BigDecimal recognizedAmount) {
+        CardUsageRuleSet ruleSet = usageRuleNormalizer.normalize(
+                cardProductId,
+                cardMapper.findUsageBenefitRules(cardProductId));
+        CardUsageTierStructure tierStructure = usageTierIntegrator.integrate(ruleSet);
+        CardUsageBenefitAllocation benefitAllocation = usageBenefitAllocator.allocate(
+                tierStructure, ruleSet.getBenefits());
+        CardUsageTierState tierState = usageTierStateCalculator.calculate(
+                recognizedAmount, tierStructure, benefitAllocation);
+        return new CardUsageCalculation(tierStructure, benefitAllocation, tierState);
     }
 
     private CardSummaryAmountResponse createSummaryAmount(
@@ -515,6 +529,22 @@ public class DefaultCardService implements CardService {
         private DecodedCursor(LocalDateTime paidAt, Long transactionId) {
             this.paidAt = paidAt;
             this.transactionId = transactionId;
+        }
+    }
+
+    private static final class CardUsageCalculation {
+
+        private final CardUsageTierStructure tierStructure;
+        private final CardUsageBenefitAllocation benefitAllocation;
+        private final CardUsageTierState tierState;
+
+        private CardUsageCalculation(
+                CardUsageTierStructure tierStructure,
+                CardUsageBenefitAllocation benefitAllocation,
+                CardUsageTierState tierState) {
+            this.tierStructure = tierStructure;
+            this.benefitAllocation = benefitAllocation;
+            this.tierState = tierState;
         }
     }
 
