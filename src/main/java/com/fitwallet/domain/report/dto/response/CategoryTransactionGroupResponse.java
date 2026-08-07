@@ -17,6 +17,5 @@ public class CategoryTransactionGroupResponse {
     private String categoryName;
     private Integer usageCount;
     private BigDecimal benefitAmount;
-    //여기에 카테고리별 거래내역 항목이 리스트로 들어감(이따 지우기)
     private List<TransactionDetailResponse> transactions;
 }
