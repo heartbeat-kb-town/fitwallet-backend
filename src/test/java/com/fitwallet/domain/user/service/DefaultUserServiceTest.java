@@ -245,11 +245,24 @@ class DefaultUserServiceTest {
     void PIN_등록시_암호화해_저장한다() {
         PinRegisterRequest request = pinRegisterRequest("123456", "123456");
         given(passwordEncoder.encode("123456")).willReturn("encoded-pin");
+        given(userMapper.registerPaymentPin(1L, "encoded-pin")).willReturn(1);
 
         userService.registerPaymentPin(1L, request);
 
         then(passwordEncoder).should().encode("123456");
         then(userMapper).should().registerPaymentPin(1L, "encoded-pin");
+    }
+
+    @Test
+    void 이미_PIN이_등록된_경우_PAYMENT_PIN_ALREADY_REGISTERED_예외를_던진다() {
+        PinRegisterRequest request = pinRegisterRequest("123456", "123456");
+        given(passwordEncoder.encode("123456")).willReturn("encoded-pin");
+        given(userMapper.registerPaymentPin(1L, "encoded-pin")).willReturn(0);
+
+        assertThatThrownBy(() -> userService.registerPaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.PAYMENT_PIN_ALREADY_REGISTERED);
     }
 
     @Test

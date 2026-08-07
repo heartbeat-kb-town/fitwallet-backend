@@ -52,8 +52,11 @@ public interface UserMapper {
      */
     String findRefreshTokenHashByUserId(@Param("userId") Long userId);
 
-    /** 결제 PIN 해시를 저장한다. 이미 등록돼 있어도 덮어쓴다. PIN은 서비스에서 암호화한 값을 전달한다. */
-    void registerPaymentPin(@Param("userId") Long userId, @Param("pinHash") String pinHash);
+    /**
+     * 결제 PIN을 최초 등록한다. PIN은 서비스에서 암호화한 값을 전달한다.
+     * {@code payment_pin_hash IS NULL}인 경우에만 갱신되므로, UPDATE 결과가 0이면 이미 등록된 것이다.
+     */
+    int registerPaymentPin(@Param("userId") Long userId, @Param("pinHash") String pinHash);
 
     /** 위치 정보 동의 여부를 갱신한다. */
     void updateLocationAgreement(@Param("userId") Long userId, @Param("agreed") boolean agreed);

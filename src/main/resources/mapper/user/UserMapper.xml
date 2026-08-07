@@ -84,11 +84,12 @@
         WHERE user_id = #{userId}
     </select>
 
-    <!-- 이미 값이 있어도 덮어쓴다. -->
+    <!-- payment_pin_hash가 비어있을 때만 갱신되는 조건부 UPDATE라, UPDATE 결과가 0이면 이미 등록된 것이다. -->
     <update id="registerPaymentPin">
         UPDATE users
         SET payment_pin_hash = #{pinHash}
         WHERE user_id = #{userId}
+          AND payment_pin_hash IS NULL
     </update>
 
     <update id="updateLocationAgreement">
