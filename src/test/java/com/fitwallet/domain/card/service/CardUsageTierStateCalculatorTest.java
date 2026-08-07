@@ -52,7 +52,7 @@ class CardUsageTierStateCalculatorTest {
         assertThat(state.getCurrentTier().getTierOrder()).isZero();
         assertThat(state.getNextTier().getTierOrder()).isEqualTo(1);
         assertThat(state.getAmountUntilNextTier()).isEqualByComparingTo("170000");
-        assertThat(state.getTierProgressRate()).isEqualByComparingTo("43.3");
+        assertThat(state.getTierProgressRate()).isEqualByComparingTo("21.7");
         assertThat(state.getTiers().get(0).getCurrent()).isTrue();
         assertThat(state.getTiers().get(0).getAchieved()).isFalse();
     }
@@ -65,15 +65,34 @@ class CardUsageTierStateCalculatorTest {
         assertThat(state.getCurrentTier().getTierOrder()).isEqualTo(1);
         assertThat(state.getNextTier().getTierOrder()).isEqualTo(2);
         assertThat(state.getAmountUntilNextTier()).isEqualByComparingTo("200000");
-        assertThat(state.getTierProgressRate()).isEqualByComparingTo("0.0");
+        assertThat(state.getTierProgressRate()).isEqualByComparingTo("50.0");
     }
 
     @Test
-    void 현재구간과_다음구간_사이의_상대진행률을_계산한다() {
+    void 현재구간_위치와_구간내부진행률을_전체바진행률로_계산한다() {
         CardUsageTierState state = calculate("400000", "0", "300000", "500000");
 
-        assertThat(state.getTierProgressRate()).isEqualByComparingTo("50.0");
+        assertThat(state.getTierProgressRate()).isEqualByComparingTo("75.0");
         assertThat(state.getAmountUntilNextTier()).isEqualByComparingTo("100000");
+    }
+
+    @Test
+    void 다중구간의_실적을_전체바위치로_계산한다() {
+        CardUsageTierState state = calculate(
+                "325900", "0", "200000", "300000", "500000", "1000000");
+
+        assertThat(state.getCurrentTier().getTierOrder()).isEqualTo(2);
+        assertThat(state.getTierProgressRate()).isEqualByComparingTo("53.3");
+    }
+
+    @Test
+    void 다중구간의_0구간진행률을_전체바의_첫간격안에_표시한다() {
+        CardUsageTierState state = calculate(
+                "259200", "0", "300000", "500000", "1000000");
+
+        assertThat(state.getCurrentTier().getTierOrder()).isZero();
+        assertThat(state.getNextTier().getTierOrder()).isEqualTo(1);
+        assertThat(state.getTierProgressRate()).isEqualByComparingTo("28.8");
     }
 
     @Test
