@@ -97,25 +97,9 @@ public class CardController {
                 cardService.findCardSummary(userId, userCardId));
     }
 
-    @ApiOperation(value = "카드별 진행 중 이벤트 조회", notes = """
-            로그인 사용자가 보유한 카드를 기준으로 현재 진행 중인 카드 상품 이벤트와 카드사 전체 이벤트를 조회합니다.
-
-            - `cardId`는 카드 상품 ID가 아닌 보유 카드 ID(`user_card_id`)입니다.
-            - 이벤트 기간은 서울 시간 기준 오늘을 포함해 판정합니다.
-            - 이벤트가 없으면 오류가 아닌 빈 배열을 반환합니다.
-            - `daysRemaining`은 서버가 계산하며, 화면 표시 여부는 프론트엔드가 결정합니다.
-            - `detailAvailable`이 false인 이벤트도 목록에는 포함합니다.
-
-            | HTTP | code | message |
-            |---|---|---|
-            | 401 | UNAUTHORIZED | 인증이 필요합니다. |
-            | 404 | CARD_NOT_FOUND | 요청한 카드를 찾을 수 없습니다. |
-            | 500 | INVALID_CARD_EVENT_DATA | 카드 이벤트 데이터가 올바르지 않습니다. |
-            """)
     @GetMapping("/card/{cardId}/event")
     public ResponseEntity<ApiResponse<CardEventResponse>> findCardEvents(
             @LoginUserId Long userId,
-            @ApiParam(value = "보유 카드 ID(user_card_id)", required = true)
             @PathVariable("cardId") Long cardId) {
 
         return ApiResponse.of(CardSuccessCode.CARD_EVENTS_FOUND,
