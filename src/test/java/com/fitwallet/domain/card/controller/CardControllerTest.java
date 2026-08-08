@@ -17,6 +17,7 @@ import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitCardResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitPerformanceResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitSummaryResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageTierSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryAmountResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryCardResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
@@ -118,12 +119,17 @@ class CardControllerTest {
                                 .potentialBenefitAmount(new BigDecimal("4000"))
                                 .receivedBenefitAmount(new BigDecimal("1000"))
                                 .totalBenefitLimit(new BigDecimal("5000"))
-                                .benefitUsageRate(new BigDecimal("20.0"))
+                                .potentialBenefitRate(new BigDecimal("80.0"))
                                 .receivedBenefitDetailAvailable(true)
                                 .build())
                         .performance(CardMonthlyBenefitPerformanceResponse.builder()
                                 .performanceMonth("2026-06")
                                 .status(CardUsagePerformanceStatus.ACHIEVED)
+                                .currentTier(CardUsageTierSummaryResponse.builder()
+                                        .tierOrder(1)
+                                        .tierName("1구간")
+                                        .minimumAmount(new BigDecimal("300000"))
+                                        .build())
                                 .message("전월 실적 조건이 적용 중이에요.")
                                 .build())
                         .categoryBenefits(List.of())
@@ -141,7 +147,9 @@ class CardControllerTest {
                 .andExpect(jsonPath("$.data.yearMonth").value("2026-07"))
                 .andExpect(jsonPath("$.data.asOfDate").value("2026-07-23"))
                 .andExpect(jsonPath("$.data.monthlySummary.potentialBenefitAmount").value(4000))
+                .andExpect(jsonPath("$.data.monthlySummary.potentialBenefitRate").value(80.0))
                 .andExpect(jsonPath("$.data.performance.status").value("ACHIEVED"))
+                .andExpect(jsonPath("$.data.performance.currentTier.tierName").value("1구간"))
                 .andExpect(jsonPath("$.data.categoryBenefits").isArray())
                 .andExpect(jsonPath("$.data.brandBenefits").isArray());
 

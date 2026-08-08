@@ -22,6 +22,9 @@ public class CardMonthlyBenefitPerformanceResponse {
     @ApiModelProperty(value = "전월 실적 조건 상태", example = "ACHIEVED")
     private CardUsagePerformanceStatus status;
 
+    @ApiModelProperty(value = "전월 인정금액이 속한 카드 단위 통합 구간. 실적 조건이 없으면 null")
+    private CardUsageTierSummaryResponse currentTier;
+
     @ApiModelProperty(value = "실적 상태 안내 문구", example = "전월 실적 조건이 적용 중이에요.")
     private String message;
 }

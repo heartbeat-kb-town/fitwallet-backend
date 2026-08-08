@@ -25,7 +25,7 @@ class CardUsageBenefitAllocatorTest {
 
     @BeforeEach
     void setUp() {
-        allocator = new CardUsageBenefitAllocator();
+        allocator = new CardUsageBenefitAllocator(new CardBenefitValueLabelFormatter());
     }
 
     @Test

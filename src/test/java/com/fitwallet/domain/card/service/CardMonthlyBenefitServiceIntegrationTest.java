@@ -2,10 +2,13 @@ package com.fitwallet.domain.card.service;
 
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitLimitStatus;
 import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
+import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
+import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -32,8 +35,8 @@ class CardMonthlyBenefitServiceIntegrationTest {
                 .isEqualByComparingTo("1000");
         assertThat(response.getMonthlySummary().getPotentialBenefitAmount())
                 .isEqualByComparingTo("4000");
-        assertThat(response.getMonthlySummary().getBenefitUsageRate())
-                .isEqualByComparingTo("20.0");
+        assertThat(response.getMonthlySummary().getPotentialBenefitRate())
+                .isEqualByComparingTo("80.0");
 
         assertThat(response.getCategoryBenefits()).isEmpty();
         assertThat(response.getBrandBenefits()).hasSize(6);
@@ -51,5 +54,28 @@ class CardMonthlyBenefitServiceIntegrationTest {
                     assertThat(limit.getUsedValue()).isEqualByComparingTo("1000");
                     assertThat(limit.getRemainingValue()).isEqualByComparingTo("4000");
                 });
+    }
+
+    @Test
+    void 보유카드_전체의_전월통합구간은_이용실적조회와_동일하다() {
+        CardUsageSearchRequest previousMonthRequest = new CardUsageSearchRequest();
+        ReflectionTestUtils.setField(previousMonthRequest, "yearMonth", "2026-06");
+
+        for (long cardId = 1L; cardId <= 5L; cardId++) {
+            CardMonthlyBenefitResponse monthlyBenefit =
+                    cardService.getCardMonthlyBenefit(1L, cardId);
+            CardUsageDetailResponse previousMonthUsage =
+                    cardService.getCardUsage(1L, cardId, previousMonthRequest);
+
+            assertThat(monthlyBenefit.getPerformance().getStatus())
+                    .as("cardId=%s 전월 실적 상태", cardId)
+                    .isEqualTo(previousMonthUsage.getPerformanceStatus());
+            assertThat(monthlyBenefit.getPerformance().getCurrentTier())
+                    .as("cardId=%s 전월 통합 구간", cardId)
+                    .usingRecursiveComparison()
+                    .isEqualTo(previousMonthUsage.getCurrentTier());
+            assertThat(monthlyBenefit.getCategoryBenefits()).isNotNull();
+            assertThat(monthlyBenefit.getBrandBenefits()).isNotNull();
+        }
     }
 }

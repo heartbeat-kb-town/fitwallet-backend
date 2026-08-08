@@ -10,6 +10,9 @@ import com.fitwallet.domain.card.dto.CardMonthlyBenefitRule;
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitTargetUsage;
 import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardType;
+import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
+import com.fitwallet.domain.card.dto.CardUsageTierState;
+import com.fitwallet.domain.card.dto.response.CardUsageTierSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +26,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CardMonthlyBenefitCalculatorTest {
 
-    private final CardMonthlyBenefitCalculator calculator = new CardMonthlyBenefitCalculator();
+    private final CardMonthlyBenefitCalculator calculator = new CardMonthlyBenefitCalculator(
+            new CardBenefitValueLabelFormatter());
 
     @Test
     void 포인트는_하단에서_포인트로_표시하고_상단에서_원화로_환산한다() {
@@ -49,6 +53,7 @@ class CardMonthlyBenefitCalculatorTest {
                 card(),
                 period(),
                 BigDecimal.ZERO,
+                noRequirementState(),
                 List.of(pointRule),
                 List.of(CardMonthlyBenefitCategoryTarget.builder()
                         .serviceId(10L)
@@ -70,6 +75,8 @@ class CardMonthlyBenefitCalculatorTest {
                 .isEqualByComparingTo("100");
         assertThat(response.getMonthlySummary().getPotentialBenefitAmount())
                 .isEqualByComparingTo("400");
+        assertThat(response.getMonthlySummary().getPotentialBenefitRate())
+                .isEqualByComparingTo("80.0");
         assertThat(response.getCategoryBenefits()).singleElement().satisfies(benefit -> {
             assertThat(benefit.getReceivedBenefitValue()).isEqualByComparingTo("200");
             assertThat(benefit.getReceivedBenefitLabel()).isEqualTo("총 200P 적립");
@@ -100,7 +107,7 @@ class CardMonthlyBenefitCalculatorTest {
                 .build();
 
         CardMonthlyBenefitResponse response = calculator.calculate(
-                card(), period(), BigDecimal.ZERO, List.of(countRule),
+                card(), period(), BigDecimal.ZERO, noRequirementState(), List.of(countRule),
                 List.of(CardMonthlyBenefitCategoryTarget.builder()
                         .serviceId(11L).categoryId(1L).categoryName("카페/디저트").build()),
                 List.of(),
@@ -114,6 +121,71 @@ class CardMonthlyBenefitCalculatorTest {
                 .isEqualByComparingTo("1500");
         assertThat(response.getMonthlySummary().getPotentialBenefitAmount())
                 .isEqualByComparingTo("1000");
+    }
+
+    @Test
+    void 이용실적_통합구간의_상태와_현재구간을_그대로_반환한다() {
+        CardUsageTierSummaryResponse currentTier = CardUsageTierSummaryResponse.builder()
+                .tierOrder(0)
+                .tierName("0구간")
+                .minimumAmount(BigDecimal.ZERO)
+                .maximumAmount(new BigDecimal("300000"))
+                .build();
+        CardUsageTierState tierState = new CardUsageTierState(
+                CardUsagePerformanceStatus.INSUFFICIENT,
+                currentTier,
+                null,
+                null,
+                BigDecimal.ZERO,
+                List.of());
+
+        CardMonthlyBenefitResponse response = calculator.calculate(
+                card(), period(), BigDecimal.ZERO, tierState,
+                List.of(), List.of(), List.of(), List.of());
+
+        assertThat(response.getPerformance().getStatus())
+                .isEqualTo(CardUsagePerformanceStatus.INSUFFICIENT);
+        assertThat(response.getPerformance().getCurrentTier()).isSameAs(currentTier);
+        assertThat(response.getMonthlySummary().getPotentialBenefitRate()).isNull();
+    }
+
+    @Test
+    void 정액_주유혜택은_공통문구로_리터당을_표시한다() {
+        CardMonthlyBenefitRule fuelRule = CardMonthlyBenefitRule.builder()
+                .serviceId(12L)
+                .benefitName("주유 할인")
+                .benefitType(BenefitType.CASHBACK)
+                .valueType(ValueType.FIXED)
+                .valueNumber(new BigDecimal("60"))
+                .scopeType(BenefitScopeType.INDUSTRY)
+                .benefitMinimumAmount(BigDecimal.ZERO)
+                .tierId(22L)
+                .tierOrder(1)
+                .tierMinimumAmount(BigDecimal.ZERO)
+                .limitId(32L)
+                .limitBasis(LimitBasis.AMOUNT)
+                .limitValue(new BigDecimal("5000"))
+                .build();
+
+        CardMonthlyBenefitResponse response = calculator.calculate(
+                card(), period(), BigDecimal.ZERO, noRequirementState(), List.of(fuelRule),
+                List.of(CardMonthlyBenefitCategoryTarget.builder()
+                        .serviceId(12L).categoryId(6L).categoryName("주유").build()),
+                List.of(), List.of());
+
+        assertThat(response.getCategoryBenefits()).singleElement()
+                .extracting(benefit -> benefit.getValueLabel())
+                .isEqualTo("리터당 60원 할인");
+    }
+
+    private CardUsageTierState noRequirementState() {
+        return new CardUsageTierState(
+                CardUsagePerformanceStatus.NO_REQUIREMENT,
+                null,
+                null,
+                null,
+                null,
+                List.of());
     }
 
     private CardSummaryCardInfo card() {
