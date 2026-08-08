@@ -12,8 +12,10 @@ import com.fitwallet.domain.payment.mapper.PaymentMapper;
 import com.fitwallet.global.exception.BusinessException;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
+import com.fitwallet.domain.payment.dto.request.StoreQrScanRequest;
 import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
 import com.fitwallet.domain.payment.dto.response.QrStatusResponse;
+import com.fitwallet.domain.payment.dto.response.StoreQrScanResponse;
 import com.fitwallet.domain.benefit.service.BenefitService;
 import com.fitwallet.domain.payment.dto.response.PaymentResultResponse;
 import org.junit.jupiter.api.Test;
@@ -344,6 +346,15 @@ class DefaultPaymentServiceTest {
         return request;
     }
 
+    private StoreQrScanRequest storeQrScanRequest(String storeQrToken, String pinAuthId, Long userCardId, BigDecimal amount) {
+        StoreQrScanRequest request = new StoreQrScanRequest();
+        ReflectionTestUtils.setField(request, "storeQrToken", storeQrToken);
+        ReflectionTestUtils.setField(request, "pinAuthId", pinAuthId);
+        ReflectionTestUtils.setField(request, "userCardId", userCardId);
+        ReflectionTestUtils.setField(request, "amount", amount);
+        return request;
+    }
+
     //스캔 -> 결제 처리 및 결제 조회
 
     @Test
@@ -470,5 +481,109 @@ class DefaultPaymentServiceTest {
         assertThat(result.getBetterUserCardId()).isNull();
         assertThat(result.getAlternativeDiscountAmount()).isNull();
         assertThat(result.getMissedAmount()).isNull();
+    }
+
+    // 가맹점 QR 스캔 (MPM)
+
+    @Test
+    void 유효한_QR과_인증이면_가맹점_정보를_응답한다() {
+        given(paymentMapper.existsUserCard(1L, 1L)).willReturn(true);
+        given(paymentMapper.findPinAuthInfo(1L)).willReturn(
+                PinAuthInfo.builder()
+                        .pinAuthId("auth_abc123")
+                        .authExpiresAt(LocalDateTime.now().plusSeconds(60))
+                        .authIsUsed(false)
+                        .build());
+        given(paymentMapper.findStoreByQrToken("FITWALLET-QR-00020")).willReturn(
+                StoreInfo.builder().storeId(20L).storeName("스타벅스 세종대점").build());
+
+        StoreQrScanResponse response = paymentService.scanStoreQr(1L,
+                storeQrScanRequest("FITWALLET-QR-00020", "auth_abc123", 1L, BigDecimal.valueOf(8000)));
+
+        assertThat(response.getPaymentId()).startsWith("pay_");
+        assertThat(response.getStoreId()).isEqualTo(20L);
+        assertThat(response.getStoreName()).isEqualTo("스타벅스 세종대점");
+        assertThat(response.getAmount()).isEqualByComparingTo("8000");
+    }
+
+    @Test
+    void 스캔에_성공하면_인증을_소비하고_세션을_저장한다() {
+        given(paymentMapper.existsUserCard(1L, 1L)).willReturn(true);
+        given(paymentMapper.findPinAuthInfo(1L)).willReturn(
+                PinAuthInfo.builder()
+                        .pinAuthId("auth_abc123")
+                        .authExpiresAt(LocalDateTime.now().plusSeconds(60))
+                        .authIsUsed(false)
+                        .build());
+        given(paymentMapper.findStoreByQrToken("FITWALLET-QR-00020")).willReturn(
+                StoreInfo.builder().storeId(20L).storeName("스타벅스 세종대점").build());
+
+        paymentService.scanStoreQr(1L,
+                storeQrScanRequest("FITWALLET-QR-00020", "auth_abc123", 1L, BigDecimal.valueOf(8000)));
+
+        then(paymentMapper).should().markPinAuthUsed(1L);
+        then(paymentMapper).should().insertScannedPaymentSession(
+                eq(1L), anyString(), anyString(), eq(20L), eq(BigDecimal.valueOf(8000)), any());
+    }
+
+    @Test
+    void QR_토큰_형식이_올바르지_않으면_QR_TOKEN_INVALID_예외를_던진다() {
+        assertThatThrownBy(() -> paymentService.scanStoreQr(1L,
+                storeQrScanRequest("이상한-QR-값", "auth_abc123", 1L, BigDecimal.valueOf(8000))))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(PaymentErrorCode.QR_TOKEN_INVALID);
+
+        then(paymentMapper).should(never()).existsUserCard(any(), any());
+    }
+
+    @Test
+    void 본인_소유_카드가_아니면_CARD_NOT_FOUND_예외를_던진다_스캔() {
+        given(paymentMapper.existsUserCard(1L, 1L)).willReturn(false);
+
+        assertThatThrownBy(() -> paymentService.scanStoreQr(1L,
+                storeQrScanRequest("FITWALLET-QR-00020", "auth_abc123", 1L, BigDecimal.valueOf(8000))))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(CardErrorCode.CARD_NOT_FOUND);
+
+        then(paymentMapper).should(never()).findPinAuthInfo(any());
+    }
+
+    @Test
+    void 인증_정보가_유효하지_않으면_PIN_AUTH_ID_INVALID_예외를_던진다_스캔() {
+        given(paymentMapper.existsUserCard(1L, 1L)).willReturn(true);
+        given(paymentMapper.findPinAuthInfo(1L)).willReturn(
+                PinAuthInfo.builder().pinAuthId(null).authIsUsed(false).build());
+
+        assertThatThrownBy(() -> paymentService.scanStoreQr(1L,
+                storeQrScanRequest("FITWALLET-QR-00020", "auth_abc123", 1L, BigDecimal.valueOf(8000))))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(PaymentErrorCode.PIN_AUTH_ID_INVALID);
+
+        then(paymentMapper).should(never()).findStoreByQrToken(any());
+    }
+
+    @Test
+    void 등록되지_않은_가맹점이면_STORE_NOT_FOUND_예외를_던진다() {
+        given(paymentMapper.existsUserCard(1L, 1L)).willReturn(true);
+        given(paymentMapper.findPinAuthInfo(1L)).willReturn(
+                PinAuthInfo.builder()
+                        .pinAuthId("auth_abc123")
+                        .authExpiresAt(LocalDateTime.now().plusSeconds(60))
+                        .authIsUsed(false)
+                        .build());
+        given(paymentMapper.findStoreByQrToken("FITWALLET-QR-00099")).willReturn(null);
+
+        assertThatThrownBy(() -> paymentService.scanStoreQr(1L,
+                storeQrScanRequest("FITWALLET-QR-00099", "auth_abc123", 1L, BigDecimal.valueOf(8000))))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(PaymentErrorCode.STORE_NOT_FOUND);
+
+        then(paymentMapper).should(never()).markPinAuthUsed(any());
+        then(paymentMapper).should(never())
+                .insertScannedPaymentSession(any(), any(), any(), any(), any(), any());
     }
 }

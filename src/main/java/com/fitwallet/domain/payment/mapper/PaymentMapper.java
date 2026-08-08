@@ -50,4 +50,12 @@ public interface PaymentMapper {
                                   @Param("alternativeDiscountAmount") BigDecimal alternativeDiscountAmount,
                                   @Param("missedAmount") BigDecimal missedAmount);
     PaymentResultResponse findPaymentResultBySessionId(@Param("paymentSessionId") Long paymentSessionId);
+
+    StoreInfo findStoreByQrToken(@Param("storeQrToken") String storeQrToken);
+    void insertScannedPaymentSession(@Param("userCardId") Long userCardId,
+                                     @Param("sessionToken") String sessionToken,
+                                     @Param("paymentId") String paymentId,
+                                     @Param("storeId") Long storeId,
+                                     @Param("amount") BigDecimal amount,
+                                     @Param("expiresAt") LocalDateTime expiresAt);
 }

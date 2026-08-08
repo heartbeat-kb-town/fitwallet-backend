@@ -9,6 +9,7 @@ import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.payment.dto.*;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
+import com.fitwallet.domain.payment.dto.request.StoreQrScanRequest;
 import com.fitwallet.domain.payment.dto.response.*;
 import com.fitwallet.domain.payment.exception.PaymentErrorCode;
 import com.fitwallet.domain.payment.mapper.PaymentMapper;
@@ -23,6 +24,7 @@ import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -36,6 +38,7 @@ public class DefaultPaymentService implements PaymentService {
     private static final BigDecimal MOCK_AMOUNT = BigDecimal.valueOf(4500);
     private static final int MOCK_PROCESS_DELAY_SECONDS = 2;
     private static final double MOCK_SUCCESS_RATE = 0.9;
+    private static final Pattern STORE_QR_TOKEN_PATTERN = Pattern.compile("^FITWALLET-QR-\\d{5}$");
 
     private final PaymentMapper paymentMapper;
     private final PasswordEncoder passwordEncoder;
@@ -170,6 +173,49 @@ public class DefaultPaymentService implements PaymentService {
         //이미 COMPLETED로 끝난 세션을 다시 조회할 때 결과 리턴
         return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
     }
+
+    @Override
+    @Transactional
+    public StoreQrScanResponse scanStoreQr(Long userId, StoreQrScanRequest request){
+        if (!STORE_QR_TOKEN_PATTERN.matcher(request.getStoreQrToken()).matches()) {
+            throw new BusinessException(PaymentErrorCode.QR_TOKEN_INVALID);
+        }
+
+        if (!paymentMapper.existsUserCard(userId, request.getUserCardId())) {
+            throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
+        }
+
+        PinAuthInfo pinAuthInfo = paymentMapper.findPinAuthInfo(userId);
+        boolean pinAuthValid = pinAuthInfo.getPinAuthId() != null
+                && pinAuthInfo.getPinAuthId().equals(request.getPinAuthId())
+                && !pinAuthInfo.isAuthIsUsed()
+                && pinAuthInfo.getAuthExpiresAt().isAfter(LocalDateTime.now());
+
+        if (!pinAuthValid) {
+            throw new BusinessException(PaymentErrorCode.PIN_AUTH_ID_INVALID);
+        }
+
+        StoreInfo storeInfo = paymentMapper.findStoreByQrToken(request.getStoreQrToken());
+        if (storeInfo == null) {
+            throw new BusinessException(PaymentErrorCode.STORE_NOT_FOUND);
+        }
+
+        paymentMapper.markPinAuthUsed(userId);
+
+        String sessionToken = "mpm_" + UUID.randomUUID().toString().replace("-", "");
+        String paymentId = "pay_" + UUID.randomUUID().toString().replace("-", "");
+
+        paymentMapper.insertScannedPaymentSession(request.getUserCardId(), sessionToken, paymentId,
+                storeInfo.getStoreId(), request.getAmount(), LocalDateTime.now().plusSeconds(QR_SESSION_TTL_SECONDS));
+
+        return StoreQrScanResponse.builder()
+                .paymentId(paymentId)
+                .storeId(storeInfo.getStoreId())
+                .storeName(storeInfo.getStoreName())
+                .amount(request.getAmount())
+                .build();
+    }
+
 
     private PaymentResultResponse completeAndBuildResponse(Long userId, String paymentId, PaymentResultSessionInfo session) {
         Long userCardId = session.getUserCardId();

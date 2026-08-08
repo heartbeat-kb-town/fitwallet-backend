@@ -133,5 +133,15 @@
         WHERE ps.payment_session_id = #{paymentSessionId}
     </select>
 
+    <select id="findStoreByQrToken" resultType="com.fitwallet.domain.payment.dto.StoreInfo">
+        SELECT store_id, store_name
+        FROM store
+        WHERE store_qr_token = #{storeQrToken}
+    </select>
+
+    <insert id="insertScannedPaymentSession">
+        INSERT INTO payment_session (user_card_id, session_token, payment_id, store_id, amount, status, expires_at)
+        VALUES (#{userCardId}, #{sessionToken}, #{paymentId}, #{storeId}, #{amount}, 'SCANNED', #{expiresAt})
+    </insert>
 
 </mapper>

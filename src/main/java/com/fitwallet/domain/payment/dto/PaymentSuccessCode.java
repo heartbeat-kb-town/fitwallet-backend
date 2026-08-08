@@ -15,7 +15,8 @@ public enum PaymentSuccessCode implements SuccessCode {
     QR_STATUS_SCANNED(HttpStatus.OK, "가맹점에서 QR을 스캔했습니다."),
     PAYMENT_PROCESSING(HttpStatus.OK, "결제 처리 중입니다."),
     PAYMENT_COMPLETED(HttpStatus.OK, "결제가 완료되었습니다."),
-    PAYMENT_FAILED(HttpStatus.OK, "결제 승인에 실패했습니다.");
+    PAYMENT_FAILED(HttpStatus.OK, "결제 승인에 실패했습니다."),
+    STORE_QR_SCANNED(HttpStatus.OK, "가맹점 정보를 확인했습니다.");
 
     private final HttpStatus status;
     private final String message;
