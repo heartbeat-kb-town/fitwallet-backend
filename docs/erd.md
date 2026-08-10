@@ -32,7 +32,7 @@
 |---|---|---|
 | **카드 마스터** | `issuer`, `card_product` | [§2.1](#21-카드-마스터) |
 | **카드 혜택 · 이벤트** | `point_currency`, `benefit_plan_group`, `benefit_service`, `benefit_tier`, `benefit_limit`, `service_brand`, `service_category`, `card_event` | [§2.2](#22-카드-혜택--이벤트) |
-| **가맹점 분류** | `category`, `brand`, `store` | [§2.3](#23-가맹점-분류) |
+| **가맹점 분류** | `category`, `brand`, `brand_alias`, `store` | [§2.3](#23-가맹점-분류) |
 | **사용자** | `users`, `refresh_token`, `user_card`, `search_history` | [§2.4](#24-사용자) |
 | **결제** | `payment_transaction`, `payment_session` | [§2.5](#25-결제) |
 
@@ -62,6 +62,22 @@ erDiagram
 | `card_company_name` | 카드사명 | VARCHAR(100) | NO | — | UNIQUE (`uk_issuer_card_company_name`) |
 | `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
 | `updated_at` | 수정 시각 | DATETIME | NO | CURRENT_TIMESTAMP | `ON UPDATE CURRENT_TIMESTAMP` |
+
+##### 지원 카드사는 신한 · 현대 · KB국민 3사입니다
+
+혜택 데이터는 각 카드사 공식 홈페이지의 카드 상세 페이지를 크롤링해 채웁니다. 따라서 **지원 범위를 정하는 기준은 크롤링 가능 여부 하나**입니다. 국내 7개 카드사의 `robots.txt`를 확인한 결과는 다음과 같습니다.
+
+| 카드사 | `robots.txt` | 판정 |
+|---|---|---|
+| 신한 | `User-agent: *` 에 `/pconts/html/card/`, `/pconts/html/benefit/` 허용 | ✅ 지원 |
+| 현대 | 명명된 봇에 `Allow: /`, `/cpc/cr/*` 허용. 전면 차단 블록 없음 | ✅ 지원 |
+| KB국민 | `User-agent: *` 에 `/CRD/`, `/cards` 허용 | ✅ 지원 |
+| 삼성 | 허용 목록 끝에 `User-agent: *` → `Disallow: /` | ❌ 명시적 전면 금지 |
+| 롯데 | 요청 자체가 TCP reset (Googlebot UA로도 동일) | ❌ WAF 차단 |
+| 우리 | `Disallow: /dcmw/` — 카드 상세가 이 경로. 카드 **목록**만 예외 허용 | ❌ 상세 접근 불가 |
+| 하나 | `User-agent: *` 그룹 자체가 없음 (Googlebot·Yeti만 허용 목록) | △ 회색지대, 보류 |
+
+이 3사가 `brand` 등록 요건([§2.3](#brand--체인브랜드))의 "근거" 기준이기도 합니다 — **셋 중 어느 곳의 혜택도 지목하지 않는 브랜드는 등록하지 않습니다.**
 
 #### `card_product` — 카드 상품
 
@@ -270,6 +286,7 @@ service 44  10% 할인   RATE 10%   bs 400,000~INF
 erDiagram
     category ||--o{ brand               : "분류"
     category ||--o{ store               : "업종"
+    brand    ||--o{ brand_alias         : "표기 변형"
     brand    ||--o{ store               : "체인(선택)"
     category ||--o{ service_category    : "대상 업종 (2.2)"
     brand    ||--o{ service_brand       : "대상 브랜드 (2.2)"
@@ -297,6 +314,55 @@ erDiagram
 | `brand_image_url` | 브랜드 대표 이미지 경로 | VARCHAR(500) | **YES** | — | S3 경로 |
 | `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
 | `updated_at` | 수정 시각 | DATETIME | NO | CURRENT_TIMESTAMP | `ON UPDATE CURRENT_TIMESTAMP` |
+
+##### 등록 요건 — 셋을 모두 만족해야 `brand` 행이 됩니다
+
+1. **오프라인 실 매장이 존재하는 체인입니다.** 온라인 전용(이커머스·배달앱·홈쇼핑)은 등록하지 않습니다. fitwallet은 가맹점 QR 결제 지갑이라 온라인 결제가 제품 범위 밖이고, 그런 브랜드는 `store.brand_id`에 영원히 붙지 않으면서 매칭 후보만 늘립니다
+2. **지원 3사([§2.1](#지원-카드사는-신한--현대--kb국민-3사입니다)) 중 최소 한 곳의 혜택이 그 브랜드를 지목합니다** — `service_brand` 참조가 1건 이상이어야 합니다. 근거 없는 브랜드는 넣지 않습니다
+3. **업종이 6종 중 하나로 확정됩니다** (`category_id`가 NOT NULL)
+
+> **`brand` 1행 = 실제 사업 브랜드 1개입니다.** 표기 변형은 `brand` 행이 아니라 `brand_alias` 행으로 갑니다. 예전엔 이 구분이 없어 `엔젤리너스`와 `엔제리너스`가 별개 행으로 들어와 있었습니다.
+
+현재 32건이고 업종 분포는 카페/디저트 11 · 편의점/마트 12 · 쇼핑 3 · 푸드 2 · **병원 0** · 주유 4입니다. 병원이 0건인 것은 정상입니다 — 병원 혜택은 특정 체인을 지목하지 않는 `INDUSTRY` 스코프뿐이라 요건 2를 만족하는 브랜드가 없습니다.
+
+#### `brand_alias` — 브랜드 표기 변형
+
+공공데이터(상가정보)의 상호명은 `지에스25화양점`, `메가엠지씨커피건대점`처럼 표기가 제각각이라 `brand_name` 하나로는 매칭되지 않습니다. 그 변형을 모아두는 사전입니다.
+
+| 컬럼 | 설명 | 타입 | NULL | DEFAULT | 상세 설명 |
+|---|---|---|---|---|---|
+| `brand_alias_id` (PK) | 별칭 ID | BIGINT | NO | AUTO_INCREMENT | |
+| `brand_id` (FK) | 브랜드 | BIGINT | NO | — | → `brand` |
+| `alias` | 별칭 | VARCHAR(100) | NO | — | UNIQUE (`uk_brand_alias_alias`). **정규화형으로 저장합니다**(아래) |
+| `alias_type` | 별칭 종류 | VARCHAR(20) | NO | — | CHECK `OFFICIAL` / `KOREAN` / `ENGLISH` / `SHORT` / `LEGACY` — [§3](#3-코드-값-check-제약) |
+| `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
+| `updated_at` | 수정 시각 | DATETIME | NO | CURRENT_TIMESTAMP | `ON UPDATE CURRENT_TIMESTAMP` |
+
+| `alias_type` | 뜻 | 예 |
+|---|---|---|
+| `OFFICIAL` | `brand_name`의 정규화형. **브랜드마다 정확히 1개** | GS25 → `gs25` |
+| `KOREAN` | 한글 음차 표기 | GS25 → `지에스25`, CU → `씨유` |
+| `ENGLISH` | 영문·로마자 표기 | 스타벅스 → `starbucks` |
+| `SHORT` | 통용 약칭 | 메가MGC커피 → `메가커피` |
+| `LEGACY` | 구 명칭·이전 표기 | 엔제리너스 → `엔젤리너스` |
+
+**정규화 규칙**: 소문자화 → 공백과 `.` `-` `_` `(` `)` `&` `,` `'` 제거. 나머지는 보존합니다.
+`메가MGC커피` → `메가mgc커피` · `S-OIL` → `soil` · `SSG.COM` → `ssgcom`
+
+> 원문 표기를 그대로 넣지 않는 이유: `UNIQUE (alias)`가 `GS 25`와 `GS25`를 다른 값으로 보게 되고, 매칭 키가 비결정적이 됩니다. 사람이 읽을 이름은 `brand.brand_name`에 있습니다.
+
+**매칭 규칙** — 가맹점 적재 스크립트가 그대로 따릅니다.
+
+1. `store_name`을 같은 규칙으로 정규화합니다
+2. 정규화된 상호명의 **접두사**인 `alias`를 찾습니다 (상가정보 상호명이 `브랜드+지점명` 형태입니다)
+3. **가장 긴 `alias`가 이깁니다** — `이마트24광진점`은 `이마트`가 아니라 `이마트24`에 붙어야 합니다
+4. **2자 미만 별칭은 만들지 않습니다.** 오탐이 폭증합니다
+5. 매칭됐어도 `brand.category_id != store.category_id`면 버리고 `brand_id = NULL`로 둡니다 (아래 `store` 절의 불변식)
+6. 실패는 `NULL`입니다. **스크립트가 `brand`를 새로 만들지 않습니다**
+
+> ⚠️ **정본은 `scripts/brand_alias.csv`입니다.** `brand`·`brand_alias` 시드는 그 CSV에서 `scripts/gen_brand_seed.py`로 생성합니다. 시드 SQL을 직접 고치면 다음 생성 때 덮어써집니다. 가맹점 적재와 혜택 크롤링이 같은 파일을 보게 하려는 구조입니다.
+>
+> 이 테이블은 **런타임 쿼리가 읽지 않습니다.** 오프라인 적재 전용 기준정보라 API 응답에 나가지 않습니다.
 
 #### `store` — 실제 오프라인 매장
 
@@ -505,6 +571,7 @@ DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBati
 | 테이블.컬럼 | 허용 값                                                                                                                  | 제약 이름 |
 |---|-----------------------------------------------------------------------------------------------------------------------|---|
 | `card_product.card_type` | `CREDIT`, `DEBIT`                                                                                                     | `ck_card_product_card_type` |
+| `brand_alias.alias_type` | `OFFICIAL`, `KOREAN`, `ENGLISH`, `SHORT`, `LEGACY`                                                                    | `ck_brand_alias_alias_type` |
 | `benefit_service.benefit_type` | `ACCUMULATE`, `CASHBACK`                                                                                              | `ck_benefit_service_benefit_type` |
 | `benefit_service.value_type` | `FIXED`, `RATE`                                                                                                       | `ck_benefit_service_value_type` |
 | `benefit_service.scope_type` | `BRAND`, `INDUSTRY`                                                                                                   | `ck_benefit_service_scope_type` |

@@ -134,6 +134,33 @@ CREATE TABLE brand (
 
 CREATE INDEX idx_brand_category_id ON brand (category_id);
 
+DROP TABLE IF EXISTS brand_alias;
+-- v27: 공공데이터(상가정보) 상호명을 brand에 붙이기 위한 별칭 사전. 상호명은 "지에스25화양점",
+-- "메가엠지씨커피건대점"처럼 브랜드 표기가 제각각이라 brand_name 하나로는 매칭되지 않는다.
+-- 표기 변형을 brand 행으로 늘리면(예전에 엔젤리너스/엔제리너스가 별개 행이었다) brand가
+-- "실제 사업 브랜드 1개"라는 의미를 잃으므로, 변형은 전부 이 테이블로 보낸다.
+--
+-- alias는 정규화형(소문자화 + 공백·특수문자 제거)으로 저장한다. 원문 그대로 넣으면
+-- UNIQUE(alias)가 'GS 25'와 'GS25'를 다른 값으로 보고, 매칭 키가 비결정적이 된다.
+-- 정본 데이터는 scripts/brand_alias.csv이고 이 블록의 시드는 거기서 생성된다.
+--
+-- 런타임 쿼리는 이 테이블을 읽지 않는다 — 오프라인 가맹점 적재 전용 기준정보다.
+CREATE TABLE brand_alias (
+    brand_alias_id  BIGINT AUTO_INCREMENT PRIMARY KEY,
+    brand_id        BIGINT NOT NULL,
+    alias           VARCHAR(100) NOT NULL,
+    alias_type      VARCHAR(20) NOT NULL,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_brand_alias_alias (alias),
+    CONSTRAINT fk_brand_alias_brand
+        FOREIGN KEY (brand_id) REFERENCES brand (brand_id),
+    CONSTRAINT ck_brand_alias_alias_type
+        CHECK (alias_type IN ('OFFICIAL', 'KOREAN', 'ENGLISH', 'SHORT', 'LEGACY'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+CREATE INDEX idx_brand_alias_brand_id ON brand_alias (brand_id);
+
 -- v14: 적립(ACCUMULATE) 혜택이 쌓이는 포인트 화폐(마이신한포인트, M포인트,
 -- KB포인트리 등)와 그 원화 환산 비율. 이슈어 하나 안에도 여러 화폐가 공존할 수
 -- 있어(예: KB 해피포인트 vs 포인트리) benefit_service 단위로 참조한다.
