@@ -617,6 +617,12 @@ DROP TABLE IF EXISTS crawl_raw_card;
 -- benefit_* 테이블들과 달리 여기엔 해석된 값이 없다. 원문 문자열 그대로다. 해석 결과는
 -- 다음 단계에서 benefit_service/benefit_tier/benefit_limit 으로 들어간다.
 --
+-- 카드 한 장 = 한 행이다. 페이지를 요약/상세/연회비로 쪼개 담지 않는다. 3사 실측 결과
+-- 혜택 판정에 필요한 값(브랜드, 할인율, 전월실적 조건, 월 한도)은 전부 "상세혜택" 한
+-- 영역에 들어 있었고, 나머지는 중복이거나(요약) 혜택이 아니었다(연회비·확인사항·해외이용).
+-- 쪼개면 카드사마다 영역 경계가 달라 어댑터가 복잡해지는데, 그렇게 얻는 것이 없다.
+-- 근거는 노션 "3사 카드 페이지 구조 실측" 문서에 있다.
+--
 -- 카드 식별자로 우리 쪽 card_product_id 가 아니라 external_card_code 를 쓴다. 수집
 -- 시점엔 그 카드가 card_product 에 있는지 아직 모르고(신규 카드일 수 있고), 매칭 자체가
 -- 다음 단계의 일이기 때문이다. 그래서 card_product FK 를 걸지 않는다.
@@ -628,10 +634,6 @@ CREATE TABLE crawl_raw_card (
     external_card_code  VARCHAR(20) NOT NULL,
     -- 수집 시점의 카드명. 페이지에서 못 뽑을 수 있어 NULL 허용.
     card_name           VARCHAR(200) NULL,
-    -- 원문의 어느 영역인지 (SUMMARY=주요혜택, DETAIL=상세혜택, ANNUAL_FEE=연회비).
-    -- 카드당 한 행이 아니라 섹션당 한 행인 이유: 영역마다 성격이 달라 다음 단계에서
-    -- 서로 다른 프롬프트로 처리하고, 한 영역만 바뀌었을 때 그 영역만 재처리하기 위함이다.
-    section             VARCHAR(20) NOT NULL,
     source_url          VARCHAR(500) NOT NULL,
     raw_text            MEDIUMTEXT NOT NULL,
     -- SHA-256(raw_text). 재수집 시 해시가 같으면 원문이 안 바뀐 것이므로 다음 단계의
@@ -643,14 +645,12 @@ CREATE TABLE crawl_raw_card (
     fetched_at          DATETIME NOT NULL,
     created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    -- 카드 하나의 한 섹션은 항상 한 행이다(이력을 쌓지 않고 최신 원문만 덮어쓴다).
+    -- 카드 하나는 항상 한 행이다(이력을 쌓지 않고 최신 원문만 덮어쓴다).
     -- 이 제약이 있어야 INSERT ... ON DUPLICATE KEY UPDATE 한 문장으로 원자적으로
     -- 갱신할 수 있다(search_history v24와 같은 관용구).
-    UNIQUE KEY uk_crawl_raw_card (issuer_id, external_card_code, section),
+    UNIQUE KEY uk_crawl_raw_card (issuer_id, external_card_code),
     CONSTRAINT fk_crawl_raw_card_issuer
-        FOREIGN KEY (issuer_id) REFERENCES issuer (issuer_id),
-    CONSTRAINT ck_crawl_raw_card_section
-        CHECK (section IN ('SUMMARY', 'DETAIL', 'ANNUAL_FEE'))
+        FOREIGN KEY (issuer_id) REFERENCES issuer (issuer_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- 카드사별 최근 수집분 조회용(= 이번 실행에서 안 나온 카드 = 단종 후보 가려내기).

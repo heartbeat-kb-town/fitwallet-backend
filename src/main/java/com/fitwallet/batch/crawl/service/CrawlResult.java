@@ -38,9 +38,6 @@ public class CrawlResult {
     /** 그 밖의 이유로 실패한 카드 수. */
     private int failedCount;
 
-    /** 적재된 섹션 행 수. */
-    private int sectionCount;
-
     /** 실패한 카드 코드들. 로그에서 바로 재현해 볼 수 있게 남긴다. */
     private List<String> failedCardCodes;
 }

@@ -25,7 +25,6 @@ public class CrawlRawCardRequest {
     private Long issuerId;
     private String externalCardCode;
     private String cardName;
-    private SectionType section;
     private String sourceUrl;
     private String rawText;
     private String contentHash;

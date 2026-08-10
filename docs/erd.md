@@ -557,7 +557,6 @@ erDiagram
 | `issuer_id` (FK) | 카드사 | BIGINT | NO | — | → `issuer` |
 | `external_card_code` | 카드사가 부여한 카드 식별자 | VARCHAR(20) | NO | — | KB는 제휴코드(5자리). 카드사마다 체계가 달라 문자열 |
 | `card_name` | 수집 시점의 카드명 | VARCHAR(200) | **YES** | — | 페이지에서 못 뽑을 수 있습니다 |
-| `section` | 원문의 영역 | VARCHAR(20) | NO | — | CHECK `SUMMARY` / `DETAIL` / `ANNUAL_FEE` — [§3](#3-코드-값-check-제약) |
 | `source_url` | 수집 출처 | VARCHAR(500) | NO | — | |
 | `raw_text` | 원문 | MEDIUMTEXT | NO | — | 태그 제거 + 공백 정규화만 거친 순수 텍스트 |
 | `content_hash` | 원문 해시 | CHAR(64) | NO | — | `SHA-256(raw_text)` 소문자 16진수 |
@@ -567,9 +566,9 @@ erDiagram
 
 > **`card_product`를 FK로 참조하지 않습니다.** 수집 시점엔 그 카드가 `card_product`에 있는지 아직 모릅니다(신규 카드일 수 있습니다). 우리 쪽 카드와 맞추는 것 자체가 다음 단계의 일이라, 카드사가 쓰는 `external_card_code`를 그대로 들고 있습니다.
 >
-> **이력을 쌓지 않고 최신 원문만 덮어씁니다.** `(issuer_id, external_card_code, section)` UNIQUE가 그 불변식이고, 덕분에 `INSERT ... ON DUPLICATE KEY UPDATE` 한 문장으로 원자적으로 갱신됩니다(`search_history` v24와 같은 관용구).
+> **이력을 쌓지 않고 최신 원문만 덮어씁니다.** `(issuer_id, external_card_code)` UNIQUE가 그 불변식이고, 덕분에 `INSERT ... ON DUPLICATE KEY UPDATE` 한 문장으로 원자적으로 갱신됩니다(`search_history` v24와 같은 관용구).
 >
-> **카드당 한 행이 아니라 섹션당 한 행입니다.** 영역마다 성격이 달라 다음 단계에서 서로 다른 프롬프트로 처리하고, 한 영역만 바뀌었을 때 그 영역만 재처리하기 위해서입니다.
+> **카드 한 장이 한 행입니다.** 페이지를 요약/상세/연회비로 쪼개 담지 않습니다 — 3사 실측 결과 혜택 판정에 필요한 값(브랜드·할인율·전월실적 조건·월 한도)이 전부 "상세혜택" 한 영역에 있었고, 나머지는 중복이거나(요약) 혜택이 아니었습니다(연회비·확인사항·해외이용). 쪼개면 카드사마다 영역 경계가 달라 어댑터만 복잡해집니다.
 >
 > **`확인사항`류 탭은 수집하지 않습니다.** 카드당 8천 자가 넘지만 내용이 할인 제외매출·연체이자율 같은 법적 고지문이라(KB 카드 3종 실측, 카드 간 유사도 52%) 혜택 판정에 쓸 값이 없습니다. 오히려 넣으면 "상품권 구입은 할인 제외" 같은 문장이 혜택으로 오추출됩니다.
 >
@@ -592,7 +591,6 @@ DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBati
 | `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR`                                                                             | `ck_benefit_limit_limit_period` |
 | `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED`                                                  | `ck_payment_session_status` |
 | `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR`, `MOCK_RANDOM_DECLINE` (NULL 허용) | `ck_payment_session_fail_reason` |
-| `crawl_raw_card.section` | `SUMMARY`, `DETAIL`, `ANNUAL_FEE`                                                                                     | `ck_crawl_raw_card_section` |
 
 값 집합이 아닌 CHECK 제약(XOR·범위)은 각 테이블의 "상세 설명" 열에 적어 뒀습니다 — `ck_benefit_tier_xor`, `ck_card_event_target_xor`, `ck_card_event_period`, `ck_benefit_service_max_payment_amount`, `ck_benefit_service_point_currency_required`.
 

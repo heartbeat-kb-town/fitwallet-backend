@@ -57,14 +57,14 @@ public final class CrawlLauncher {
                     ================ 혜택 원문 수집 결과 ================
                      카드사        : {}
                      열거된 카드   : {}     <- 지난 실행보다 줄었으면 열거가 깨진 것이다
-                     성공          : {}장 (섹션 {}행)
+                     성공          : {}장
                      껍데기 응답   : {}장   <- 0이 아니면 페이지 구조 변경 의심
                      실패          : {}장
                      실패 카드코드 : {}
                     ===================================================""",
                     result.getIssuerName(),
                     result.getEnumeratedCount(),
-                    result.getSucceededCount(), result.getSectionCount(),
+                    result.getSucceededCount(),
                     result.getStubCount(),
                     result.getFailedCount(),
                     result.getFailedCardCodes());

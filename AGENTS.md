@@ -107,10 +107,12 @@ HTTP를 어떻게 치고 DB에 어떻게 넣을지는 전부 같다. 그래서 �
 String issuerName();                                    // issuer.card_company_name 과 일치
 Set<String> collectCardCodes();                         // 열거
 String cardDetailUrl(String cardCode);                  // 상세 URL
-List<RawSection> parse(String cardCode, String html);   // HTML → 섹션 (껍데기면 예외)
+RawCardBenefit parse(String cardCode, String html);     // HTML → 원문 (껍데기면 예외)
 ```
 
 - **`parse`는 네트워크를 몰라야 한다.** 입력이 문자열이라 저장해 둔 HTML만으로 테스트가 돈다
+- **카드 한 장이 한 행이다.** 페이지를 요약/연회비로 쪼개지 않는다. 3사 실측 결과 혜택 판정에
+  쓸 값은 한 영역에 모여 있고, 쪼개는 기준이 카드사마다 달라 얻는 것 없이 어댑터만 복잡해진다
 - **수집 대상 URL을 한곳에 모은다.** 그 목록이 곧 카드사에 요청하는 범위의 전부라,
   리뷰어가 거기만 보고 판단할 수 있어야 한다
 - **`robots.txt`가 허용한 경로만 친다.** 거부 의사를 밝힌 카드사는 아예 구현하지 않는다
@@ -122,6 +124,10 @@ List<RawSection> parse(String cardCode, String html);   // HTML → 섹션 (껍�
 ./gradlew crawl --args="KB국민카드"        # 전체
 ./gradlew crawl --args="KB국민카드 5"      # 5장만 (스모크)
 ```
+
+**1회성 수집이다.** 스케줄러를 두지 않는다 — 사람이 필요할 때 직접 돌린다. 매일 갱신할
+만큼 카드 혜택이 자주 바뀌지 않고, 주기 실행을 붙이는 순간 실패 알림·재시도 정책·중복
+실행 방지가 따라붙는다.
 
 ---
 

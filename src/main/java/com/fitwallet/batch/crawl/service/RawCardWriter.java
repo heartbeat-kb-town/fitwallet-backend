@@ -3,7 +3,6 @@ package com.fitwallet.batch.crawl.service;
 import java.time.Clock;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
-import java.util.List;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -11,11 +10,11 @@ import org.springframework.transaction.annotation.Transactional;
 
 import com.fitwallet.batch.crawl.dto.ContentHash;
 import com.fitwallet.batch.crawl.dto.CrawlRawCardRequest;
-import com.fitwallet.batch.crawl.dto.RawSection;
+import com.fitwallet.batch.crawl.dto.RawCardBenefit;
 import com.fitwallet.batch.crawl.mapper.CrawlRawCardMapper;
 
 /**
- * 카드 한 장에서 뽑은 섹션들을 staging에 적재한다.
+ * 카드 한 장의 혜택 원문을 staging에 적재한다.
  *
  * <p><b>왜 별도 빈인가.</b> 두 가지 이유가 겹친다.
  *
@@ -29,8 +28,7 @@ import com.fitwallet.batch.crawl.mapper.CrawlRawCardMapper;
  *
  * <p>경계를 카드 한 장으로 잡은 이유: 전체를 한 트랜잭션으로 묶으면 마지막 카드에서 실패했을 때
  * 앞의 수십 장이 통째로 롤백된다. 네트워크 상대가 있는 작업에서 그 손해가 너무 크다.
- * 카드 하나가 실패해도 나머지는 남는 편이 낫다. 반대로 <b>한 카드의 섹션들은 함께 저장되거나
- * 함께 실패해야</b> 하므로 그보다 잘게 쪼개지도 않는다.
+ * 카드 하나가 실패해도 나머지는 남는 편이 낫다.
  */
 @Service
 public class RawCardWriter {
@@ -62,25 +60,20 @@ public class RawCardWriter {
     }
 
     /**
-     * @return 적재한 섹션 행 수
+     * @return 적재한 행 수(항상 1). 같은 카드를 다시 수집하면 덮어쓴다
      */
     @Transactional
-    public int save(Long issuerId, List<RawSection> sections) {
-        LocalDateTime fetchedAt = LocalDateTime.now(clock);
-
-        for (RawSection section : sections) {
-            crawlRawCardMapper.insertRawCard(CrawlRawCardRequest.builder()
-                    .issuerId(issuerId)
-                    .externalCardCode(section.getCardCode())
-                    .cardName(section.getCardName())
-                    .section(section.getSection())
-                    .sourceUrl(section.getSourceUrl())
-                    .rawText(section.getRawText())
-                    .contentHash(resolveContentHash(section))
-                    .fetchedAt(fetchedAt)
-                    .build());
-        }
-        return sections.size();
+    public int save(Long issuerId, RawCardBenefit benefit) {
+        crawlRawCardMapper.insertRawCard(CrawlRawCardRequest.builder()
+                .issuerId(issuerId)
+                .externalCardCode(benefit.getCardCode())
+                .cardName(benefit.getCardName())
+                .sourceUrl(benefit.getSourceUrl())
+                .rawText(benefit.getRawText())
+                .contentHash(resolveContentHash(benefit))
+                .fetchedAt(LocalDateTime.now(clock))
+                .build());
+        return 1;
     }
 
     /**
@@ -89,11 +82,11 @@ public class RawCardWriter {
      * <p>해시 방식이 카드사마다 다르면 {@code content_hash} 비교로 "안 바뀐 카드"를
      * 가려내는 것 자체가 무의미해지므로, 어댑터에 맡기지 않고 이 경로로 수렴시킨다.
      */
-    private String resolveContentHash(RawSection section) {
-        String given = section.getContentHash();
+    private String resolveContentHash(RawCardBenefit benefit) {
+        String given = benefit.getContentHash();
         if (given != null && !given.isBlank()) {
             return given;
         }
-        return ContentHash.of(section.getRawText());
+        return ContentHash.of(benefit.getRawText());
     }
 }

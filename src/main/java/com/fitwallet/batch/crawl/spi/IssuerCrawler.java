@@ -1,9 +1,8 @@
 package com.fitwallet.batch.crawl.spi;
 
-import java.util.List;
 import java.util.Set;
 
-import com.fitwallet.batch.crawl.dto.RawSection;
+import com.fitwallet.batch.crawl.dto.RawCardBenefit;
 
 /**
  * 카드사 하나를 수집하기 위해 구현해야 하는 전부.
@@ -57,16 +56,17 @@ public interface IssuerCrawler {
     String cardDetailUrl(String cardCode);
 
     /**
-     * 상세 페이지 HTML에서 원문 영역들을 뽑는다.
+     * 상세 페이지 HTML에서 혜택 원문을 뽑는다.
      *
      * <p><b>네트워크를 몰라야 한다.</b> 입력이 문자열이라 저장해 둔 HTML만으로 테스트가
      * 돌아간다 — 카드사 서버가 죽어 있어도, 오프라인이어도 파서 테스트는 통과해야 한다.
      *
-     * <p>없는 영역을 지어내지 않는다. 체크카드처럼 연회비 탭이 아예 없는 카드가 있고,
-     * 그럴 땐 그 {@link com.fitwallet.batch.crawl.dto.SectionType}을 빼고 돌려주면 된다.
+     * <p><b>카드 한 장당 하나를 돌려준다.</b> 페이지를 요약/연회비 따위로 쪼개지 않는다 —
+     * 혜택 판정에 쓸 값은 한 영역에 모여 있고, 쪼개는 기준이 카드사마다 달라 얻는 것 없이
+     * 어댑터만 복잡해진다. {@code crawl_raw_card}도 카드당 한 행이다.
      *
      * @throws com.fitwallet.batch.crawl.exception.StubResponseException
      *         내용 없는 껍데기 응답일 때. 조용히 빈 결과를 돌려주지 말 것
      */
-    List<RawSection> parse(String cardCode, String html);
+    RawCardBenefit parse(String cardCode, String html);
 }

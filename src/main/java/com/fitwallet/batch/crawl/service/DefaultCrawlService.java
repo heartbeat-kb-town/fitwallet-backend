@@ -9,7 +9,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import com.fitwallet.batch.crawl.client.CrawlHttpClient;
-import com.fitwallet.batch.crawl.dto.RawSection;
+import com.fitwallet.batch.crawl.dto.RawCardBenefit;
 import com.fitwallet.batch.crawl.exception.CrawlException;
 import com.fitwallet.batch.crawl.exception.StubResponseException;
 import com.fitwallet.batch.crawl.mapper.CrawlRawCardMapper;
@@ -62,12 +62,11 @@ public class DefaultCrawlService implements CrawlService {
 
         int succeeded = 0;
         int stubs = 0;
-        int sections = 0;
         List<String> failedCardCodes = new ArrayList<>();
 
         for (String cardCode : targets) {
             try {
-                sections += crawlOneCard(crawler, issuerId, cardCode);
+                crawlOneCard(crawler, issuerId, cardCode);
                 succeeded++;
             } catch (StubResponseException e) {
                 stubs++;
@@ -85,31 +84,30 @@ public class DefaultCrawlService implements CrawlService {
                 .succeededCount(succeeded)
                 .stubCount(stubs)
                 .failedCount(failedCardCodes.size())
-                .sectionCount(sections)
                 .failedCardCodes(failedCardCodes)
                 .build();
 
-        log.info("{} 혜택 원문 수집 완료 — 열거 {}개 / 성공 {}장 / 섹션 {}행 / 껍데기 {}장 / 실패 {}장",
+        log.info("{} 혜택 원문 수집 완료 — 열거 {}개 / 성공 {}장 / 껍데기 {}장 / 실패 {}장",
                 issuerName, result.getEnumeratedCount(), result.getSucceededCount(),
-                result.getSectionCount(), result.getStubCount(), result.getFailedCount());
+                result.getStubCount(), result.getFailedCount());
         return result;
     }
 
     /** 카드 한 장: 수집(트랜잭션 밖) → 추출(트랜잭션 밖) → 적재(트랜잭션 안). */
-    private int crawlOneCard(IssuerCrawler crawler, Long issuerId, String cardCode) {
+    private void crawlOneCard(IssuerCrawler crawler, Long issuerId, String cardCode) {
         String url = crawler.cardDetailUrl(cardCode);
         String html = httpClient.get(url);
-        List<RawSection> sections = crawler.parse(cardCode, html);
+        RawCardBenefit benefit = crawler.parse(cardCode, html);
 
-        if (sections.isEmpty()) {
-            // 껍데기는 어댑터가 예외로 던지기로 돼 있다. 빈 목록이 오면 그 계약이 깨진 것이라
+        if (benefit == null || benefit.getRawText() == null || benefit.getRawText().isBlank()) {
+            // 껍데기는 어댑터가 예외로 던지기로 돼 있다. 빈 결과가 오면 그 계약이 깨진 것이라
             // 성공으로 세지 않는다 — 조용히 0행을 쌓는 게 이 배치에서 제일 위험하다.
-            throw new CrawlException("추출된 섹션이 없습니다: " + url);
+            throw new CrawlException("추출된 원문이 없습니다: " + url);
         }
 
-        int saved = rawCardWriter.save(issuerId, sections);
-        log.debug("카드 {}({}) — 섹션 {}개 적재", cardCode, sections.get(0).getCardName(), saved);
-        return saved;
+        rawCardWriter.save(issuerId, benefit);
+        log.debug("카드 {}({}) — 원문 {}자 적재",
+                cardCode, benefit.getCardName(), benefit.getRawText().length());
     }
 
     private List<String> applyLimit(Set<String> cardCodes, int limit) {

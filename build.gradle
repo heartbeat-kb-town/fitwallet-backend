@@ -65,6 +65,11 @@ dependencies {
     implementation 'io.springfox:springfox-oas:3.0.0'
     implementation 'io.springfox:springfox-swagger-ui:3.0.0'
 
+    // HTML 파싱 (배치 전용)
+    // 카드사 페이지는 정규식으로 다루기엔 중첩이 깊고 닫히지 않은 태그가 섞여 있다.
+    // jsoup은 의존성이 없는 단일 jar라 WAR가 무거워지지 않는다.
+    implementation 'org.jsoup:jsoup:1.18.1'
+
     // Lombok
     compileOnly 'org.projectlombok:lombok:1.18.34'
     annotationProcessor 'org.projectlombok:lombok:1.18.34'

@@ -1,8 +1,7 @@
 package com.fitwallet.batch.crawl.service;
 
 import com.fitwallet.batch.crawl.client.CrawlHttpClient;
-import com.fitwallet.batch.crawl.dto.RawSection;
-import com.fitwallet.batch.crawl.dto.SectionType;
+import com.fitwallet.batch.crawl.dto.RawCardBenefit;
 import com.fitwallet.batch.crawl.exception.CrawlException;
 import com.fitwallet.batch.crawl.exception.StubResponseException;
 import com.fitwallet.batch.crawl.mapper.CrawlRawCardMapper;
@@ -56,25 +55,23 @@ class DefaultCrawlServiceTest {
         crawlService = new DefaultCrawlService(httpClient, rawCardWriter, crawlRawCardMapper);
         given(crawlRawCardMapper.findIssuerIdByName(ISSUER_NAME)).willReturn(ISSUER_ID);
         given(httpClient.get(anyString())).willReturn("<html>본문</html>");
-        given(rawCardWriter.save(anyLong(), any())).willAnswer(
-                invocation -> ((List<?>) invocation.getArgument(1)).size());
+        given(rawCardWriter.save(anyLong(), any())).willReturn(1);
     }
 
     @Test
     void 열거된_카드를_전부_수집한다() {
-        CrawlResult result = crawlService.crawl(crawler(Set.of("A", "B", "C"), code -> sections(code, 2)), 0);
+        CrawlResult result = crawlService.crawl(crawler(Set.of("A", "B", "C"), this::benefit), 0);
 
         assertThat(result.getIssuerName()).isEqualTo(ISSUER_NAME);
         assertThat(result.getEnumeratedCount()).isEqualTo(3);
         assertThat(result.getSucceededCount()).isEqualTo(3);
-        assertThat(result.getSectionCount()).isEqualTo(6);
         assertThat(result.getFailedCount()).isZero();
         assertThat(result.getStubCount()).isZero();
     }
 
     @Test
     void limit이_있으면_그만큼만_수집한다() {
-        CrawlResult result = crawlService.crawl(crawler(ordered("A", "B", "C"), code -> sections(code, 1)), 2);
+        CrawlResult result = crawlService.crawl(crawler(ordered("A", "B", "C"), this::benefit), 2);
 
         assertThat(result.getEnumeratedCount()).isEqualTo(3);
         assertThat(result.getSucceededCount()).isEqualTo(2);
@@ -86,7 +83,7 @@ class DefaultCrawlServiceTest {
             if ("B".equals(code)) {
                 throw new StubResponseException("본문이 1.1KB입니다");
             }
-            return sections(code, 1);
+            return benefit(code);
         });
 
         CrawlResult result = crawlService.crawl(crawler, 0);
@@ -103,7 +100,7 @@ class DefaultCrawlServiceTest {
             if ("B".equals(code)) {
                 throw new CrawlException("파싱 실패");
             }
-            return sections(code, 1);
+            return benefit(code);
         });
 
         CrawlResult result = crawlService.crawl(crawler, 0);
@@ -113,8 +110,8 @@ class DefaultCrawlServiceTest {
     }
 
     @Test
-    void 추출된_섹션이_없으면_성공으로_세지_않는다() {
-        CrawlResult result = crawlService.crawl(crawler(Set.of("A"), code -> List.of()), 0);
+    void 추출된_원문이_없으면_성공으로_세지_않는다() {
+        CrawlResult result = crawlService.crawl(crawler(Set.of("A"), code -> null), 0);
 
         assertThat(result.getSucceededCount()).isZero();
         assertThat(result.getFailedCardCodes()).containsExactly("A");
@@ -124,7 +121,7 @@ class DefaultCrawlServiceTest {
     void issuer_테이블에_없는_카드사면_예외를_던진다() {
         given(crawlRawCardMapper.findIssuerIdByName(ISSUER_NAME)).willReturn(null);
 
-        assertThatThrownBy(() -> crawlService.crawl(crawler(Set.of("A"), code -> sections(code, 1)), 0))
+        assertThatThrownBy(() -> crawlService.crawl(crawler(Set.of("A"), this::benefit), 0))
                 .isInstanceOf(CrawlException.class)
                 .hasMessageContaining(ISSUER_NAME);
     }
@@ -133,21 +130,17 @@ class DefaultCrawlServiceTest {
         return new LinkedHashSet<>(List.of(codes));
     }
 
-    private List<RawSection> sections(String cardCode, int count) {
-        SectionType[] types = SectionType.values();
-        return java.util.stream.IntStream.range(0, count)
-                .mapToObj(i -> RawSection.builder()
-                        .cardCode(cardCode)
-                        .cardName("카드 " + cardCode)
-                        .section(types[i])
-                        .sourceUrl("https://example.test/" + cardCode)
-                        .rawText("원문 " + i)
-                        .build())
-                .toList();
+    private RawCardBenefit benefit(String cardCode) {
+        return RawCardBenefit.builder()
+                .cardCode(cardCode)
+                .cardName("카드 " + cardCode)
+                .sourceUrl("https://example.test/" + cardCode)
+                .rawText("상세혜택 원문 " + cardCode)
+                .build();
     }
 
     /** 카드사 어댑터 자리에 꽂는 가짜 구현. */
-    private IssuerCrawler crawler(Set<String> codes, Function<String, List<RawSection>> parser) {
+    private IssuerCrawler crawler(Set<String> codes, Function<String, RawCardBenefit> parser) {
         return new IssuerCrawler() {
             @Override
             public String issuerName() {
@@ -165,7 +158,7 @@ class DefaultCrawlServiceTest {
             }
 
             @Override
-            public List<RawSection> parse(String cardCode, String html) {
+            public RawCardBenefit parse(String cardCode, String html) {
                 return parser.apply(cardCode);
             }
         };

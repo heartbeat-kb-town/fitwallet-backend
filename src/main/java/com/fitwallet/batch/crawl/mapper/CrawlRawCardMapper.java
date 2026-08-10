@@ -27,7 +27,7 @@ public interface CrawlRawCardMapper {
     Long findIssuerIdByName(@Param("cardCompanyName") String cardCompanyName);
 
     /**
-     * 원문 한 건을 적재한다. 같은 (카드사, 카드, 섹션)이 이미 있으면 덮어쓴다.
+     * 원문 한 건을 적재한다. 같은 (카드사, 카드)가 이미 있으면 덮어쓴다.
      *
      * <p>이력을 쌓지 않고 최신 원문만 들고 있는 테이블이라
      * {@code INSERT ... ON DUPLICATE KEY UPDATE} 한 문장으로 끝낸다. "있으면 UPDATE,
@@ -43,6 +43,6 @@ public interface CrawlRawCardMapper {
      */
     List<String> findContentHashesByIssuerId(@Param("issuerId") Long issuerId);
 
-    /** 카드사별 적재된 섹션 행 수(스모크 확인용). */
+    /** 카드사별 적재된 카드 수(스모크 확인용). */
     int countByIssuerId(@Param("issuerId") Long issuerId);
 }

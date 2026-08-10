@@ -1,7 +1,6 @@
 package com.fitwallet.batch.crawl.mapper;
 
 import com.fitwallet.batch.crawl.dto.CrawlRawCardRequest;
-import com.fitwallet.batch.crawl.dto.SectionType;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
@@ -39,44 +38,42 @@ class CrawlRawCardMapperIntegrationTest {
     void 원문_한_건을_적재한다() {
         Long issuerId = crawlRawCardMapper.findIssuerIdByName(KB);
 
-        int affected = crawlRawCardMapper.insertRawCard(request(issuerId, "99001", SectionType.DETAIL, "상세혜택 원문"));
+        int affected = crawlRawCardMapper.insertRawCard(request(issuerId, "99001", "상세혜택 원문"));
 
         assertThat(affected).isEqualTo(1);
     }
 
     @Test
-    void 같은_카드의_다른_섹션은_별개_행으로_쌓인다() {
+    void 서로_다른_카드는_별개_행으로_쌓인다() {
         Long issuerId = crawlRawCardMapper.findIssuerIdByName(KB);
         int before = crawlRawCardMapper.countByIssuerId(issuerId);
 
-        crawlRawCardMapper.insertRawCard(request(issuerId, "99002", SectionType.SUMMARY, "주요혜택"));
-        crawlRawCardMapper.insertRawCard(request(issuerId, "99002", SectionType.DETAIL, "상세혜택"));
-        crawlRawCardMapper.insertRawCard(request(issuerId, "99002", SectionType.ANNUAL_FEE, "연회비"));
+        crawlRawCardMapper.insertRawCard(request(issuerId, "99002", "원문 A"));
+        crawlRawCardMapper.insertRawCard(request(issuerId, "99012", "원문 B"));
 
-        assertThat(crawlRawCardMapper.countByIssuerId(issuerId)).isEqualTo(before + 3);
+        assertThat(crawlRawCardMapper.countByIssuerId(issuerId)).isEqualTo(before + 2);
     }
 
     @Test
-    void 같은_카드의_같은_섹션을_다시_적재하면_행이_늘지_않는다() {
+    void 같은_카드를_다시_적재하면_행이_늘지_않는다() {
         Long issuerId = crawlRawCardMapper.findIssuerIdByName(KB);
-        crawlRawCardMapper.insertRawCard(request(issuerId, "99003", SectionType.DETAIL, "처음 원문"));
+        crawlRawCardMapper.insertRawCard(request(issuerId, "99003", "처음 원문"));
         int after1st = crawlRawCardMapper.countByIssuerId(issuerId);
 
-        crawlRawCardMapper.insertRawCard(request(issuerId, "99003", SectionType.DETAIL, "바뀐 원문"));
+        crawlRawCardMapper.insertRawCard(request(issuerId, "99003", "바뀐 원문"));
 
         assertThat(crawlRawCardMapper.countByIssuerId(issuerId)).isEqualTo(after1st);
     }
 
     @Test
-    void 같은_카드의_같은_섹션을_다시_적재하면_최신_해시로_덮어쓴다() {
+    void 같은_카드를_다시_적재하면_최신_해시로_덮어쓴다() {
         Long issuerId = crawlRawCardMapper.findIssuerIdByName(KB);
-        crawlRawCardMapper.insertRawCard(request(issuerId, "99004", SectionType.DETAIL, "처음 원문"));
+        crawlRawCardMapper.insertRawCard(request(issuerId, "99004", "처음 원문"));
 
         crawlRawCardMapper.insertRawCard(CrawlRawCardRequest.builder()
                 .issuerId(issuerId)
                 .externalCardCode("99004")
                 .cardName("바뀐 카드명")
-                .section(SectionType.DETAIL)
                 .sourceUrl("https://example.test/card/99004")
                 .rawText("바뀐 원문")
                 .contentHash("bbbb")
@@ -87,12 +84,11 @@ class CrawlRawCardMapperIntegrationTest {
         assertThat(hashes).contains("bbbb").doesNotContain("aaaa");
     }
 
-    private CrawlRawCardRequest request(Long issuerId, String cardCode, SectionType section, String rawText) {
+    private CrawlRawCardRequest request(Long issuerId, String cardCode, String rawText) {
         return CrawlRawCardRequest.builder()
                 .issuerId(issuerId)
                 .externalCardCode(cardCode)
                 .cardName("테스트 카드")
-                .section(section)
                 .sourceUrl("https://example.test/card/" + cardCode)
                 .rawText(rawText)
                 .contentHash("aaaa")

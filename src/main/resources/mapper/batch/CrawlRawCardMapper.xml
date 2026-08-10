@@ -7,20 +7,16 @@
     <!--
         created_at / updated_at 은 DB DEFAULT 가 채우므로 컬럼 목록에 넣지 않는다 (AGENTS.md §10).
 
-        ON DUPLICATE KEY UPDATE 는 uk_crawl_raw_card (issuer_id, external_card_code, section)
-        에 걸린다. 이 테이블은 이력을 쌓지 않고 최신 원문만 들고 있으므로 같은 카드의 같은
-        섹션을 다시 수집하면 덮어쓰는 것이 맞다. "있으면 UPDATE, 없으면 INSERT" 로 나누면
-        동시 실행 시 둘 다 INSERT 하는 경쟁 조건이 생긴다 (search_history v24 와 같은 관용구).
-
-        section 은 자바 enum(SectionType)인데 DDL 의 CHECK 값과 상수 이름이 같아
-        기본 EnumTypeHandler 가 알아서 변환한다 — 커스텀 TypeHandler 를 만들지 않는다 (§6).
+        ON DUPLICATE KEY UPDATE 는 uk_crawl_raw_card (issuer_id, external_card_code) 에
+        걸린다. 이 테이블은 이력을 쌓지 않고 최신 원문만 들고 있으므로 같은 카드를 다시
+        수집하면 덮어쓰는 것이 맞다. "있으면 UPDATE, 없으면 INSERT" 로 나누면 동시 실행 시
+        둘 다 INSERT 하는 경쟁 조건이 생긴다 (search_history v24 와 같은 관용구).
     -->
     <insert id="insertRawCard" parameterType="com.fitwallet.batch.crawl.dto.CrawlRawCardRequest">
         INSERT INTO crawl_raw_card (
             issuer_id,
             external_card_code,
             card_name,
-            section,
             source_url,
             raw_text,
             content_hash,
@@ -29,7 +25,6 @@
             #{issuerId},
             #{externalCardCode},
             #{cardName},
-            #{section},
             #{sourceUrl},
             #{rawText},
             #{contentHash},
