@@ -63,17 +63,65 @@ com.fitwallet
 │  │  ├─ request/
 │  │  └─ response/
 │  └─ exception/                # {도메인}ErrorCode
-└─ global/
-   ├─ common/{annotation,dto}/
-   ├─ config/
-   └─ exception/
+├─ global/
+│  ├─ common/{annotation,dto}/
+│  ├─ config/
+│  └─ exception/
+└─ batch/                       # 데이터 수집 배치 (도메인 아님)
+   ├─ CrawlLauncher             # main()
+   ├─ crawl/                    # 카드사 무관 공통
+   │  ├─ client/ dto/ exception/ mapper/ service/
+   │  └─ spi/IssuerCrawler      # 카드사 어댑터 계약
+   └─ issuer/{kb,shinhan,...}/  # 카드사별 어댑터
 
 src/main/resources/mapper/{도메인}/{도메인}Mapper.xml
+src/main/resources/mapper/batch/{배치}Mapper.xml
 ```
 
 **`domain/card`가 참조 구현이다.** 새 도메인은 이걸 복제해서 시작한다.
 
 이 구조의 대가로 MyBatis XML이 API 계약에 묶인다. API 응답 스펙이 바뀌면 XML도 함께 고쳐야 한다.
+
+### `batch` — 도메인이 아닌 것
+
+`batch`는 도메인 6개와 별개다. 카드사 웹페이지에서 혜택 원문을 긁어오는 배치가 여기 산다.
+HTTP 요청·HTML 파싱이 주 관심사라 API 서비스와 성격이 다르고, 6개 도메인 어디에도 속하지 않는다.
+
+`domain`의 규칙 중 아래는 그대로 지킨다 — DTO 규칙(§4), MyBatis 규칙(§6), 트랜잭션 경계(§9),
+테스트 규칙(§11). 다르게 가는 건 둘뿐이다:
+
+- **Controller가 없다.** 사람이 실행하는 배치라 진입점이 `main()`(`CrawlLauncher`)이다
+- **`BusinessException`/ErrorCode를 쓰지 않는다.** HTTP 응답으로 번역될 일이 없어
+  ErrorCode·상태코드가 붙을 자리가 없다. 대신 `CrawlException` 계열을 쓴다
+
+#### `crawl`(공통)과 `issuer`(어댑터)를 가르는 기준
+
+**카드사별로 다른 건 둘뿐이다** — 어디서 카드 목록을 얻는가, HTML의 어느 조각이 혜택인가.
+HTTP를 어떻게 치고 DB에 어떻게 넣을지는 전부 같다. 그래서 카드사별 패키지에는 그 둘만 두고
+나머지는 `crawl` 아래 한 벌만 둔다. 이 경계를 굳혀 두지 않으면 카드사가 늘 때마다 같은
+클라이언트·같은 Mapper가 한 벌씩 복제된다.
+
+카드사를 붙이려면 `IssuerCrawler` 넷을 구현하면 된다.
+
+```java
+String issuerName();                                    // issuer.card_company_name 과 일치
+Set<String> collectCardCodes();                         // 열거
+String cardDetailUrl(String cardCode);                  // 상세 URL
+List<RawSection> parse(String cardCode, String html);   // HTML → 섹션 (껍데기면 예외)
+```
+
+- **`parse`는 네트워크를 몰라야 한다.** 입력이 문자열이라 저장해 둔 HTML만으로 테스트가 돈다
+- **수집 대상 URL을 한곳에 모은다.** 그 목록이 곧 카드사에 요청하는 범위의 전부라,
+  리뷰어가 거기만 보고 판단할 수 있어야 한다
+- **`robots.txt`가 허용한 경로만 친다.** 거부 의사를 밝힌 카드사는 아예 구현하지 않는다
+- **카드 코드를 무차별 대입으로 만들지 않는다.** 카드사가 스스로 공개한 사이트맵·목록·API에서만 얻는다
+
+실행은 카드사별 태스크가 아니라 인자로 고른다 — 카드사가 늘어도 태스크가 안 늘어난다.
+
+```bash
+./gradlew crawl --args="KB국민카드"        # 전체
+./gradlew crawl --args="KB국민카드 5"      # 5장만 (스모크)
+```
 
 ---
 

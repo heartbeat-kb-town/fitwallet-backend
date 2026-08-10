@@ -603,4 +603,57 @@ CREATE INDEX idx_card_event_card_product_id ON card_event (card_product_id);
 CREATE INDEX idx_card_event_issuer_id       ON card_event (issuer_id);
 CREATE INDEX idx_card_event_period          ON card_event (starts_at, ends_at);
 
+-- =========================================================
+-- v28: 혜택 원문 수집(크롤링) staging
+-- =========================================================
+
+DROP TABLE IF EXISTS crawl_raw_card;
+-- v28: 카드사 웹페이지에서 수집한 혜택 원문 텍스트의 적재 테이블.
+--
+-- 이 테이블은 "수집"과 "해석"을 분리하기 위해 존재한다. 원문을 여기 보관해 두면 파서나
+-- LLM 프롬프트를 고칠 때 카드사 서버를 다시 치지 않고 추출만 몇 번이든 재실행할 수 있다.
+-- 반대로 이 테이블이 없으면 프롬프트를 튜닝할 때마다 카드 수십 장을 다시 긁어야 한다.
+--
+-- benefit_* 테이블들과 달리 여기엔 해석된 값이 없다. 원문 문자열 그대로다. 해석 결과는
+-- 다음 단계에서 benefit_service/benefit_tier/benefit_limit 으로 들어간다.
+--
+-- 카드 식별자로 우리 쪽 card_product_id 가 아니라 external_card_code 를 쓴다. 수집
+-- 시점엔 그 카드가 card_product 에 있는지 아직 모르고(신규 카드일 수 있고), 매칭 자체가
+-- 다음 단계의 일이기 때문이다. 그래서 card_product FK 를 걸지 않는다.
+CREATE TABLE crawl_raw_card (
+    crawl_raw_card_id   BIGINT AUTO_INCREMENT PRIMARY KEY,
+    issuer_id           BIGINT NOT NULL,
+    -- 카드사가 부여한 카드 식별자. KB는 제휴코드(cooperationcode, 5자리 숫자)다.
+    -- 카드사마다 체계가 달라 문자열로 받는다.
+    external_card_code  VARCHAR(20) NOT NULL,
+    -- 수집 시점의 카드명. 페이지에서 못 뽑을 수 있어 NULL 허용.
+    card_name           VARCHAR(200) NULL,
+    -- 원문의 어느 영역인지 (SUMMARY=주요혜택, DETAIL=상세혜택, ANNUAL_FEE=연회비).
+    -- 카드당 한 행이 아니라 섹션당 한 행인 이유: 영역마다 성격이 달라 다음 단계에서
+    -- 서로 다른 프롬프트로 처리하고, 한 영역만 바뀌었을 때 그 영역만 재처리하기 위함이다.
+    section             VARCHAR(20) NOT NULL,
+    source_url          VARCHAR(500) NOT NULL,
+    raw_text            MEDIUMTEXT NOT NULL,
+    -- SHA-256(raw_text). 재수집 시 해시가 같으면 원문이 안 바뀐 것이므로 다음 단계의
+    -- LLM 호출을 통째로 건너뛴다. 비용 절감이자, 어떤 카드가 바뀌었는지 가려내는
+    -- (= 추가/수정/삭제 판정) 근거가 된다.
+    content_hash        CHAR(64) NOT NULL,
+    -- 수집 시각(비즈니스 시각). created_at(레코드 생성)과 분리한다 —
+    -- payment_transaction.paid_at 과 같은 이유다.
+    fetched_at          DATETIME NOT NULL,
+    created_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at          DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    -- 카드 하나의 한 섹션은 항상 한 행이다(이력을 쌓지 않고 최신 원문만 덮어쓴다).
+    -- 이 제약이 있어야 INSERT ... ON DUPLICATE KEY UPDATE 한 문장으로 원자적으로
+    -- 갱신할 수 있다(search_history v24와 같은 관용구).
+    UNIQUE KEY uk_crawl_raw_card (issuer_id, external_card_code, section),
+    CONSTRAINT fk_crawl_raw_card_issuer
+        FOREIGN KEY (issuer_id) REFERENCES issuer (issuer_id),
+    CONSTRAINT ck_crawl_raw_card_section
+        CHECK (section IN ('SUMMARY', 'DETAIL', 'ANNUAL_FEE'))
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 카드사별 최근 수집분 조회용(= 이번 실행에서 안 나온 카드 = 단종 후보 가려내기).
+CREATE INDEX idx_crawl_raw_card_issuer_fetched ON crawl_raw_card (issuer_id, fetched_at);
+
 SET FOREIGN_KEY_CHECKS = 1;
