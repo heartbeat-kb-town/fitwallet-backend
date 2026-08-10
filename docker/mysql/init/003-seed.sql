@@ -9,8 +9,6 @@
 --   - 카드사/카드/혜택/이벤트 : 신한·현대·KB 공식 카드 상세 페이지 크롤링 확정본.
 --                              이 3사가 지원 범위다. 왜 여기까지인지는 팀 노션
 --                              "고도화 문서 > 지원 카드사 범위 확정" 참고
---   - 브랜드/브랜드 별칭       : scripts/brand_alias.csv 에서 생성. 손으로 고치지 말고
---                              CSV 를 고친 뒤 scripts/gen_brand_seed.py 를 다시 돌린다
 --   - 가맹점                 : 카카오 로컬 API로 수집한 서울 광진구 군자동 일대 244곳
 --                              (store_qr_token 은 로컬 QR 결제 개발용 더미 코드)
 --   - 회원/결제내역           : 데모 페르소나 "정우인" (2026-03-04 ~ 07-25 평일 355건).
@@ -41,7 +39,10 @@ INSERT INTO `category` (`category_id`, `category_name`, `category_image_url`, `c
 INSERT INTO `category` (`category_id`, `category_name`, `category_image_url`, `created_at`, `updated_at`) VALUES (6,'주유',NULL,'2026-07-27 12:27:52','2026-07-27 12:27:52');
 
 -- ---------------------------------------------------------
--- brand — 브랜드 (scripts/brand_alias.csv 에서 생성)
+-- brand — 브랜드
+--
+-- brand_alias 는 시드가 비어 있다. 실제 별칭은 공공데이터 상호명 표기를 보고
+-- 정해야 해서, 가맹점 적재 작업에서 채운다.
 -- ---------------------------------------------------------
 INSERT INTO `brand` (`brand_id`, `brand_name`, `category_id`, `brand_image_url`, `created_at`, `updated_at`) VALUES (8,'이마트',2,NULL,'2026-07-27 12:27:52','2026-07-27 12:27:52');
 INSERT INTO `brand` (`brand_id`, `brand_name`, `category_id`, `brand_image_url`, `created_at`, `updated_at`) VALUES (9,'롯데마트',2,NULL,'2026-07-27 12:27:52','2026-07-27 12:27:52');
@@ -75,96 +76,6 @@ INSERT INTO `brand` (`brand_id`, `brand_name`, `category_id`, `brand_image_url`,
 INSERT INTO `brand` (`brand_id`, `brand_name`, `category_id`, `brand_image_url`, `created_at`, `updated_at`) VALUES (56,'VIPS',4,NULL,'2026-07-27 12:27:52','2026-07-27 12:27:52');
 INSERT INTO `brand` (`brand_id`, `brand_name`, `category_id`, `brand_image_url`, `created_at`, `updated_at`) VALUES (57,'던킨도너츠',1,NULL,'2026-07-27 12:27:52','2026-07-27 12:27:52');
 INSERT INTO `brand` (`brand_id`, `brand_name`, `category_id`, `brand_image_url`, `created_at`, `updated_at`) VALUES (58,'파스쿠찌',1,NULL,'2026-07-27 12:27:52','2026-07-27 12:27:52');
-
--- ---------------------------------------------------------
--- brand_alias — 브랜드 별칭 (scripts/brand_alias.csv 에서 생성)
--- ---------------------------------------------------------
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (1,8,'이마트','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (2,8,'emart','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (3,9,'롯데마트','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (4,9,'lottemart','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (5,10,'홈플러스','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (6,10,'homeplus','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (7,11,'스타벅스','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (8,11,'starbucks','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (9,11,'스타벅스커피','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (10,15,'gs25','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (11,15,'지에스25','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (12,16,'cu','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (13,16,'씨유','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (14,17,'세븐일레븐','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (15,17,'7eleven','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (16,17,'세븐일레븐코리아','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (17,18,'이마트24','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (18,18,'emart24','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (19,18,'위드미','LEGACY','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (20,19,'올리브영','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (21,19,'oliveyoung','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (22,19,'씨제이올리브영','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (23,20,'다이소','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (24,20,'daiso','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (25,20,'아성다이소','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (26,21,'투썸플레이스','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (27,21,'twosomeplace','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (28,21,'투썸','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (29,22,'이디야커피','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (30,22,'ediya','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (31,22,'이디야','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (32,23,'메가mgc커피','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (33,23,'메가엠지씨커피','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (34,23,'메가커피','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (35,24,'파리바게뜨','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (36,24,'parisbaguette','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (37,24,'파리바게트','LEGACY','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (38,24,'파바','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (39,25,'배스킨라빈스','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (40,25,'baskinrobbins','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (41,25,'배스킨라빈스31','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (42,25,'배라','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (43,28,'sk에너지','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (44,28,'에스케이에너지','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (45,29,'gs칼텍스','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (46,29,'지에스칼텍스','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (47,36,'스타필드','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (48,36,'starfield','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (49,37,'롯데월드타워','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (50,37,'롯데월드몰','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (51,38,'롯데몰','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (52,38,'lottemall','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (53,39,'트레이더스','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (54,39,'traders','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (55,39,'이마트트레이더스','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (56,40,'롯데vic마켓','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (57,40,'롯데빅마켓','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (58,40,'빅마켓','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (59,41,'커피빈','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (60,41,'coffeebean','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (61,41,'커피빈코리아','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (62,42,'엔제리너스','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (63,42,'angelinus','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (64,42,'엔젤리너스','LEGACY','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (65,45,'폴바셋','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (66,45,'paulbassett','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (67,46,'농협하나로마트','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (68,46,'nh농협하나로마트','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (69,46,'하나로마트','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (70,46,'하나로클럽','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (71,53,'hd현대오일뱅크','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (72,53,'현대오일뱅크','LEGACY','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (73,53,'오일뱅크','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (74,54,'soil','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (75,54,'에스오일','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (76,55,'아웃백','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (77,55,'outbacksteakhouse','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (78,55,'아웃백스테이크하우스','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (79,56,'vips','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (80,56,'빕스','KOREAN','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (81,57,'던킨도너츠','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (82,57,'dunkindonuts','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (83,57,'던킨도넛츠','LEGACY','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (84,57,'던킨','SHORT','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (85,58,'파스쿠찌','OFFICIAL','2026-07-27 12:27:52','2026-07-27 12:27:52');
-INSERT INTO `brand_alias` (`brand_alias_id`, `brand_id`, `alias`, `alias_type`, `created_at`, `updated_at`) VALUES (86,58,'pascucci','ENGLISH','2026-07-27 12:27:52','2026-07-27 12:27:52');
 
 -- ---------------------------------------------------------
 -- point_currency — 적립 포인트 화폐

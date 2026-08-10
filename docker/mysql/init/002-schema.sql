@@ -142,9 +142,9 @@ DROP TABLE IF EXISTS brand_alias;
 --
 -- alias는 정규화형(소문자화 + 공백·특수문자 제거)으로 저장한다. 원문 그대로 넣으면
 -- UNIQUE(alias)가 'GS 25'와 'GS25'를 다른 값으로 보고, 매칭 키가 비결정적이 된다.
--- 정본 데이터는 scripts/brand_alias.csv이고 이 블록의 시드는 거기서 생성된다.
 --
 -- 런타임 쿼리는 이 테이블을 읽지 않는다 — 오프라인 가맹점 적재 전용 기준정보다.
+-- 시드는 비어 있다. 실제 별칭은 공공데이터 상호명 표기를 확인한 뒤 채운다.
 CREATE TABLE brand_alias (
     brand_alias_id  BIGINT AUTO_INCREMENT PRIMARY KEY,
     brand_id        BIGINT NOT NULL,
