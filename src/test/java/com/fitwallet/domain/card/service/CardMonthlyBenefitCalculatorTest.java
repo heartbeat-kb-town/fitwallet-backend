@@ -26,8 +26,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class CardMonthlyBenefitCalculatorTest {
 
+    private final CardMonthlyBenefitUsageCalculator usageCalculator =
+            new CardMonthlyBenefitUsageCalculator();
     private final CardMonthlyBenefitCalculator calculator = new CardMonthlyBenefitCalculator(
-            new CardBenefitValueLabelFormatter());
+            usageCalculator,
+            new CardMonthlyBenefitItemAssembler(
+                    usageCalculator, new CardBenefitValueLabelFormatter()));
 
     @Test
     void 포인트는_하단에서_포인트로_표시하고_상단에서_원화로_환산한다() {

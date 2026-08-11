@@ -3,17 +3,13 @@ package com.fitwallet.domain.card.service;
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.CardListSortType;
 import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
-import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.CardMonthlyPeriod;
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitPeriod;
 import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
-import com.fitwallet.domain.card.dto.CardUsageBenefitAllocation;
+import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
 import com.fitwallet.domain.card.dto.CardUsageCardInfo;
-import com.fitwallet.domain.card.dto.CardUsageRuleSet;
 import com.fitwallet.domain.card.dto.CardUsageTierState;
-import com.fitwallet.domain.card.dto.CardUsageTierStructure;
-import com.fitwallet.domain.card.dto.CardUsageTierType;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
@@ -28,19 +24,11 @@ import com.fitwallet.domain.card.dto.response.CardEventCardResponse;
 import com.fitwallet.domain.card.dto.response.CardEventItemResponse;
 import com.fitwallet.domain.card.dto.response.CardEventResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryAmountResponse;
-import com.fitwallet.domain.card.dto.response.CardSummaryCardResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
-import com.fitwallet.domain.card.dto.response.CardSummaryTierResponse;
-import com.fitwallet.domain.card.dto.response.CardSummaryUsageResponse;
-import com.fitwallet.domain.card.dto.response.CardTransactionCardResponse;
-import com.fitwallet.domain.card.dto.response.CardTransactionCursorResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
-import com.fitwallet.domain.card.dto.response.CardTransactionSummaryResponse;
-import com.fitwallet.domain.card.dto.response.CardUsageCardResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryTransactionResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
-import com.fitwallet.domain.card.dto.response.CardUsageSummaryResponse;
-import com.fitwallet.domain.card.dto.response.CardUsageTierSummaryResponse;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.card.mapper.CardMapper;
 import com.fitwallet.global.exception.BusinessException;
@@ -49,14 +37,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.nio.charset.StandardCharsets;
 import java.time.Clock;
-import java.time.DateTimeException;
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.time.YearMonth;
-import java.util.ArrayList;
-import java.util.Base64;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -73,19 +55,13 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class DefaultCardService implements CardService {
 
-    private static final int DEFAULT_TRANSACTION_SIZE = 20;
-    private static final int MIN_TRANSACTION_SIZE = 1;
-    private static final int MAX_TRANSACTION_SIZE = 100;
-    private static final String CURSOR_DELIMITER = "|";
-
     private final CardMapper cardMapper;
     private final CardMonthlyPeriodResolver monthlyPeriodResolver;
     private final CardMonthlyBenefitPeriodResolver monthlyBenefitPeriodResolver;
     private final CardMonthlyBenefitCalculator monthlyBenefitCalculator;
-    private final CardUsageRuleNormalizer usageRuleNormalizer;
-    private final CardUsageTierIntegrator usageTierIntegrator;
-    private final CardUsageBenefitAllocator usageBenefitAllocator;
-    private final CardUsageTierStateCalculator usageTierStateCalculator;
+    private final CardTransactionProcessor cardTransactionProcessor;
+    private final CardSummaryAssembler cardSummaryAssembler;
+    private final CardUsageCalculator cardUsageCalculator;
     private final MyDataProvider myDataProvider;
     private final Clock clock;
 
@@ -116,8 +92,10 @@ public class DefaultCardService implements CardService {
         if (performanceAmounts == null || performanceAmounts.getRecognizedAmount() == null) {
             throw new BusinessException(CardErrorCode.INVALID_CARD_MONTHLY_BENEFIT_DATA);
         }
-        CardUsageCalculation performanceCalculation = calculateCardUsage(
-                card.getCardProductId(), performanceAmounts.getRecognizedAmount());
+        List<CardUsageBenefitRule> performanceRules =
+                cardMapper.findUsageBenefitRules(card.getCardProductId());
+        CardUsageTierState performanceTierState = cardUsageCalculator.calculateTierState(
+                card.getCardProductId(), performanceAmounts.getRecognizedAmount(), performanceRules);
 
         CardUsagePeriodCondition benefitCondition = CardUsagePeriodCondition.builder()
                 .startAt(period.getBenefitStartAt())
@@ -127,7 +105,7 @@ public class DefaultCardService implements CardService {
                 card,
                 period,
                 performanceAmounts.getRecognizedAmount(),
-                performanceCalculation.tierState,
+                performanceTierState,
                 cardMapper.findMonthlyBenefitRules(card.getCardProductId()),
                 cardMapper.findMonthlyBenefitCategoryTargets(card.getCardProductId()),
                 cardMapper.findMonthlyBenefitBrandTargets(card.getCardProductId()),
@@ -144,8 +122,17 @@ public class DefaultCardService implements CardService {
 
         LocalDate today = LocalDate.now(clock);
         CardMonthlyPeriod monthlyPeriod = monthlyPeriodResolver.resolve(null, card.getCardType());
-        CardSummaryAmountResponse amountSummary = createSummaryAmount(
-                userId, cardId, card, monthlyPeriod, today);
+        BigDecimal creditUsageAmount = null;
+        if (card.getCardType() == CardType.CREDIT) {
+            CardTransactionSearchCondition amountCondition = CardTransactionSearchCondition.builder()
+                    .startAt(monthlyPeriod.getStartAt())
+                    .endAt(monthlyPeriod.getEndAt())
+                    .build();
+            creditUsageAmount = cardMapper.sumTransactionAmount(
+                    userId, cardId, amountCondition);
+        }
+        CardSummaryAmountResponse amountSummary = cardSummaryAssembler.createAmount(
+                card, monthlyPeriod, today, creditUsageAmount);
 
         CardRecentTransactionSearchCondition recentCondition =
                 CardRecentTransactionSearchCondition.builder()
@@ -162,13 +149,11 @@ public class DefaultCardService implements CardService {
         CardUsageDetailResponse usageDetail = createCardUsageDetail(
                 userId, cardId, null, usageCard);
 
-        return CardSummaryResponse.builder()
-                .card(toSummaryCard(card))
-                .amountSummary(amountSummary)
-                .recentTransactions(cardMapper.findRecentTransactions(
-                        userId, cardId, recentCondition))
-                .usageSummary(toSummaryUsage(usageDetail))
-                .build();
+        List<CardSummaryTransactionResponse> recentTransactions =
+                cardMapper.findRecentTransactions(
+                        userId, cardId, recentCondition);
+        return cardSummaryAssembler.createResponse(
+                card, amountSummary, recentTransactions, usageDetail);
     }
 
     @Override
@@ -216,34 +201,13 @@ public class DefaultCardService implements CardService {
 
         CardMonthlyPeriod period = monthlyPeriodResolver.resolve(
                 request.getYearMonth(), card.getCardType());
-        YearMonth yearMonth = period.getYearMonth();
-        int requestedSize = resolveSize(request.getSize());
-
-        LocalDateTime startAt = period.getStartAt();
-        LocalDateTime endAt = period.getEndAt();
-        DecodedCursor cursor = decodeCursor(request.getCursor(), cardId, yearMonth, startAt, endAt);
-
-        CardTransactionSearchCondition condition = CardTransactionSearchCondition.builder()
-                .startAt(startAt)
-                .endAt(endAt)
-                .cursorPaidAt(cursor == null ? null : cursor.paidAt)
-                .cursorTransactionId(cursor == null ? null : cursor.transactionId)
-                .limit(requestedSize + 1)
-                .build();
-
-        CardTransactionSummaryResponse paymentSummary = createPaymentSummary(
-                userId, cardId, condition);
-        CardTransactionCursorResponse transactions = createCursorResponse(
-                cardId, yearMonth, requestedSize,
-                cardMapper.findTransactions(userId, cardId, condition));
-
-        return CardTransactionDetailResponse.builder()
-                .card(toCardResponse(card))
-                .yearMonth(yearMonth.toString())
-                .availableYearMonths(period.getAvailableYearMonths())
-                .paymentSummary(paymentSummary)
-                .transactions(transactions)
-                .build();
+        CardTransactionProcessor.PreparedTransactionQuery query =
+                cardTransactionProcessor.prepareQuery(cardId, request, period);
+        BigDecimal totalAmount = cardMapper.sumTransactionAmount(
+                userId, cardId, query.getSummaryCondition());
+        List<CardTransactionItemResponse> transactions = cardMapper.findTransactions(
+                userId, cardId, query.getPageCondition());
+        return cardTransactionProcessor.createResponse(card, query, totalAmount, transactions);
     }
 
     @Override
@@ -283,111 +247,9 @@ public class DefaultCardService implements CardService {
                     "카드 이용 실적 금액 집계 결과가 없습니다. cardId=" + cardId);
         }
 
-        CardUsageCalculation usageCalculation = calculateCardUsage(
-                card.getCardProductId(), amounts.getRecognizedAmount());
-        CardUsageTierStructure tierStructure = usageCalculation.tierStructure;
-        CardUsageBenefitAllocation benefitAllocation = usageCalculation.benefitAllocation;
-        CardUsageTierState tierState = usageCalculation.tierState;
-
-        return CardUsageDetailResponse.builder()
-                .card(CardUsageCardResponse.builder()
-                        .cardName(card.getCardName())
-                        .issuerName(card.getIssuerName())
-                        .build())
-                .yearMonth(period.getYearMonth().toString())
-                .availableYearMonths(period.getAvailableYearMonths())
-                .tierType(tierStructure.getTierType())
-                .performanceStatus(tierState.getPerformanceStatus())
-                .usageSummary(CardUsageSummaryResponse.builder()
-                        .recognizedAmount(amounts.getRecognizedAmount())
-                        .excludedAmount(amounts.getExcludedAmount())
-                        .build())
-                .currentTier(tierState.getCurrentTier())
-                .nextTier(tierState.getNextTier())
-                .amountUntilNextTier(tierState.getAmountUntilNextTier())
-                .tierProgressRate(tierState.getTierProgressRate())
-                .tiers(tierState.getTiers())
-                .defaultBenefits(benefitAllocation.getDefaultBenefits())
-                .build();
-    }
-
-    private CardUsageCalculation calculateCardUsage(
-            Long cardProductId,
-            BigDecimal recognizedAmount) {
-        CardUsageRuleSet ruleSet = usageRuleNormalizer.normalize(
-                cardProductId,
-                cardMapper.findUsageBenefitRules(cardProductId));
-        CardUsageTierStructure tierStructure = usageTierIntegrator.integrate(ruleSet);
-        CardUsageBenefitAllocation benefitAllocation = usageBenefitAllocator.allocate(
-                tierStructure, ruleSet.getBenefits());
-        CardUsageTierState tierState = usageTierStateCalculator.calculate(
-                recognizedAmount, tierStructure, benefitAllocation);
-        return new CardUsageCalculation(tierStructure, benefitAllocation, tierState);
-    }
-
-    private CardSummaryAmountResponse createSummaryAmount(
-            Long userId,
-            Long cardId,
-            CardSummaryCardInfo card,
-            CardMonthlyPeriod monthlyPeriod,
-            LocalDate today) {
-        if (card.getCardType() == CardType.CREDIT) {
-            CardTransactionSearchCondition condition = CardTransactionSearchCondition.builder()
-                    .startAt(monthlyPeriod.getStartAt())
-                    .endAt(monthlyPeriod.getEndAt())
-                    .build();
-            return CardSummaryAmountResponse.builder()
-                    .creditUsageAmount(cardMapper.sumTransactionAmount(
-                            userId, cardId, condition))
-                    .asOfDate(monthlyPeriod.getEndAt().toLocalDate().minusDays(1))
-                    .build();
-        }
-
-        if (card.getBalance() == null
-                || card.getBankName() == null
-                || card.getBankName().isBlank()) {
-            throw new BusinessException(CardErrorCode.INVALID_CARD_SUMMARY_DATA);
-        }
-        return CardSummaryAmountResponse.builder()
-                .balance(card.getBalance())
-                .bankName(card.getBankName())
-                .asOfDate(today)
-                .build();
-    }
-
-    private CardSummaryCardResponse toSummaryCard(CardSummaryCardInfo card) {
-        return CardSummaryCardResponse.builder()
-                .cardId(card.getCardId())
-                .cardProductId(card.getCardProductId())
-                .cardName(card.getCardName())
-                .issuerName(card.getIssuerName())
-                .cardImageUrl(card.getCardImageUrl())
-                .cardType(card.getCardType())
-                .build();
-    }
-
-    private CardSummaryUsageResponse toSummaryUsage(CardUsageDetailResponse usage) {
-        boolean noRequirement = usage.getTierType() == CardUsageTierType.NO_REQUIREMENT;
-        return CardSummaryUsageResponse.builder()
-                .yearMonth(usage.getYearMonth())
-                .tierType(usage.getTierType())
-                .performanceStatus(usage.getPerformanceStatus())
-                .recognizedAmount(noRequirement
-                        ? null : usage.getUsageSummary().getRecognizedAmount())
-                .currentTier(toSummaryTier(usage.getCurrentTier()))
-                .nextTier(toSummaryTier(usage.getNextTier()))
-                .amountUntilNextTier(usage.getAmountUntilNextTier())
-                .tierProgressRate(usage.getTierProgressRate())
-                .build();
-    }
-
-    private CardSummaryTierResponse toSummaryTier(CardUsageTierSummaryResponse tier) {
-        if (tier == null) {
-            return null;
-        }
-        return CardSummaryTierResponse.builder()
-                .tierName(tier.getTierName())
-                .build();
+        List<CardUsageBenefitRule> rules =
+                cardMapper.findUsageBenefitRules(card.getCardProductId());
+        return cardUsageCalculator.calculateDetail(card, period, amounts, rules);
     }
 
     /**
@@ -412,140 +274,6 @@ public class DefaultCardService implements CardService {
         }
 
         return cardMapper.findByUserIdAndCardProductId(userId, request.getCardProductId());
-    }
-
-    private int resolveSize(Integer requestedSize) {
-        if (requestedSize == null) {
-            return DEFAULT_TRANSACTION_SIZE;
-        }
-        if (requestedSize < MIN_TRANSACTION_SIZE || requestedSize > MAX_TRANSACTION_SIZE) {
-            throw new BusinessException(CardErrorCode.INVALID_TRANSACTION_PAGE_SIZE);
-        }
-        return requestedSize;
-    }
-
-    private CardTransactionSummaryResponse createPaymentSummary(
-            Long userId,
-            Long cardId,
-            CardTransactionSearchCondition condition) {
-        return CardTransactionSummaryResponse.builder()
-                .summaryType(CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT)
-                .amount(cardMapper.sumTransactionAmount(userId, cardId, condition))
-                .build();
-    }
-
-    private CardTransactionCursorResponse createCursorResponse(
-            Long cardId,
-            YearMonth yearMonth,
-            int requestedSize,
-            List<CardTransactionItemResponse> fetchedTransactions) {
-        boolean hasNext = fetchedTransactions.size() > requestedSize;
-        int contentSize = Math.min(fetchedTransactions.size(), requestedSize);
-        List<CardTransactionItemResponse> content =
-                new ArrayList<>(fetchedTransactions.subList(0, contentSize));
-
-        String nextCursor = null;
-        if (hasNext) {
-            CardTransactionItemResponse lastTransaction = content.get(content.size() - 1);
-            nextCursor = encodeCursor(cardId, yearMonth, lastTransaction);
-        }
-
-        return CardTransactionCursorResponse.builder()
-                .content(content)
-                .size(content.size())
-                .hasNext(hasNext)
-                .nextCursor(nextCursor)
-                .build();
-    }
-
-    private CardTransactionCardResponse toCardResponse(CardTransactionCardInfo card) {
-        return CardTransactionCardResponse.builder()
-                .cardId(card.getCardId())
-                .cardProductId(card.getCardProductId())
-                .cardName(card.getCardName())
-                .issuerName(card.getIssuerName())
-                .cardImageUrl(card.getCardImageUrl())
-                .cardType(card.getCardType())
-                .maskedRearNumber(card.getMaskedRearNumber())
-                .build();
-    }
-
-    private DecodedCursor decodeCursor(
-            String encodedCursor,
-            Long requestedCardId,
-            YearMonth requestedYearMonth,
-            LocalDateTime startAt,
-            LocalDateTime endAt) {
-        if (encodedCursor == null) {
-            return null;
-        }
-
-        try {
-            String rawCursor = new String(
-                    Base64.getUrlDecoder().decode(encodedCursor), StandardCharsets.UTF_8);
-            String[] values = rawCursor.split("\\|", -1);
-            if (values.length != 4) {
-                throw new IllegalArgumentException();
-            }
-
-            Long cardId = Long.valueOf(values[0]);
-            YearMonth yearMonth = YearMonth.parse(values[1]);
-            LocalDateTime paidAt = LocalDateTime.parse(values[2]);
-            Long transactionId = Long.valueOf(values[3]);
-
-            if (!requestedCardId.equals(cardId)
-                    || !requestedYearMonth.equals(yearMonth)
-                    || transactionId <= 0
-                    || paidAt.isBefore(startAt)
-                    || !paidAt.isBefore(endAt)) {
-                throw new IllegalArgumentException();
-            }
-            return new DecodedCursor(paidAt, transactionId);
-        } catch (IllegalArgumentException | DateTimeException exception) {
-            throw new BusinessException(CardErrorCode.INVALID_TRANSACTION_CURSOR);
-        }
-    }
-
-    private String encodeCursor(
-            Long cardId,
-            YearMonth yearMonth,
-            CardTransactionItemResponse transaction) {
-        String rawCursor = String.join(
-                CURSOR_DELIMITER,
-                cardId.toString(),
-                yearMonth.toString(),
-                transaction.getPaidAt().toString(),
-                transaction.getTransactionId().toString());
-        return Base64.getUrlEncoder()
-                .withoutPadding()
-                .encodeToString(rawCursor.getBytes(StandardCharsets.UTF_8));
-    }
-
-    private static final class DecodedCursor {
-
-        private final LocalDateTime paidAt;
-        private final Long transactionId;
-
-        private DecodedCursor(LocalDateTime paidAt, Long transactionId) {
-            this.paidAt = paidAt;
-            this.transactionId = transactionId;
-        }
-    }
-
-    private static final class CardUsageCalculation {
-
-        private final CardUsageTierStructure tierStructure;
-        private final CardUsageBenefitAllocation benefitAllocation;
-        private final CardUsageTierState tierState;
-
-        private CardUsageCalculation(
-                CardUsageTierStructure tierStructure,
-                CardUsageBenefitAllocation benefitAllocation,
-                CardUsageTierState tierState) {
-            this.tierStructure = tierStructure;
-            this.benefitAllocation = benefitAllocation;
-            this.tierState = tierState;
-        }
     }
 
     /**

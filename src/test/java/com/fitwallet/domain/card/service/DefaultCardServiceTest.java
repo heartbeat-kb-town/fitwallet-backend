@@ -37,6 +37,7 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.mockito.stubbing.Answer;
@@ -66,6 +67,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willAnswer;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.inOrder;
 
 /**
  * Service 단위 테스트. Mapper를 목킹하므로 DB가 필요 없다.
@@ -91,15 +93,30 @@ class DefaultCardServiceTest {
                 ZoneId.of("Asia/Seoul"));
         CardBenefitValueLabelFormatter benefitValueLabelFormatter =
                 new CardBenefitValueLabelFormatter();
+        CardUsageRuleNormalizer usageRuleNormalizer = new CardUsageRuleNormalizer();
+        CardUsageTierIntegrator usageTierIntegrator = new CardUsageTierIntegrator();
+        CardUsageBenefitAllocator usageBenefitAllocator =
+                new CardUsageBenefitAllocator(benefitValueLabelFormatter);
+        CardUsageTierStateCalculator usageTierStateCalculator =
+                new CardUsageTierStateCalculator();
+        CardMonthlyBenefitUsageCalculator monthlyBenefitUsageCalculator =
+                new CardMonthlyBenefitUsageCalculator();
         cardService = new DefaultCardService(
                 cardMapper,
                 new CardMonthlyPeriodResolver(clock),
                 new CardMonthlyBenefitPeriodResolver(clock),
-                new CardMonthlyBenefitCalculator(benefitValueLabelFormatter),
-                new CardUsageRuleNormalizer(),
-                new CardUsageTierIntegrator(),
-                new CardUsageBenefitAllocator(benefitValueLabelFormatter),
-                new CardUsageTierStateCalculator(),
+                new CardMonthlyBenefitCalculator(
+                        monthlyBenefitUsageCalculator,
+                        new CardMonthlyBenefitItemAssembler(
+                                monthlyBenefitUsageCalculator,
+                                benefitValueLabelFormatter)),
+                new CardTransactionProcessor(),
+                new CardSummaryAssembler(),
+                new CardUsageCalculator(
+                        usageRuleNormalizer,
+                        usageTierIntegrator,
+                        usageBenefitAllocator,
+                        usageTierStateCalculator),
                 myDataProvider,
                 clock);
     }
@@ -225,7 +242,6 @@ class DefaultCardServiceTest {
         given(cardMapper.findUsageAmounts(eq(1L), eq(2L), any()))
                 .willReturn(CardUsageAmountSummary.builder()
                         .recognizedAmount(new BigDecimal("317300"))
-                        .excludedAmount(BigDecimal.ZERO)
                         .build());
         given(cardMapper.findUsageBenefitRules(15L)).willReturn(List.of(
                 CardUsageBenefitRule.builder()
@@ -334,6 +350,13 @@ class DefaultCardServiceTest {
                 .isEqualTo(LocalDateTime.of(2026, 7, 23, 0, 0));
         assertThat(recentCaptor.getValue().getEndAt())
                 .isEqualTo(LocalDateTime.of(2026, 7, 25, 0, 0));
+
+        InOrder order = inOrder(cardMapper);
+        order.verify(cardMapper).findSummaryCardInfo(1L, 10L);
+        order.verify(cardMapper).sumTransactionAmount(eq(1L), eq(10L), any());
+        order.verify(cardMapper).findUsageAmounts(eq(1L), eq(10L), any());
+        order.verify(cardMapper).findUsageBenefitRules(20L);
+        order.verify(cardMapper).findRecentTransactions(eq(1L), eq(10L), any());
     }
 
     @Test
@@ -455,7 +478,9 @@ class DefaultCardServiceTest {
         then(cardMapper).should().sumTransactionAmount(eq(1L), eq(10L), captor.capture());
         assertThat(captor.getValue().getEndAt())
                 .isEqualTo(LocalDateTime.of(2026, 7, 25, 0, 0));
-        assertThat(captor.getValue().getLimit()).isEqualTo(11);
+        assertThat(captor.getValue().getCursorPaidAt()).isNull();
+        assertThat(captor.getValue().getCursorTransactionId()).isNull();
+        assertThat(captor.getValue().getLimit()).isNull();
     }
 
     @Test
@@ -685,6 +710,35 @@ class DefaultCardServiceTest {
                 .extracting("errorCode").isEqualTo(CardErrorCode.CARD_NOT_FOUND);
         then(cardMapper).should(never()).findUsageAmounts(any(), any(), any());
         then(cardMapper).should(never()).findUsageBenefitRules(any());
+    }
+
+    @Test
+    void 이용실적_금액집계가_없으면_기존예외를_던지고_규칙을_조회하지_않는다() {
+        given(cardMapper.findUsageCardInfo(1L, 5L)).willReturn(CardUsageCardInfo.builder()
+                .cardProductId(43L).cardType(CardType.DEBIT).build());
+        given(cardMapper.findUsageAmounts(eq(1L), eq(5L), any())).willReturn(null);
+
+        assertThatThrownBy(() -> cardService.getCardUsage(1L, 5L, new CardUsageSearchRequest()))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("카드 이용 실적 금액 집계 결과가 없습니다. cardId=5");
+        then(cardMapper).should(never()).findUsageBenefitRules(any());
+    }
+
+    @Test
+    void 카드요약_이용실적집계가_잘못되면_규칙과_최근거래를_조회하지_않는다() {
+        given(cardMapper.findSummaryCardInfo(1L, 10L)).willReturn(
+                CardSummaryCardInfo.builder()
+                        .cardId(10L).cardProductId(20L).cardType(CardType.DEBIT)
+                        .bankName("KB국민은행").balance(BigDecimal.ZERO).build());
+        given(cardMapper.findUsageAmounts(eq(1L), eq(10L), any()))
+                .willReturn(CardUsageAmountSummary.builder()
+                        .recognizedAmount(BigDecimal.ZERO).build());
+
+        assertThatThrownBy(() -> cardService.findCardSummary(1L, 10L))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("카드 이용 실적 금액 집계 결과가 없습니다. cardId=10");
+        then(cardMapper).should(never()).findUsageBenefitRules(any());
+        then(cardMapper).should(never()).findRecentTransactions(any(), any(), any());
     }
 
     private CardRegisterRequest registerRequest() {
