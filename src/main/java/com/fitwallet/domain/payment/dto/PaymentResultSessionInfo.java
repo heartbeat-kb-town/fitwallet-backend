@@ -19,5 +19,6 @@ public class PaymentResultSessionInfo {
     private BigDecimal amount;
     private Long userCardId;
     private LocalDateTime updatedAt;
+    private LocalDateTime expiresAt;
     private String failReason;
 }

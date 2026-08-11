@@ -586,4 +586,73 @@ class DefaultPaymentServiceTest {
         then(paymentMapper).should(never())
                 .insertScannedPaymentSession(any(), any(), any(), any(), any(), any());
     }
+
+    // 결제 승인 요청 (MPM)
+
+    @Test
+    void 존재하지_않는_paymentId로_승인_요청하면_PAYMENT_NOT_FOUND_예외를_던진다() {
+        given(paymentMapper.findSessionByPaymentId(1L, "pay_unknown")).willReturn(null);
+
+        assertThatThrownBy(() -> paymentService.approvePayment(1L, "pay_unknown"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(PaymentErrorCode.PAYMENT_NOT_FOUND);
+    }
+
+    @Test
+    void 이미_COMPLETED된_결제를_다시_승인요청하면_기존_결과를_그대로_반환한다() {
+        given(paymentMapper.findSessionByPaymentId(1L, "pay_abc")).willReturn(
+                PaymentResultSessionInfo.builder()
+                        .paymentSessionId(10L)
+                        .status(PaymentSessionStatus.COMPLETED)
+                        .build());
+        given(paymentMapper.findPaymentResultBySessionId(10L)).willReturn(
+                PaymentResultResponse.builder()
+                        .paymentId("pay_abc")
+                        .status(PaymentSessionStatus.COMPLETED)
+                        .storeName("스타벅스 세종대점")
+                        .build());
+
+        PaymentApproveResult result = paymentService.approvePayment(1L, "pay_abc");
+
+        assertThat(result.isAlreadyProcessed()).isTrue();
+        assertThat(result.getResponse().getStatus()).isEqualTo(PaymentSessionStatus.COMPLETED);
+        assertThat(result.getResponse().getStoreName()).isEqualTo("스타벅스 세종대점");
+        then(paymentMapper).should(never()).markSessionCompleted(any());
+        then(paymentMapper).should(never())
+                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 이미_FAILED된_결제를_다시_승인요청하면_저장된_실패사유를_그대로_반환한다() {
+        given(paymentMapper.findSessionByPaymentId(1L, "pay_abc")).willReturn(
+                PaymentResultSessionInfo.builder()
+                        .status(PaymentSessionStatus.FAILED)
+                        .failReason("MOCK_RANDOM_DECLINE")
+                        .build());
+
+        PaymentApproveResult result = paymentService.approvePayment(1L, "pay_abc");
+
+        assertThat(result.isAlreadyProcessed()).isFalse();
+        assertThat(result.getResponse().getStatus()).isEqualTo(PaymentSessionStatus.FAILED);
+        assertThat(result.getResponse().getFailReason()).isEqualTo("MOCK_RANDOM_DECLINE");
+        then(paymentMapper).should(never()).markSessionFailed(any());
+    }
+
+    @Test
+    void 세션이_만료됐으면_PAYMENT_SESSION_EXPIRED_예외를_던진다() {
+        given(paymentMapper.findSessionByPaymentId(1L, "pay_abc")).willReturn(
+                PaymentResultSessionInfo.builder()
+                        .status(PaymentSessionStatus.SCANNED)
+                        .expiresAt(LocalDateTime.now().minusSeconds(1))
+                        .build());
+
+        assertThatThrownBy(() -> paymentService.approvePayment(1L, "pay_abc"))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(PaymentErrorCode.PAYMENT_SESSION_EXPIRED);
+
+        then(paymentMapper).should(never()).markSessionFailed(any());
+        then(paymentMapper).should(never()).markSessionCompleted(any());
+    }
 }
