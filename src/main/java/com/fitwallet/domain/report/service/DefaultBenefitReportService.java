@@ -61,13 +61,7 @@ public class DefaultBenefitReportService implements BenefitReportService {
                     continue;
                 }
 
-                BigDecimal benefit = category.getSpendAmount()
-                        .multiply(card.getDiscountRate())
-                        .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP);
-
-                if (card.getLimitValue() != null && benefit.compareTo(card.getLimitValue()) > 0) {
-                    benefit = card.getLimitValue();
-                }
+                BigDecimal benefit = calculateExpectedBenefit(category, card);
 
                 BigDecimal existing = expectedBenefitByCard.get(card.getCardProductId());
                 if (existing == null) {
@@ -98,23 +92,79 @@ public class DefaultBenefitReportService implements BenefitReportService {
         return recommendations;
     }
 
+    /**
+     * 카드의 예상 혜택을 원화로 계산한다.
+     * - RATE: 지출액 × 요율 / 100, FIXED: value_number 그대로
+     * - point_currency_id가 있으면(포인트 적립) krw_per_point를 곱해 원화로 환산
+     * - 한도(limit_value)도 limit_basis가 POINT면 같이 환산해서 비교
+     */
+    private BigDecimal calculateExpectedBenefit(CategorySpendResponse category, CardRecommendationRawResponse card) {
+        BigDecimal raw = "RATE".equals(card.getValueType())
+                ? category.getSpendAmount()
+                .multiply(card.getDiscountRate())
+                .divide(BigDecimal.valueOf(100), 2, RoundingMode.HALF_UP)
+                : card.getDiscountRate();
+
+        BigDecimal benefit = card.getPointCurrencyId() != null
+                ? raw.multiply(card.getKrwPerPoint())
+                : raw;
+
+        if (card.getLimitValue() != null) {
+            BigDecimal limitInWon = ("POINT".equals(card.getLimitBasis()) && card.getPointCurrencyId() != null)
+                    ? card.getLimitValue().multiply(card.getKrwPerPoint())
+                    : card.getLimitValue();
+            if (benefit.compareTo(limitInWon) > 0) {
+                benefit = limitInWon;
+            }
+        }
+
+        return benefit;
+    }
+
     private CardRecommendationResponse toCardRecommendationResponse(
             Map.Entry<Long, BigDecimal> entry,
             Map<Long, CardRecommendationRawResponse> cardInfoMap
     ) {
         CardRecommendationRawResponse info = cardInfoMap.get(entry.getKey());
-        String description = String.format("%s %s%% 할인, 전월 실적 %,d원 이상, 월 최대 %,d원 한도",
-                info.getCategoryName(),
-                info.getDiscountRate().stripTrailingZeros().toPlainString(),
-                info.getMinPrevMonthSpend().intValue(),
-                info.getLimitValue().intValue());
 
         return CardRecommendationResponse.builder()
                 .cardProductId(info.getCardProductId())
                 .cardName(info.getCardName())
                 .cardImageUrl(info.getCardImageUrl())
                 .expectedBenefit(entry.getValue())
-                .description(description)
+                .description(buildDescription(info))
                 .build();
+    }
+
+    /**
+     * 카드 추천 카드에 붙는 설명 문구.
+     * - RATE는 "%할인/적립", FIXED는 "N원/N포인트 적립"으로 구분
+     * - 전월실적 조건은 0원(조건 없음)이면 문구에서 생략
+     * - 한도(limit_value)는 benefit_tier/benefit_limit이 없는 혜택이면 null일 수 있어 있을 때만 표기,
+     *   포인트 기준 한도(limit_basis=POINT)면 "포인트"로 단위 표기
+     */
+    private String buildDescription(CardRecommendationRawResponse info) {
+        StringBuilder description = new StringBuilder();
+        description.append(info.getCategoryName()).append(" ");
+
+        boolean isPoint = info.getPointCurrencyId() != null;
+        if ("RATE".equals(info.getValueType())) {
+            description.append(info.getDiscountRate().stripTrailingZeros().toPlainString())
+                    .append(isPoint ? "% 적립" : "% 할인");
+        } else {
+            description.append(String.format("%,d%s", info.getDiscountRate().intValue(), isPoint ? "포인트" : "원"))
+                    .append(isPoint ? " 적립" : " 할인");
+        }
+
+        if (info.getMinPrevMonthSpend() != null && info.getMinPrevMonthSpend().compareTo(BigDecimal.ZERO) > 0) {
+            description.append(String.format(", 전월 실적 %,d원 이상", info.getMinPrevMonthSpend().intValue()));
+        }
+
+        if (info.getLimitValue() != null) {
+            String unit = "POINT".equals(info.getLimitBasis()) ? "포인트" : "원";
+            description.append(String.format(", 월 최대 %,d%s 한도", info.getLimitValue().intValue(), unit));
+        }
+
+        return description.toString();
     }
 }
