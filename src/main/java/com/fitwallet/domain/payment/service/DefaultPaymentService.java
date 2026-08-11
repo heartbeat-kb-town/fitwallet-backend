@@ -286,7 +286,7 @@ public class DefaultPaymentService implements PaymentService {
                 ? amount.multiply(info.getValueNumber()).divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN) //정률일때 amount × valueNumber ÷ 100
                 : info.getValueNumber(); //정액일때는 그대로
 
-        BigDecimal capped = info.getPerTxLimitAmount() != null ? raw.min(info.getPerTxLimitAmount()) : raw;
+        BigDecimal capped = info.getPerTxLimitValue() != null ? raw.min(info.getPerTxLimitValue()) : raw;
         return capped.min(amount);
     }
 }

@@ -89,6 +89,13 @@
         <result column="excluded_amount" property="excludedAmount"/>
     </resultMap>
 
+    <!--
+        benefit_service 쪽 전월실적 구간에 AS 별칭을 붙인다(§6의 "AS를 수동으로 붙이지 않는다"에
+        대한 의도된 예외). v27에서 benefit_service의 min/max_payment_amount가
+        min/max_prev_month_spend로 개명되면서 benefit_tier의 같은 이름 컬럼과 충돌하게 됐다.
+        별칭 없이 두면 결과셋에 같은 라벨이 두 번 나와 MyBatis가 앞의 것(bs)만 집고,
+        tier 경계값이 서비스 값으로 조용히 덮인다 — 예외 없이 계산 결과만 틀어진다.
+    -->
     <resultMap id="cardUsageBenefitRuleMap"
                type="com.fitwallet.domain.card.dto.CardUsageBenefitRule">
         <result column="service_id" property="benefitId"/>
@@ -97,8 +104,8 @@
         <result column="benefit_type" property="benefitType"/>
         <result column="value_type" property="valueType"/>
         <result column="value_number" property="valueNumber"/>
-        <result column="min_payment_amount" property="benefitMinimumAmount"/>
-        <result column="max_payment_amount" property="benefitMaximumAmount"/>
+        <result column="benefit_min_prev_month_spend" property="benefitMinimumAmount"/>
+        <result column="benefit_max_prev_month_spend" property="benefitMaximumAmount"/>
         <result column="currency_name" property="pointCurrencyName"/>
         <result column="tier_id" property="sourceTierId"/>
         <result column="tier_order" property="sourceTierOrder"/>
@@ -114,9 +121,10 @@
         <result column="value_type" property="valueType"/>
         <result column="value_number" property="valueNumber"/>
         <result column="scope_type" property="scopeType"/>
-        <result column="min_payment_amount" property="benefitMinimumAmount"/>
-        <result column="max_payment_amount" property="benefitMaximumAmount"/>
-        <result column="per_tx_limit_amount" property="perTransactionLimitAmount"/>
+        <!-- 별칭 이유는 위 cardUsageBenefitRuleMap 주석 참고 -->
+        <result column="benefit_min_prev_month_spend" property="benefitMinimumAmount"/>
+        <result column="benefit_max_prev_month_spend" property="benefitMaximumAmount"/>
+        <result column="per_tx_limit_value" property="perTransactionLimitAmount"/>
         <result column="currency_name" property="pointCurrencyName"/>
         <result column="krw_per_point" property="krwPerPoint"/>
         <result column="tier_id" property="tierId"/>
@@ -292,8 +300,8 @@
                bs.benefit_type,
                bs.value_type,
                bs.value_number,
-               bs.min_payment_amount,
-               bs.max_payment_amount,
+               bs.min_prev_month_spend AS benefit_min_prev_month_spend,
+               bs.max_prev_month_spend AS benefit_max_prev_month_spend,
                pc.currency_name,
                bt.tier_id,
                bt.tier_order,
@@ -324,9 +332,9 @@
                bs.value_type,
                bs.value_number,
                bs.scope_type,
-               bs.min_payment_amount,
-               bs.max_payment_amount,
-               bs.per_tx_limit_amount,
+               bs.min_prev_month_spend AS benefit_min_prev_month_spend,
+               bs.max_prev_month_spend AS benefit_max_prev_month_spend,
+               bs.per_tx_limit_value,
                pc.currency_name,
                pc.krw_per_point,
                bt.tier_id,

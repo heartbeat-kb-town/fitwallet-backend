@@ -102,7 +102,7 @@
     </update>
 
     <select id="findBenefitAmountInfo" resultType="com.fitwallet.domain.payment.dto.BenefitAmountInfo">
-        SELECT value_type, value_number, per_tx_limit_amount
+        SELECT value_type, value_number, per_tx_limit_value
         FROM benefit_service
         WHERE service_id = #{serviceId}
     </select>

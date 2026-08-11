@@ -52,8 +52,8 @@
     <select id="findCandidates" resultType="com.fitwallet.domain.benefit.dto.response.BenefitCandidateResponse">
         SELECT bs.service_id, bs.plan_group_id, bs.benefit_name, bs.benefit_type,
                bs.value_type, bs.value_number, pc.currency_name, pc.krw_per_point,
-               (bs.min_payment_amount &lt;= #{prevMonthSpend}
-                   AND (bs.max_payment_amount IS NULL OR #{prevMonthSpend} &lt; bs.max_payment_amount)) AS tier_ok
+               (bs.min_prev_month_spend &lt;= #{prevMonthSpend}
+                   AND (bs.max_prev_month_spend IS NULL OR #{prevMonthSpend} &lt; bs.max_prev_month_spend)) AS tier_ok
         FROM benefit_service bs
                  LEFT JOIN point_currency pc ON pc.point_currency_id = bs.point_currency_id
         WHERE bs.card_product_id = #{cardProductId}
