@@ -11,6 +11,7 @@ import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
 import com.fitwallet.domain.card.dto.CardUsageCardInfo;
 import com.fitwallet.domain.card.dto.CardUsageTierState;
 import com.fitwallet.domain.card.dto.MyDataCard;
+import com.fitwallet.domain.card.dto.request.CardDisplayOrderUpdateRequest;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardRecentTransactionSearchCondition;
@@ -40,8 +41,10 @@ import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * {@code @Transactional}은 인터페이스가 아니라 여기, 구현체 메서드에 붙인다.
@@ -311,5 +314,32 @@ public class DefaultCardService implements CardService {
                 cardMapper.insertMyDataTransactions(userCardId, card.getTransactions());
             }
         }
+    }
+
+    /**
+     * 보유 카드 표시 순서를 변경한다.
+     * <p>
+     * 요청 목록이 보유 카드(삭제되지 않은 것) 전체와 정확히 일치해야 한다 — 개수가 다르거나
+     * (일부 누락·중복), 남의 카드나 삭제된 카드 ID가 섞였으면 거부한다. 일부만 반영하면
+     * 나머지 카드의 순서가 정의되지 않은 채로 남기 때문이다.
+     */
+    @Override
+    @Transactional
+    public void updateCardsDisplayOrder(Long userId, CardDisplayOrderUpdateRequest request) {
+        List<Long> requestedIds = request.getUserCardIds();
+        Set<Long> requestedIdSet = new HashSet<>(requestedIds);
+        Set<Long> ownedIdSet = new HashSet<>(cardMapper.findUserCardIds(userId));
+
+        if (requestedIds.size() != requestedIdSet.size() || !requestedIdSet.equals(ownedIdSet)) {
+            throw new BusinessException(CardErrorCode.INVALID_CARD_DISPLAY_ORDER);
+        }
+
+        // 빈 리스트면 매퍼를 안 태운다. XML의 foreach가 분기 없는 CASE와 빈 IN()을 만들어
+        // MySQL 문법 오류가 난다 — 카드가 없는 사용자의 정상적인 no-op 요청이라 여기서 막는다.
+        if (requestedIds.isEmpty()) {
+            return;
+        }
+
+        cardMapper.updateCardsDisplayOrder(userId, requestedIds);
     }
 }

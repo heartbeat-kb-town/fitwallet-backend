@@ -154,4 +154,14 @@ public interface CardMapper {
     /** 마이데이터로 받아온 거래내역을 한 카드에 일괄 저장한다. */
     void insertMyDataTransactions(@Param("userCardId") Long userCardId,
                                   @Param("transactions") List<MyDataTransaction> transactions);
+
+    /** 살아 있는 보유 카드의 ID만 조회한다. 순서 변경 요청이 보유 카드 전체와 일치하는지 검증할 때 쓴다. */
+    List<Long> findUserCardIds(@Param("userId") Long userId);
+
+    /**
+     * 표시 순서를 일괄 갱신한다. 리스트의 인덱스(0-based)가 곧 새 {@code display_order}(1-based)다.
+     * 반환값은 영향받은 행 수 — 보통 {@code userCardIds} 크기와 같다.
+     */
+    int updateCardsDisplayOrder(@Param("userId") Long userId,
+                                @Param("userCardIds") List<Long> userCardIds);
 }

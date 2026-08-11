@@ -20,7 +20,8 @@ public enum CardErrorCode implements ErrorCode {
     INVALID_CARD_SUMMARY_DATA(HttpStatus.INTERNAL_SERVER_ERROR, "카드 요약 데이터가 올바르지 않습니다."),
     INVALID_CARD_MONTHLY_BENEFIT_DATA(HttpStatus.INTERNAL_SERVER_ERROR,
             "카드 월간 혜택 데이터가 올바르지 않습니다."),
-    CARD_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록된 카드입니다.");
+    CARD_ALREADY_REGISTERED(HttpStatus.CONFLICT, "이미 등록된 카드입니다."),
+    INVALID_CARD_DISPLAY_ORDER(HttpStatus.BAD_REQUEST, "요청한 카드 목록이 보유 카드와 일치하지 않습니다.");
 
     private final HttpStatus status;
     private final String message;

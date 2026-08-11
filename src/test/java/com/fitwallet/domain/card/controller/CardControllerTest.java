@@ -5,6 +5,7 @@ import com.fitwallet.domain.card.dto.CardListSortType;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
 import com.fitwallet.domain.card.dto.CardUsageTierType;
+import com.fitwallet.domain.card.dto.request.CardDisplayOrderUpdateRequest;
 import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
@@ -42,6 +43,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
 import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
@@ -55,7 +57,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -383,6 +387,40 @@ class CardControllerTest {
 
         then(cardService).should().getCardUsage(eq(1L), eq(5L), captor.capture());
         assertThat(captor.getValue().getYearMonth()).isEqualTo("2026-06");
+    }
+
+    @Test
+    void 카드_순서_변경은_요청_바디를_서비스에_전달하고_200과_CARD_DISPLAY_ORDER_UPDATED를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+
+        mockMvc.perform(patch("/api/user-cards/display-order")
+                        .header("Authorization", "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userCardIds\":[3,1,2]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("CARD_DISPLAY_ORDER_UPDATED"))
+                .andExpect(jsonPath("$.message").value("카드 표시 순서를 수정했습니다."));
+
+        ArgumentCaptor<CardDisplayOrderUpdateRequest> captor =
+                ArgumentCaptor.forClass(CardDisplayOrderUpdateRequest.class);
+        then(cardService).should().updateCardsDisplayOrder(eq(1L), captor.capture());
+        assertThat(captor.getValue().getUserCardIds()).containsExactly(3L, 1L, 2L);
+    }
+
+    @Test
+    void 카드_순서_변경시_userCardIds가_없으면_400과_INVALID_INPUT_VALUE를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+
+        mockMvc.perform(patch("/api/user-cards/display-order")
+                        .header("Authorization", "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT_VALUE"));
+
+        then(cardService).shouldHaveNoInteractions();
     }
 
     private CardTransactionDetailResponse transactionResponse() {
