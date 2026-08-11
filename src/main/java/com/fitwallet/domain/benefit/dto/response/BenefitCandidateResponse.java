@@ -42,4 +42,21 @@ public class BenefitCandidateResponse {
 
     /** 전월실적이 이 혜택의 구간(min~max)을 통과했는지 여부. */
     private Boolean tierOk;
+
+    /**
+     * 건당 최소 이용금액. 이번 결제 1건이 이 금액 미만이면 혜택이 아예 발생하지 않는다.
+     * "조건 없음"은 {@code null}이 아니라 {@code 0}이다.
+     * <p>
+     * ⚠️ 이름이 비슷한 {@code min_payment_amount}는 <b>전월실적</b> 하한이라 축이 다르다.
+     * 이쪽만 "이번 결제 1건"을 본다.
+     */
+    private BigDecimal minTxAmount;
+
+    /**
+     * 건당 혜택 캡(원화). {@code null}이면 캡이 없다.
+     * <p>
+     * 건당 캡의 정본은 이 컬럼이다 — {@code benefit_limit}에도
+     * {@code limit_period='PER_TRANSACTION'}으로 표현할 자리가 있지만 시드에 0건이라 쓰지 않는다.
+     */
+    private BigDecimal perTxLimitAmount;
 }

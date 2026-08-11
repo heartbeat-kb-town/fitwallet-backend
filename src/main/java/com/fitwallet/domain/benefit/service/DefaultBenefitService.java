@@ -69,11 +69,13 @@ public class DefaultBenefitService implements BenefitService {
                     .thenComparing(BenefitCandidateResponse::getServiceId);
 
     private final BenefitMapper benefitMapper;
+    private final BenefitAmountCalculator benefitAmountCalculator;
 
     @Override
     @Transactional(readOnly = true)
-    public ExpectedBenefitResponse findExpectedBenefits(Long userId, String storeId) {
+    public ExpectedBenefitResponse findExpectedBenefits(Long userId, String storeId, String amount) {
         Long resolvedStoreId = resolveStoreId(storeId);
+        BigDecimal resolvedAmount = resolveAmount(amount);
 
         BenefitStoreResponse store = benefitMapper.findStore(resolvedStoreId);
         if (store == null) {
@@ -96,7 +98,7 @@ public class DefaultBenefitService implements BenefitService {
 
         List<CardBenefitResponse> cards = userCards.stream()
                 .map(card -> evaluateCard(card, store,
-                        prevMonthSpends.getOrDefault(card.getUserCardId(), BigDecimal.ZERO)))
+                        prevMonthSpends.getOrDefault(card.getUserCardId(), BigDecimal.ZERO), resolvedAmount))
                 .collect(Collectors.toList());
 
         sortByStatusGroup(cards);
@@ -119,6 +121,28 @@ public class DefaultBenefitService implements BenefitService {
         }
     }
 
+    /**
+     * 결제 예정 금액. 컨트롤러가 {@code String}으로 넘긴 값을 여기서 파싱한다.
+     * <p>
+     * 값이 없으면({@code null}·공백) <b>금액을 모르는 조회</b>로 보고 {@code null}을 돌려준다 —
+     * 홈 화면이 가맹점만 알고 금액을 모르는 시점에 이렇게 부른다. 에러가 아니다.
+     */
+    private BigDecimal resolveAmount(String amount) {
+        if (amount == null || amount.isBlank()) {
+            return null;
+        }
+        BigDecimal parsed;
+        try {
+            parsed = new BigDecimal(amount.trim());
+        } catch (NumberFormatException e) {
+            throw new BusinessException(BenefitErrorCode.AMOUNT_INVALID);
+        }
+        if (parsed.compareTo(BigDecimal.ZERO) <= 0) {
+            throw new BusinessException(BenefitErrorCode.AMOUNT_INVALID);
+        }
+        return parsed;
+    }
+
     private ExpectedBenefitStoreResponse toStoreResponse(BenefitStoreResponse store) {
         return ExpectedBenefitStoreResponse.builder()
                 .storeId(store.getStoreId())
@@ -134,7 +158,7 @@ public class DefaultBenefitService implements BenefitService {
     }
 
     private CardBenefitResponse evaluateCard(BenefitUserCardResponse card, BenefitStoreResponse store,
-                                              BigDecimal prevMonthSpend) {
+                                              BigDecimal prevMonthSpend, BigDecimal amount) {
         List<BenefitCandidateResponse> candidates = benefitMapper.findCandidates(
                 card.getCardProductId(), prevMonthSpend, store.getBrandId(), store.getCategoryId());
 
@@ -161,16 +185,16 @@ public class DefaultBenefitService implements BenefitService {
                 .collect(Collectors.toList());
         boolean anyAvailable = !availableGroup.isEmpty();
 
-        CandidateEvaluation winner = pickWinner(anyAvailable ? availableGroup : evaluations);
+        CandidateEvaluation winner = pickWinner(anyAvailable ? availableGroup : evaluations, amount);
 
         if (anyAvailable) {
-            return buildCard(card, CardBenefitStatus.AVAILABLE, null, buildDetail(winner.candidate()));
+            return buildCard(card, CardBenefitStatus.AVAILABLE, null, buildDetail(winner.candidate(), amount));
         }
 
         BenefitLimitResponse exhaustedLimit = resolveExhaustedLimit(winner.exhaustedLimits());
         String message = limitExhaustedMessage(exhaustedLimit.getLimitPeriod(), exhaustedLimit.getLimitBasis());
         return buildCard(card, CardBenefitStatus.CONDITION_NOT_MET,
-                reason(BenefitReasonCode.LIMIT_EXHAUSTED, message), buildDetail(winner.candidate()));
+                reason(BenefitReasonCode.LIMIT_EXHAUSTED, message), buildDetail(winner.candidate(), amount));
     }
 
     private CandidateEvaluation evaluateCandidateLimits(Long userCardId, BenefitCandidateResponse candidate,
@@ -215,9 +239,24 @@ public class DefaultBenefitService implements BenefitService {
         };
     }
 
-    private CandidateEvaluation pickWinner(List<CandidateEvaluation> pool) {
+    /**
+     * 카드 한 장이 내놓을 혜택 하나를 고른다.
+     * <p>
+     * <b>금액을 알면 산출액이 가장 큰 후보가 이긴다.</b> {@code TIE_BREAK_ORDER}는 산출액이
+     * 같을 때만 쓰는 진짜 tie-break로 내려간다 — 금액을 모르던 시절엔 이게 1차 기준이라
+     * 100,000원 결제에서 "100원 정액"이 "2% 정률"을 이기는 일이 있었다.
+     */
+    private CandidateEvaluation pickWinner(List<CandidateEvaluation> pool, BigDecimal amount) {
+        if (amount == null) {
+            return pool.stream()
+                    .min(Comparator.comparing(CandidateEvaluation::candidate, TIE_BREAK_ORDER))
+                    .orElseThrow();
+        }
+        Comparator<CandidateEvaluation> byExpectedAmountDesc = Comparator
+                .comparing((CandidateEvaluation e) -> benefitAmountCalculator.calculate(amount, e.candidate()))
+                .reversed();
         return pool.stream()
-                .min(Comparator.comparing(CandidateEvaluation::candidate, TIE_BREAK_ORDER))
+                .min(byExpectedAmountDesc.thenComparing(CandidateEvaluation::candidate, TIE_BREAK_ORDER))
                 .orElseThrow();
     }
 
@@ -249,11 +288,13 @@ public class DefaultBenefitService implements BenefitService {
         };
     }
 
-    private BenefitDetailResponse buildDetail(BenefitCandidateResponse candidate) {
+    /** {@code amount}가 없으면 {@code expectedAmount}는 채우지 않는다 — 금액을 모르는 조회다. */
+    private BenefitDetailResponse buildDetail(BenefitCandidateResponse candidate, BigDecimal amount) {
         return BenefitDetailResponse.builder()
                 .benefitServiceId(candidate.getServiceId())
                 .benefitName(candidate.getBenefitName())
                 .displayText(buildDisplayText(candidate))
+                .expectedAmount(amount == null ? null : benefitAmountCalculator.calculate(amount, candidate))
                 .build();
     }
 

@@ -9,8 +9,12 @@ import com.fitwallet.domain.benefit.dto.response.ExpectedBenefitResponse;
 public interface BenefitService {
 
     /**
-     * {@code storeId}는 컨트롤러가 {@code String}으로 그대로 넘긴다 — 파싱·검증은 여기서 한다.
-     * 누락과 숫자 아님을 구분하지 않고 둘 다 {@code STORE_ID_REQUIRED}로 통일한다.
+     * {@code storeId}·{@code amount}는 컨트롤러가 {@code String}으로 그대로 넘긴다 — 파싱·검증은 여기서 한다.
+     * {@code storeId}는 누락과 숫자 아님을 구분하지 않고 둘 다 {@code STORE_ID_REQUIRED}로 통일한다.
+     *
+     * @param amount 결제 예정 금액. {@code null}·빈 문자열이면 금액을 모르는 조회로 보고
+     *               기대혜택액을 계산하지 않는다(홈 화면이 이렇게 부른다).
+     *               값이 있는데 숫자가 아니거나 0 이하면 {@code AMOUNT_INVALID}로 막는다.
      */
-    ExpectedBenefitResponse findExpectedBenefits(Long userId, String storeId);
+    ExpectedBenefitResponse findExpectedBenefits(Long userId, String storeId, String amount);
 }
