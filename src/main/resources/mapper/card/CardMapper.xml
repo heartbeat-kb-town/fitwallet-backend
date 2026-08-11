@@ -527,4 +527,28 @@
         </foreach>
     </insert>
 
+    <!-- 순서 변경 요청이 보유 카드 전체와 정확히 일치하는지 서비스에서 대조하는 용도. -->
+    <select id="findUserCardIds" resultType="java.lang.Long">
+        SELECT user_card_id
+        FROM user_card
+        WHERE user_id = #{userId}
+          AND is_deleted = 0
+    </select>
+
+    <update id="updateCardsDisplayOrder">
+        UPDATE user_card
+        SET display_order = CASE user_card_id
+            <foreach collection="userCardIds" item="userCardId" index="idx">
+                WHEN #{userCardId} THEN #{idx} + 1
+            </foreach>
+            ELSE display_order
+            END
+            WHERE user_id = #{userId}
+                AND is_deleted = 0
+                AND user_card_id IN
+                    <foreach collection="userCardIds" item="userCardId" open="(" separator="," close=")">
+                        #{userCardId}
+                    </foreach>
+    </update>
+
 </mapper>

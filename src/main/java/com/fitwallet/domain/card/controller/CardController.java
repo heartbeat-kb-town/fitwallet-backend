@@ -1,8 +1,9 @@
 package com.fitwallet.domain.card.controller;
 
 import com.fitwallet.domain.card.dto.CardSuccessCode;
-import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
+import com.fitwallet.domain.card.dto.request.CardDisplayOrderUpdateRequest;
 import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
+import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.InitBinder;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -204,5 +206,15 @@ public class CardController {
     public ResponseEntity<ApiResponse<Void>> connectMyData(@LoginUserId Long userId) {
         cardService.connectMyData(userId);
         return ApiResponse.of(CardSuccessCode.MYDATA_LINKED, null);
+    }
+
+    @PatchMapping("/user-cards/display-order")
+    public ResponseEntity<ApiResponse<Void>> updateCardsDisplayOrder(
+            @LoginUserId Long userId,
+            @Valid @RequestBody CardDisplayOrderUpdateRequest request) {
+
+        cardService.updateCardsDisplayOrder(userId, request);
+
+        return ApiResponse.of(CardSuccessCode.CARD_DISPLAY_ORDER_UPDATED, null);
     }
 }

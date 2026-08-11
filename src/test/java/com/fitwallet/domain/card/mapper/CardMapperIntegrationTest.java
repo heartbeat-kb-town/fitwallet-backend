@@ -262,6 +262,38 @@ class CardMapperIntegrationTest {
         return userCardId;
     }
 
+    @Test
+    void 보유_카드_ID만_삭제된_카드_없이_조회한다() {
+        assertThat(cardMapper.findUserCardIds(SEED_USER_ID))
+                .containsExactlyInAnyOrder(1L, 2L, 3L, 4L, 5L);
+    }
+
+    @Test
+    void 소프트_삭제된_카드는_보유_카드_ID_조회에서_제외된다() {
+        jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
+
+        assertThat(cardMapper.findUserCardIds(SEED_USER_ID))
+                .containsExactlyInAnyOrder(2L, 3L, 4L, 5L);
+    }
+
+    @Test
+    void 표시순서를_변경하면_리스트_순서대로_1부터_채워지고_영향받은_행수를_반환한다() {
+        int updatedRows = cardMapper.updateCardsDisplayOrder(SEED_USER_ID, List.of(3L, 1L, 5L, 2L, 4L));
+
+        assertThat(updatedRows).isEqualTo(5);
+        assertThat(displayOrderOf(3L)).isEqualTo(1);
+        assertThat(displayOrderOf(1L)).isEqualTo(2);
+        assertThat(displayOrderOf(5L)).isEqualTo(3);
+        assertThat(displayOrderOf(2L)).isEqualTo(4);
+        assertThat(displayOrderOf(4L)).isEqualTo(5);
+    }
+
+    private Integer displayOrderOf(Long userCardId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT display_order FROM user_card WHERE user_card_id = ?",
+                Integer.class, userCardId);
+    }
+
     private MyDataCard myDataCard(Long cardProductId, String first4, String last4,
                                    String bankName, BigDecimal balance,
                                    BigDecimal creditLimit, BigDecimal scheduledPaymentAmount,

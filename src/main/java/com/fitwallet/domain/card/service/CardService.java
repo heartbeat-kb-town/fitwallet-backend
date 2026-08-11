@@ -1,5 +1,6 @@
 package com.fitwallet.domain.card.service;
 
+import com.fitwallet.domain.card.dto.request.CardDisplayOrderUpdateRequest;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
@@ -41,4 +42,7 @@ public interface CardService {
     CardListResponse register(Long userId, CardRegisterRequest request);
 
     void connectMyData(Long userId);
+
+    /** 로그인 사용자의 보유 카드 표시 순서를 변경한다. */
+    void updateCardsDisplayOrder(Long userId, CardDisplayOrderUpdateRequest request);
 }

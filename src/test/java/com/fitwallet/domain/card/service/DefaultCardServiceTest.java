@@ -13,6 +13,7 @@ import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
 import com.fitwallet.domain.card.dto.CardUsageTierType;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.MyDataTransaction;
+import com.fitwallet.domain.card.dto.request.CardDisplayOrderUpdateRequest;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardRecentTransactionSearchCondition;
@@ -56,7 +57,6 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.assertj.core.api.Assertions.assertThatCode;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
@@ -843,6 +843,54 @@ class DefaultCardServiceTest {
         then(cardMapper).should().insertMyDataCard(eq(1L), eq(fresh), eq(6), anyMap());
         then(cardMapper).should().insertMyDataTransactions(eq(15_000L), eq(fresh.getTransactions()));
         then(cardMapper).should(never()).insertMyDataTransactions(eq(47_000L), any());
+    }
+
+    @Test
+    void 카드_순서_변경시_보유_카드와_정확히_일치하면_매퍼를_호출한다() {
+        given(cardMapper.findUserCardIds(1L)).willReturn(List.of(10L, 11L, 12L));
+
+        cardService.updateCardsDisplayOrder(1L, displayOrderRequest(List.of(12L, 10L, 11L)));
+
+        then(cardMapper).should().updateCardsDisplayOrder(1L, List.of(12L, 10L, 11L));
+    }
+
+    @Test
+    void 카드가_없는_사용자의_빈_순서_요청은_매퍼를_태우지_않고_정상_처리된다() {
+        given(cardMapper.findUserCardIds(1L)).willReturn(List.of());
+
+        cardService.updateCardsDisplayOrder(1L, displayOrderRequest(List.of()));
+
+        then(cardMapper).should(never()).updateCardsDisplayOrder(any(), any());
+    }
+
+    @Test
+    void 일부_카드만_보내면_INVALID_CARD_DISPLAY_ORDER_예외를_던진다() {
+        given(cardMapper.findUserCardIds(1L)).willReturn(List.of(10L, 11L, 12L));
+
+        assertThatThrownBy(() ->
+                cardService.updateCardsDisplayOrder(1L, displayOrderRequest(List.of(10L, 11L))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CardErrorCode.INVALID_CARD_DISPLAY_ORDER);
+
+        then(cardMapper).should(never()).updateCardsDisplayOrder(any(), any());
+    }
+
+    @Test
+    void 중복된_카드_ID가_섞이면_INVALID_CARD_DISPLAY_ORDER_예외를_던진다() {
+        given(cardMapper.findUserCardIds(1L)).willReturn(List.of(10L, 11L));
+
+        assertThatThrownBy(() ->
+                cardService.updateCardsDisplayOrder(1L, displayOrderRequest(List.of(10L, 10L))))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode").isEqualTo(CardErrorCode.INVALID_CARD_DISPLAY_ORDER);
+
+        then(cardMapper).should(never()).updateCardsDisplayOrder(any(), any());
+    }
+
+    private CardDisplayOrderUpdateRequest displayOrderRequest(List<Long> userCardIds) {
+        CardDisplayOrderUpdateRequest request = new CardDisplayOrderUpdateRequest();
+        ReflectionTestUtils.setField(request, "userCardIds", userCardIds);
+        return request;
     }
 
     /** MyBatis useGeneratedKeys가 INSERT 후 keyHolder에 PK를 채우는 것을 흉내낸다. */
