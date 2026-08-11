@@ -138,10 +138,10 @@ erDiagram
 | `value_type` | 값의 형태 | VARCHAR(10) | NO | — | CHECK `FIXED`(정액) / `RATE`(정률=%) |
 | `value_number` | 혜택 값 | DECIMAL(15,2) | NO | — | `RATE`면 %, `FIXED`면 원 또는 포인트 |
 | `scope_type` | 매칭 대상 구분 | VARCHAR(20) | NO | — | CHECK `BRAND` / `INDUSTRY`. 어느 매핑 테이블을 보는지 결정 |
-| `min_prev_month_spend` | **혜택값이 적용되는** 전월실적 하한 | DECIMAL(15,2) | NO | `0.00` | v27에서 `min_payment_amount`를 개명했습니다 — 옛 이름이 건당 결제액으로 읽혔지만 실제로는 전월실적입니다. 아래 `min_tx_amount`가 생기면서 둘을 이름으로 구분할 수 없게 되어 `benefit_tier` 쪽 이름에 맞췄습니다. **"조건 없음"을 NULL이 아니라 0으로 씁니다** — NULL은 `<=` 비교에서 UNKNOWN이 되어 조건 없는 행이 조회에서 조용히 빠집니다 (v9) |
-| `max_prev_month_spend` | **혜택값이 적용되는** 전월실적 상한 | DECIMAL(15,2) | **YES** | — | v27 개명(위 참고). exclusive. 구간을 반열린 `[min, max)`로 표현해 실적 P에 대해 `min<=P<max`로 정확히 한 구간이 뽑힙니다. NULL=상한 없음. CHECK `max > min` |
-| `min_tx_amount` | 건당 최소 이용금액 | DECIMAL(15,2) | NO | `0.00` | **v27 신규.** 1회 결제가 이 금액 미만이면 혜택이 아예 발생하지 않습니다. 위 `min_prev_month_spend`(전월 누적)와는 다른 축입니다 — 3사 약관에 실재합니다(KB "건당 1만원 이상 이용 시 적립", 신한 The More "건당 5,000원 이상 사용시 적용", 현대 ZERO Up "1건당 10만원 이상 결제건에 대해서만"). 조건 없음을 0으로 두는 것은 v9와 같은 이유 |
-| `per_tx_limit_amount` | 건당 혜택 캡 | DECIMAL(15,2) | **YES** | — | 건당 최대 혜택액. NULL=캡 없음. ⚠️ **이름은 `_amount`지만 단위가 항상 원화는 아닙니다** — `ACCUMULATE` 행에서는 포인트 개수입니다(`value_number`와 같은 규칙). 건당 한도의 **정본이 이 컬럼**이며 `benefit_limit`의 `PER_TRANSACTION`은 쓰지 않습니다 |
+| `min_payment_amount` | **혜택값이 적용되는** 전월실적 하한 | DECIMAL(15,2) | NO | `0.00` | ⚠️ 이름은 `payment_amount`지만 **건당 결제액이 아니라 전월실적**입니다. 아래 `min_tx_amount`(건당)와 헷갈리지 마세요. **"조건 없음"을 NULL이 아니라 0으로 씁니다** — NULL은 `<=` 비교에서 UNKNOWN이 되어 조건 없는 행이 조회에서 조용히 빠집니다 (v9) |
+| `max_payment_amount` | **혜택값이 적용되는** 전월실적 상한 | DECIMAL(15,2) | **YES** | — | exclusive. 구간을 반열린 `[min, max)`로 표현해 실적 P에 대해 `min<=P<max`로 정확히 한 구간이 뽑힙니다. NULL=상한 없음. CHECK `max > min` |
+| `min_tx_amount` | 건당 최소 이용금액 | DECIMAL(15,2) | NO | `0.00` | **v27 신규.** 1회 결제가 이 금액 미만이면 혜택이 **아예 발생하지 않습니다**. 위 `min_payment_amount`(전월 누적)와 이름이 비슷하지만 축이 다릅니다 — 이쪽만 "이번 결제 1건"을 봅니다. 3사 약관에 실재합니다(KB "건당 1만원 이상 이용 시 적립", 신한 The More "건당 5,000원 이상 사용시 적용", 현대 ZERO Up "1건당 10만원 이상 결제건에 대해서만"). 조건 없음을 0으로 두는 것은 v9와 같은 이유 |
+| `per_tx_limit_amount` | 건당 혜택 캡 | DECIMAL(15,2) | **YES** | — | 건당 최대 혜택액. NULL=캡 없음 |
 | `point_currency_id` (FK) | 적립 포인트 화폐 | BIGINT | **YES** | — | → `point_currency`. CHECK로 `ACCUMULATE`면 **필수**, `CASHBACK`이면 **반드시 NULL** (`ck_benefit_service_point_currency_required`) |
 | `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
 | `updated_at` | 수정 시각 | DATETIME | NO | CURRENT_TIMESTAMP | `ON UPDATE CURRENT_TIMESTAMP` |
@@ -171,7 +171,7 @@ erDiagram
 
 `benefit_service`와 `benefit_tier` 양쪽에 전월실적 구간이 있습니다. **같은 축(전월실적 원)이지만 결정하는 대상이 다릅니다.**
 
-| | `benefit_service.min/max_prev_month_spend` | `benefit_tier.min/max_prev_month_spend` |
+| | `benefit_service.min/max_payment_amount` | `benefit_tier.min/max_prev_month_spend` |
 |---|---|---|
 | 결정하는 것 | **혜택값**(`value_number` 요율·정액)과 적용 자격 | **한도**(`benefit_limit.limit_value`) |
 | 구간이 다르면 | **별개의 `benefit_service` 행**이 된다 | 같은 혜택 안의 다른 `benefit_tier` 행 |
@@ -514,7 +514,7 @@ DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBati
 | `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED`                                                  | `ck_payment_session_status` |
 | `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR`, `MOCK_RANDOM_DECLINE` (NULL 허용) | `ck_payment_session_fail_reason` |
 
-값 집합이 아닌 CHECK 제약(XOR·범위)은 각 테이블의 "상세 설명" 열에 적어 뒀습니다 — `ck_benefit_tier_xor`, `ck_card_event_target_xor`, `ck_card_event_period`, `ck_benefit_service_max_prev_month_spend`, `ck_benefit_service_point_currency_required`.
+값 집합이 아닌 CHECK 제약(XOR·범위)은 각 테이블의 "상세 설명" 열에 적어 뒀습니다 — `ck_benefit_tier_xor`, `ck_card_event_target_xor`, `ck_card_event_period`, `ck_benefit_service_max_payment_amount`, `ck_benefit_service_point_currency_required`.
 
 ---
 *스키마 변경 시 `docker/mysql/init/002-schema.sql`과 이 문서를 함께 갱신하세요.*

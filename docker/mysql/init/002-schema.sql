@@ -214,31 +214,33 @@ CREATE TABLE benefit_service (
     value_type            VARCHAR(10) NOT NULL,
     value_number          DECIMAL(15,2) NOT NULL,
     scope_type            VARCHAR(20) NOT NULL,
-    -- v27: min_payment_amount -> min_prev_month_spend 개명. 이름이 "건당 결제금액"으로
-    -- 읽혔지만 실제로는 전월실적 구간의 하한이다(값이 10만~150만원이고 매퍼가
-    -- prevMonthSpend와 비교한다). 같은 의미를 benefit_tier가 이미 min_prev_month_spend로
-    -- 부르고 있어 이름을 그쪽에 맞췄다. 아래 min_tx_amount가 추가되면서 옛 이름은
-    -- 나란히 놓였을 때 구분이 불가능해진다.
+    -- ⚠️ 이름이 "건당 결제금액"으로 읽히지만 실제로는 **전월실적 구간의 하한**이다.
+    -- 값이 10만~150만원이고 매퍼가 prevMonthSpend와 비교한다(BenefitMapper.findCandidates).
+    -- 아래 min_tx_amount(건당)와 이름이 비슷하니 헷갈리지 말 것. 같은 의미를 benefit_tier는
+    -- min_prev_month_spend로 부른다 — v27에서 이름을 맞추는 것을 검토했으나, 개명이
+    -- benefit_tier와 컬럼명 충돌을 만들어 조회 매퍼에 AS 별칭을 강제하므로 보류했다.
     -- v9: "조건 없음"을 NULL 대신 0으로 표현(NULL은 <= 비교에서 UNKNOWN이 되어
     -- "조건 없음" 행이 조회 쿼리에서 조용히 누락되는 문제가 있었음).
-    min_prev_month_spend  DECIMAL(15,2) NOT NULL DEFAULT 0,
+    min_payment_amount    DECIMAL(15,2) NOT NULL DEFAULT 0,
     -- v15: 전월실적 구간의 상한(exclusive). 구간을 반열린 인터벌 [min, max)로
     -- 표현해, 유저 전월실적 P에 대해 min<=P<max 로 그룹당 정확히 한 구간이
     -- 뽑히게 한다(rate group을 몰라도 구간 선택이 됨). NULL=상한 없음(최상위
     -- 구간, 실적 문턱만 있는 단일 혜택, 실적 무관 혜택 전부 NULL).
-    -- v27: max_payment_amount -> max_prev_month_spend 개명(위 v27 주석 참고).
-    max_prev_month_spend  DECIMAL(15,2) NULL,
+    max_payment_amount    DECIMAL(15,2) NULL,
     -- v27: 건당(1회 결제) 최소 이용금액. 이 금액 미만이면 혜택이 아예 발생하지 않는다.
     -- 3사 약관 실측에서 전부 쓰고 있었다 — KB "건당 1만원 이상 이용 시 적립",
     -- 신한 The More "건당 5,000원 이상 사용시 적용", 현대 ZERO Up "1건당 10만원 이상
-    -- 결제건에 대해서만". 위 min_prev_month_spend(전월 누적)와는 완전히 다른 축이다.
+    -- 결제건에 대해서만".
+    --
+    -- ⚠️ 위 min_payment_amount(전월 누적)와는 완전히 다른 축이다. 이름은 비슷하지만
+    -- 이쪽만 "이번 결제 1건"의 금액을 본다.
+    --
     -- 조건 없음을 NULL이 아닌 0으로 두는 것은 v9와 같은 이유다.
     min_tx_amount         DECIMAL(15,2) NOT NULL DEFAULT 0,
     -- 건당 혜택 상한. 이름은 _amount 지만 단위가 항상 원화는 아니다 — ACCUMULATE 행에서는
     -- 포인트 개수를 담는다(service_id 72·73 신한 Pick E 체크가 1000 마이신한포인트).
     -- 단위는 행 자신의 benefit_type으로 해석한다(ACCUMULATE=포인트, CASHBACK=원).
-    -- value_number와 같은 규칙이다. v27에서 개명을 검토했으나 영향 범위를 최소화하려고
-    -- 이름은 그대로 뒀다.
+    -- value_number와 같은 규칙이다.
     --
     -- 건당 한도의 정본은 이 컬럼이다. benefit_limit에도 limit_period='PER_TRANSACTION'으로
     -- 같은 개념을 표현할 수 있지만 그쪽은 쓰지 않는다(benefit_limit 정의의 주석 참고).
@@ -273,9 +275,8 @@ CREATE TABLE benefit_service (
         CHECK (scope_type IN ('BRAND', 'INDUSTRY')),
     -- v15: 구간 상한은 있으면 반드시 하한보다 커야 한다(빈/역전 구간 방지).
     -- 구간 사이의 빈틈/겹침(cross-row)은 CHECK로 못 막으므로 로드 시 보장한다.
-    -- v27: 컬럼 개명에 맞춰 제약 이름도 함께 바꿨다.
-    CONSTRAINT ck_benefit_service_max_prev_month_spend
-        CHECK (max_prev_month_spend IS NULL OR max_prev_month_spend > min_prev_month_spend)
+    CONSTRAINT ck_benefit_service_max_payment_amount
+        CHECK (max_payment_amount IS NULL OR max_payment_amount > min_payment_amount)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 CREATE INDEX idx_benefit_service_card_product_id ON benefit_service (card_product_id);
