@@ -72,7 +72,7 @@
     </update>
 
     <select id="findSessionByPaymentId" resultType="com.fitwallet.domain.payment.dto.PaymentResultSessionInfo">
-        SELECT ps.payment_session_id, ps.status, ps.store_id, ps.amount, ps.user_card_id, ps.updated_at, ps.fail_reason
+        SELECT ps.payment_session_id, ps.status, ps.store_id, ps.amount, ps.user_card_id, ps.updated_at, ps.expires_at, ps.fail_reason
         FROM payment_session ps
         JOIN user_card uc ON uc.user_card_id = ps.user_card_id
         WHERE ps.payment_id = #{paymentId}

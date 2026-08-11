@@ -216,6 +216,41 @@ public class DefaultPaymentService implements PaymentService {
                 .build();
     }
 
+    @Override
+    @Transactional
+    public PaymentApproveResult approvePayment(Long userId, String paymentId){
+        PaymentResultSessionInfo session = paymentMapper.findSessionByPaymentId(userId, paymentId);
+        if (session == null) {
+            throw new BusinessException(PaymentErrorCode.PAYMENT_NOT_FOUND);
+        }
+
+        if(session.getStatus() == PaymentSessionStatus.COMPLETED){
+            PaymentResultResponse response = paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
+            return  PaymentApproveResult.builder().response(response).alreadyProcessed(true).build();
+        }
+
+        if(session.getStatus() == PaymentSessionStatus.FAILED){
+            PaymentResultResponse response = PaymentResultResponse.builder()
+                    .paymentId(paymentId).status(PaymentSessionStatus.FAILED).failReason(session.getFailReason()).build();
+            return PaymentApproveResult.builder().response(response).alreadyProcessed(false).build();
+        }
+
+        if(session.getExpiresAt().isBefore(LocalDateTime.now())){
+            throw new BusinessException(PaymentErrorCode.PAYMENT_SESSION_EXPIRED);
+        }
+
+        boolean approved = Math.random() < MOCK_SUCCESS_RATE;
+        if(!approved){
+            paymentMapper.markSessionFailed(paymentId);
+            PaymentResultResponse response = PaymentResultResponse.builder()
+                    .paymentId(paymentId).status(PaymentSessionStatus.FAILED).failReason("MOCK_RANDOM_DECLINE").build();
+            return PaymentApproveResult.builder().response(response).alreadyProcessed(false).build();
+        }
+
+        PaymentResultResponse response = completeAndBuildResponse(userId, paymentId, session);
+        return PaymentApproveResult.builder().response(response).alreadyProcessed(false).build();
+    }
+
 
     private PaymentResultResponse completeAndBuildResponse(Long userId, String paymentId, PaymentResultSessionInfo session) {
         Long userCardId = session.getUserCardId();

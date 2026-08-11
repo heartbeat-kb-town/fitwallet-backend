@@ -1,5 +1,6 @@
 package com.fitwallet.domain.payment.controller;
 
+import com.fitwallet.domain.payment.dto.PaymentApproveResult;
 import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
 import com.fitwallet.domain.payment.dto.PaymentSuccessCode;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
@@ -61,5 +62,20 @@ public class PaymentController {
     public ResponseEntity<ApiResponse<StoreQrScanResponse>> scanStoreQr(@LoginUserId Long userId,
                                                                         @Valid @RequestBody StoreQrScanRequest request){
         return ApiResponse.of(PaymentSuccessCode.STORE_QR_SCANNED, paymentService.scanStoreQr(userId, request));
+    }
+
+    @PostMapping("/payment/{paymentId}/approve")
+    public ResponseEntity<ApiResponse<PaymentResultResponse>> approvePayment(@LoginUserId Long userId,
+                                                                            @PathVariable String paymentId){
+        PaymentApproveResult result = paymentService.approvePayment(userId, paymentId);
+        PaymentResultResponse response = result.getResponse();
+
+        PaymentSuccessCode successCode = result.isAlreadyProcessed()
+                ? PaymentSuccessCode.PAYMENT_ALREADY_PROCESSED
+                : response.getStatus() == PaymentSessionStatus.COMPLETED
+                    ? PaymentSuccessCode.PAYMENT_COMPLETED
+                    : PaymentSuccessCode.PAYMENT_FAILED;
+
+        return ApiResponse.of(successCode, response);
     }
 }
