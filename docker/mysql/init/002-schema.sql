@@ -1,5 +1,5 @@
 -- =========================================================
--- fitwallet 스키마 DDL (확정 ERD v25)
+-- fitwallet 스키마 DDL (확정 ERD v27)
 -- MySQL 8.x / InnoDB / utf8mb4
 --
 -- docker-entrypoint-initdb.d 스크립트. 컨테이너 최초 기동(빈 볼륨) 시
@@ -214,6 +214,11 @@ CREATE TABLE benefit_service (
     value_type            VARCHAR(10) NOT NULL,
     value_number          DECIMAL(15,2) NOT NULL,
     scope_type            VARCHAR(20) NOT NULL,
+    -- ⚠️ 이름이 "건당 결제금액"으로 읽히지만 실제로는 **전월실적 구간의 하한**이다.
+    -- 값이 10만~150만원이고 매퍼가 prevMonthSpend와 비교한다(BenefitMapper.findCandidates).
+    -- 아래 min_tx_amount(건당)와 이름이 비슷하니 헷갈리지 말 것. 같은 의미를 benefit_tier는
+    -- min_prev_month_spend로 부른다 — v27에서 이름을 맞추는 것을 검토했으나, 개명이
+    -- benefit_tier와 컬럼명 충돌을 만들어 조회 매퍼에 AS 별칭을 강제하므로 보류했다.
     -- v9: "조건 없음"을 NULL 대신 0으로 표현(NULL은 <= 비교에서 UNKNOWN이 되어
     -- "조건 없음" 행이 조회 쿼리에서 조용히 누락되는 문제가 있었음).
     min_payment_amount    DECIMAL(15,2) NOT NULL DEFAULT 0,
@@ -222,6 +227,23 @@ CREATE TABLE benefit_service (
     -- 뽑히게 한다(rate group을 몰라도 구간 선택이 됨). NULL=상한 없음(최상위
     -- 구간, 실적 문턱만 있는 단일 혜택, 실적 무관 혜택 전부 NULL).
     max_payment_amount    DECIMAL(15,2) NULL,
+    -- v27: 건당(1회 결제) 최소 이용금액. 이 금액 미만이면 혜택이 아예 발생하지 않는다.
+    -- 3사 약관 실측에서 전부 쓰고 있었다 — KB "건당 1만원 이상 이용 시 적립",
+    -- 신한 The More "건당 5,000원 이상 사용시 적용", 현대 ZERO Up "1건당 10만원 이상
+    -- 결제건에 대해서만".
+    --
+    -- ⚠️ 위 min_payment_amount(전월 누적)와는 완전히 다른 축이다. 이름은 비슷하지만
+    -- 이쪽만 "이번 결제 1건"의 금액을 본다.
+    --
+    -- 조건 없음을 NULL이 아닌 0으로 두는 것은 v9와 같은 이유다.
+    min_tx_amount         DECIMAL(15,2) NOT NULL DEFAULT 0,
+    -- 건당 혜택 상한. 이름은 _amount 지만 단위가 항상 원화는 아니다 — ACCUMULATE 행에서는
+    -- 포인트 개수를 담는다(service_id 72·73 신한 Pick E 체크가 1000 마이신한포인트).
+    -- 단위는 행 자신의 benefit_type으로 해석한다(ACCUMULATE=포인트, CASHBACK=원).
+    -- value_number와 같은 규칙이다.
+    --
+    -- 건당 한도의 정본은 이 컬럼이다. benefit_limit에도 limit_period='PER_TRANSACTION'으로
+    -- 같은 개념을 표현할 수 있지만 그쪽은 쓰지 않는다(benefit_limit 정의의 주석 참고).
     per_tx_limit_amount   DECIMAL(15,2) NULL,
     -- v10: monthly_limit/monthly_count_limit 제거. 165건 전부 NULL로, 월/일
     -- 한도는 이미 benefit_tier+benefit_limit이 전담하고 있어 한 번도 안 쓰인
@@ -303,6 +325,17 @@ CREATE TABLE benefit_limit (
     -- 단위 컬럼이 아예 없었음).
     CONSTRAINT ck_benefit_limit_limit_basis
         CHECK (limit_basis IN ('COUNT', 'AMOUNT', 'POINT')),
+    -- v27: PER_TRANSACTION 은 값 집합에 남아 있지만 쓰지 않는다(현재 0행).
+    -- 건당 한도의 정본은 benefit_service.per_tx_limit_amount 다. 새 행을 이쪽으로
+    -- 만들지 말 것.
+    --   왜 정본이 benefit_service 인가: 이 테이블은 소진형 한도라 모든 행이 기간을
+    --   갖고, 판정이 과거 거래를 집계해 잔량을 구하는 방식이다(findUsage). 건당
+    --   한도는 기간도 없고 소진되지도 않아 집계할 대상이 없다 — 그래서 판정 코드가
+    --   PER_TRANSACTION 을 건너뛴다(DefaultBenefitService). 게다가 benefit_limit 은
+    --   benefit_tier 를 통해서만 붙는데 benefit_tier 는 정의상 전월실적 구간이라,
+    --   실적과 무관한 건당 한도에도 tier 행을 억지로 만들어야 한다.
+    --   값 집합에서 빼지 않은 것은 0행이라 지금 해가 없고, 제약 변경이 이 작업의
+    --   목적(건당 최소 결제금액 표현)과 무관하기 때문이다.
     CONSTRAINT ck_benefit_limit_limit_period
         CHECK (limit_period IN ('PER_TRANSACTION', 'DAY', 'MONTH', 'YEAR')),
     -- 같은 tier에 같은 종류(기준+주기)의 한도가 중복/모순되게 들어가는 것을 방지
