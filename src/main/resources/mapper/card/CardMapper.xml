@@ -124,7 +124,7 @@
         <!-- 별칭 이유는 위 cardUsageBenefitRuleMap 주석 참고 -->
         <result column="benefit_min_prev_month_spend" property="benefitMinimumAmount"/>
         <result column="benefit_max_prev_month_spend" property="benefitMaximumAmount"/>
-        <result column="per_tx_limit_value" property="perTransactionLimitAmount"/>
+        <result column="per_tx_limit_amount" property="perTransactionLimitAmount"/>
         <result column="currency_name" property="pointCurrencyName"/>
         <result column="krw_per_point" property="krwPerPoint"/>
         <result column="tier_id" property="tierId"/>
@@ -334,7 +334,7 @@
                bs.scope_type,
                bs.min_prev_month_spend AS benefit_min_prev_month_spend,
                bs.max_prev_month_spend AS benefit_max_prev_month_spend,
-               bs.per_tx_limit_value,
+               bs.per_tx_limit_amount,
                pc.currency_name,
                pc.krw_per_point,
                bt.tier_id,

@@ -234,14 +234,15 @@ CREATE TABLE benefit_service (
     -- 결제건에 대해서만". 위 min_prev_month_spend(전월 누적)와는 완전히 다른 축이다.
     -- 조건 없음을 NULL이 아닌 0으로 두는 것은 v9와 같은 이유다.
     min_tx_amount         DECIMAL(15,2) NOT NULL DEFAULT 0,
-    -- v27: per_tx_limit_amount -> per_tx_limit_value 개명. 단위가 항상 원화가 아니다 —
-    -- ACCUMULATE 행에서는 포인트 개수를 담는다(service_id 72·73 신한 Pick E 체크가
-    -- 1000 마이신한포인트). 단위는 행 자신의 benefit_type으로 해석한다
-    -- (ACCUMULATE=포인트, CASHBACK=원). value_number와 같은 규칙이다.
+    -- 건당 혜택 상한. 이름은 _amount 지만 단위가 항상 원화는 아니다 — ACCUMULATE 행에서는
+    -- 포인트 개수를 담는다(service_id 72·73 신한 Pick E 체크가 1000 마이신한포인트).
+    -- 단위는 행 자신의 benefit_type으로 해석한다(ACCUMULATE=포인트, CASHBACK=원).
+    -- value_number와 같은 규칙이다. v27에서 개명을 검토했으나 영향 범위를 최소화하려고
+    -- 이름은 그대로 뒀다.
     --
     -- 건당 한도의 정본은 이 컬럼이다. benefit_limit에도 limit_period='PER_TRANSACTION'으로
     -- 같은 개념을 표현할 수 있지만 그쪽은 쓰지 않는다(benefit_limit 정의의 주석 참고).
-    per_tx_limit_value    DECIMAL(15,2) NULL,
+    per_tx_limit_amount   DECIMAL(15,2) NULL,
     -- v10: monthly_limit/monthly_count_limit 제거. 165건 전부 NULL로, 월/일
     -- 한도는 이미 benefit_tier+benefit_limit이 전담하고 있어 한 번도 안 쓰인
     -- 죽은 컬럼이었음.
@@ -324,7 +325,7 @@ CREATE TABLE benefit_limit (
     CONSTRAINT ck_benefit_limit_limit_basis
         CHECK (limit_basis IN ('COUNT', 'AMOUNT', 'POINT')),
     -- v27: PER_TRANSACTION 은 값 집합에 남아 있지만 쓰지 않는다(현재 0행).
-    -- 건당 한도의 정본은 benefit_service.per_tx_limit_value 다. 새 행을 이쪽으로
+    -- 건당 한도의 정본은 benefit_service.per_tx_limit_amount 다. 새 행을 이쪽으로
     -- 만들지 말 것.
     --   왜 정본이 benefit_service 인가: 이 테이블은 소진형 한도라 모든 행이 기간을
     --   갖고, 판정이 과거 거래를 집계해 잔량을 구하는 방식이다(findUsage). 건당

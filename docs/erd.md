@@ -141,7 +141,7 @@ erDiagram
 | `min_prev_month_spend` | **혜택값이 적용되는** 전월실적 하한 | DECIMAL(15,2) | NO | `0.00` | v27에서 `min_payment_amount`를 개명했습니다 — 옛 이름이 건당 결제액으로 읽혔지만 실제로는 전월실적입니다. 아래 `min_tx_amount`가 생기면서 둘을 이름으로 구분할 수 없게 되어 `benefit_tier` 쪽 이름에 맞췄습니다. **"조건 없음"을 NULL이 아니라 0으로 씁니다** — NULL은 `<=` 비교에서 UNKNOWN이 되어 조건 없는 행이 조회에서 조용히 빠집니다 (v9) |
 | `max_prev_month_spend` | **혜택값이 적용되는** 전월실적 상한 | DECIMAL(15,2) | **YES** | — | v27 개명(위 참고). exclusive. 구간을 반열린 `[min, max)`로 표현해 실적 P에 대해 `min<=P<max`로 정확히 한 구간이 뽑힙니다. NULL=상한 없음. CHECK `max > min` |
 | `min_tx_amount` | 건당 최소 이용금액 | DECIMAL(15,2) | NO | `0.00` | **v27 신규.** 1회 결제가 이 금액 미만이면 혜택이 아예 발생하지 않습니다. 위 `min_prev_month_spend`(전월 누적)와는 다른 축입니다 — 3사 약관에 실재합니다(KB "건당 1만원 이상 이용 시 적립", 신한 The More "건당 5,000원 이상 사용시 적용", 현대 ZERO Up "1건당 10만원 이상 결제건에 대해서만"). 조건 없음을 0으로 두는 것은 v9와 같은 이유 |
-| `per_tx_limit_value` | 건당 혜택 캡 | DECIMAL(15,2) | **YES** | — | 건당 최대 혜택액. NULL=캡 없음. **v27에서 `per_tx_limit_amount`를 개명** — 단위가 항상 원화가 아닙니다. `ACCUMULATE` 행에서는 포인트 개수입니다(`value_number`와 같은 규칙). 건당 한도의 **정본이 이 컬럼**이며 `benefit_limit`의 `PER_TRANSACTION`은 쓰지 않습니다 |
+| `per_tx_limit_amount` | 건당 혜택 캡 | DECIMAL(15,2) | **YES** | — | 건당 최대 혜택액. NULL=캡 없음. ⚠️ **이름은 `_amount`지만 단위가 항상 원화는 아닙니다** — `ACCUMULATE` 행에서는 포인트 개수입니다(`value_number`와 같은 규칙). 건당 한도의 **정본이 이 컬럼**이며 `benefit_limit`의 `PER_TRANSACTION`은 쓰지 않습니다 |
 | `point_currency_id` (FK) | 적립 포인트 화폐 | BIGINT | **YES** | — | → `point_currency`. CHECK로 `ACCUMULATE`면 **필수**, `CASHBACK`이면 **반드시 NULL** (`ck_benefit_service_point_currency_required`) |
 | `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
 | `updated_at` | 수정 시각 | DATETIME | NO | CURRENT_TIMESTAMP | `ON UPDATE CURRENT_TIMESTAMP` |

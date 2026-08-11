@@ -453,7 +453,7 @@ class DefaultPaymentServiceTest {
                 BenefitAmountInfo.builder()
                         .valueType(ValueType.RATE)
                         .valueNumber(BigDecimal.valueOf(20))
-                        .perTxLimitValue(BigDecimal.valueOf(4000))
+                        .perTxLimitAmount(BigDecimal.valueOf(4000))
                         .build());
 
         MissedBenefitInfo result = paymentService.calculateMissedBenefit(
