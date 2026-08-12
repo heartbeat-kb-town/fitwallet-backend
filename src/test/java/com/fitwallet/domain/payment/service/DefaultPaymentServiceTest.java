@@ -138,7 +138,7 @@ class DefaultPaymentServiceTest {
     }
 
     @Test
-    void QR_생성에_성공하면_인증을_소비하고_세션을_저장한다() {
+    void QR_생성에_성공해도_인증은_아직_소비되지_않는다() {
         given(paymentMapper.existsUserCard(1L, 1L)).willReturn(true);
         given(paymentMapper.findPinAuthInfo(1L)).willReturn(
                 PinAuthInfo.builder()
@@ -149,7 +149,7 @@ class DefaultPaymentServiceTest {
 
         paymentService.generateQr(1L, qrRequest(1L, "auth_abc123"));
 
-        then(paymentMapper).should().markPinAuthUsed(1L);
+        then(paymentMapper).should(never()).markPinAuthUsed(any());
         then(paymentMapper).should().insertPaymentSession(eq(1L), anyString(), eq(PaymentSessionStatus.PENDING), any());
     }
 
@@ -507,7 +507,7 @@ class DefaultPaymentServiceTest {
     }
 
     @Test
-    void 스캔에_성공하면_인증을_소비하고_세션을_저장한다() {
+    void 스캔에_성공해도_인증은_아직_소비되지_않는다() {
         given(paymentMapper.existsUserCard(1L, 1L)).willReturn(true);
         given(paymentMapper.findPinAuthInfo(1L)).willReturn(
                 PinAuthInfo.builder()
@@ -521,7 +521,7 @@ class DefaultPaymentServiceTest {
         paymentService.scanStoreQr(1L,
                 storeQrScanRequest("FITWALLET-QR-00020", "auth_abc123", 1L, BigDecimal.valueOf(8000)));
 
-        then(paymentMapper).should().markPinAuthUsed(1L);
+        then(paymentMapper).should(never()).markPinAuthUsed(any());
         then(paymentMapper).should().insertScannedPaymentSession(
                 eq(1L), anyString(), anyString(), eq(20L), eq(BigDecimal.valueOf(8000)), any());
     }
