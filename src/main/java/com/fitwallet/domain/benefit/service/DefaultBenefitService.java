@@ -71,6 +71,18 @@ public class DefaultBenefitService implements BenefitService {
     private final BenefitMapper benefitMapper;
     private final BenefitAmountCalculator benefitAmountCalculator;
 
+    /**
+     * 금액을 모르는 조회. 3-인자 오버로드에 {@code null}을 넘긴다.
+     * <p>
+     * {@code @Transactional}을 여기에도 붙이는 건 형식이 아니다 — 아래 호출은 프록시를 거치지 않는
+     * 자기 호출(self-invocation)이라, 이 메서드에 없으면 3-인자 쪽 애너테이션이 걸리지 않는다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public ExpectedBenefitResponse findExpectedBenefits(Long userId, String storeId) {
+        return findExpectedBenefits(userId, storeId, null);
+    }
+
     @Override
     @Transactional(readOnly = true)
     public ExpectedBenefitResponse findExpectedBenefits(Long userId, String storeId, String amount) {

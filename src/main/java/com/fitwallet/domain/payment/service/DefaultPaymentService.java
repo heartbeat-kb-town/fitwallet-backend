@@ -260,7 +260,7 @@ public class DefaultPaymentService implements PaymentService {
         Long appliedBenefitServiceId = null;
         BigDecimal discountAmount = BigDecimal.ZERO;
 
-        ExpectedBenefitResponse expected = benefitService.findExpectedBenefits(userId, String.valueOf(storeId), null);
+        ExpectedBenefitResponse expected = benefitService.findExpectedBenefits(userId, String.valueOf(storeId));
         CardBenefitResponse matched = expected.getCards().stream()
                 .filter(card -> card.getUserCardId().equals(userCardId))
                 .findFirst()

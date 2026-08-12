@@ -565,6 +565,23 @@ class DefaultBenefitServiceTest {
         assertThat(result.getBenefit().getExpectedAmount()).isNull();
     }
 
+    @Test
+    void 금액을_모르는_2인자_오버로드는_3인자에_null을_넘긴_것과_같다() {
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = candidate(133L, null, BenefitType.CASHBACK, ValueType.RATE,
+                new BigDecimal("10"), null, null, true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        CardBenefitResponse result = benefitService.findExpectedBenefits(USER_ID, STORE_ID).getCards().get(0);
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.AVAILABLE);
+        assertThat(result.getBenefit().getExpectedAmount()).isNull();
+    }
+
     // ---------- 픽스처 헬퍼 ----------
 
     private void givenStore(Long categoryId, Long brandId) {
