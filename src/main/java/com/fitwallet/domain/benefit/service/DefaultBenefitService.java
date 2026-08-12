@@ -200,13 +200,13 @@ public class DefaultBenefitService implements BenefitService {
         CandidateEvaluation winner = pickWinner(anyAvailable ? availableGroup : evaluations, amount);
 
         if (anyAvailable) {
-            return buildCard(card, CardBenefitStatus.AVAILABLE, null, buildDetail(winner.candidate(), amount));
+            return buildCard(card, CardBenefitStatus.AVAILABLE, null, buildDetail(winner, amount));
         }
 
         BenefitLimitResponse exhaustedLimit = resolveExhaustedLimit(winner.exhaustedLimits());
         String message = limitExhaustedMessage(exhaustedLimit.getLimitPeriod(), exhaustedLimit.getLimitBasis());
         return buildCard(card, CardBenefitStatus.CONDITION_NOT_MET,
-                reason(BenefitReasonCode.LIMIT_EXHAUSTED, message), buildDetail(winner.candidate(), amount));
+                reason(BenefitReasonCode.LIMIT_EXHAUSTED, message), buildDetail(winner, amount));
     }
 
     private CandidateEvaluation evaluateCandidateLimits(Long userCardId, BenefitCandidateResponse candidate,
@@ -215,19 +215,47 @@ public class DefaultBenefitService implements BenefitService {
                 benefitMapper.findLimits(candidate.getPlanGroupId(), candidate.getServiceId(), prevMonthSpend);
 
         List<BenefitLimitResponse> exhaustedLimits = new ArrayList<>();
+        BigDecimal remainingKrw = null;
         for (BenefitLimitResponse limit : limits) {
+            // PER_TRANSACTION은 판정에 쓰지 않는다 — 시드 0건이고, 건당 캡의 정본은
+            // benefit_service.per_tx_limit_amount(33건)라 BenefitAmountCalculator가 ③단계에서 반영한다.
             if (limit.getLimitPeriod() == LimitPeriod.PER_TRANSACTION) {
                 continue;
             }
             LocalDateTime periodStart = resolvePeriodStart(limit.getLimitPeriod());
             BenefitUsageResponse usage = benefitMapper.findUsage(userCardId, limit.getTierId(), periodStart);
             BigDecimal usedValue = resolveUsedValue(limit, usage, candidate.getKrwPerPoint());
-            boolean exhausted = limit.getLimitValue().subtract(usedValue).compareTo(BigDecimal.ZERO) <= 0;
-            if (exhausted) {
+            BigDecimal remainingValue = limit.getLimitValue().subtract(usedValue);
+
+            if (remainingValue.compareTo(BigDecimal.ZERO) <= 0) {
                 exhaustedLimits.add(limit);
             }
+            remainingKrw = minRemaining(remainingKrw,
+                    toRemainingKrw(limit.getLimitBasis(), remainingValue, candidate.getKrwPerPoint()));
         }
-        return new CandidateEvaluation(candidate, !exhaustedLimits.isEmpty(), exhaustedLimits);
+        return new CandidateEvaluation(candidate, !exhaustedLimits.isEmpty(), exhaustedLimits, remainingKrw);
+    }
+
+    /**
+     * 한도 잔여를 <b>원화</b>로 환산한다. {@code null}은 "금액으로 자를 수 없음"이지 "잔여 0"이 아니다.
+     * <p>
+     * {@code COUNT}는 축이 달라 금액으로 환산할 수 없다 — 1회라도 남았으면 그 결제는 만액을 받고,
+     * 0회면 소진이라 이미 {@code exhaustedLimits}가 잡는다.
+     */
+    private BigDecimal toRemainingKrw(LimitBasis basis, BigDecimal remainingValue, BigDecimal krwPerPoint) {
+        return switch (basis) {
+            case AMOUNT -> remainingValue;
+            case POINT -> remainingValue.multiply(krwPerPoint);
+            case COUNT -> remainingValue.compareTo(BigDecimal.ZERO) <= 0 ? BigDecimal.ZERO : null;
+        };
+    }
+
+    /** 한 tier에 한도가 여러 개면 가장 빡빡한 것이 이긴다. {@code null}(무제한)은 최솟값 계산에서 빠진다. */
+    private BigDecimal minRemaining(BigDecimal current, BigDecimal candidate) {
+        if (candidate == null) {
+            return current;
+        }
+        return current == null ? candidate : current.min(candidate);
     }
 
     private LocalDateTime resolvePeriodStart(LimitPeriod period) {
@@ -265,7 +293,8 @@ public class DefaultBenefitService implements BenefitService {
                     .orElseThrow();
         }
         Comparator<CandidateEvaluation> byExpectedAmountDesc = Comparator
-                .comparing((CandidateEvaluation e) -> benefitAmountCalculator.calculate(amount, e.candidate()))
+                .comparing((CandidateEvaluation e) ->
+                        benefitAmountCalculator.calculate(amount, e.candidate(), e.remainingKrw()))
                 .reversed();
         return pool.stream()
                 .min(byExpectedAmountDesc.thenComparing(CandidateEvaluation::candidate, TIE_BREAK_ORDER))
@@ -300,13 +329,21 @@ public class DefaultBenefitService implements BenefitService {
         };
     }
 
-    /** {@code amount}가 없으면 {@code expectedAmount}는 채우지 않는다 — 금액을 모르는 조회다. */
-    private BenefitDetailResponse buildDetail(BenefitCandidateResponse candidate, BigDecimal amount) {
+    /**
+     * {@code amount}가 없으면 {@code expectedAmount}는 채우지 않는다 — 금액을 모르는 조회다.
+     * <p>
+     * 한도가 소진된 후보로도 불린다({@code LIMIT_EXHAUSTED}). 그때 잔여는 0 이하라
+     * {@code expectedAmount}도 0이 된다 — 못 받는 혜택에 금액이 실리지 않는다.
+     */
+    private BenefitDetailResponse buildDetail(CandidateEvaluation evaluation, BigDecimal amount) {
+        BenefitCandidateResponse candidate = evaluation.candidate();
         return BenefitDetailResponse.builder()
                 .benefitServiceId(candidate.getServiceId())
                 .benefitName(candidate.getBenefitName())
                 .displayText(buildDisplayText(candidate))
-                .expectedAmount(amount == null ? null : benefitAmountCalculator.calculate(amount, candidate))
+                .expectedAmount(amount == null
+                        ? null
+                        : benefitAmountCalculator.calculate(amount, candidate, evaluation.remainingKrw()))
                 .build();
     }
 
@@ -359,12 +396,19 @@ public class DefaultBenefitService implements BenefitService {
         private final BenefitCandidateResponse candidate;
         private final boolean exhausted;
         private final List<BenefitLimitResponse> exhaustedLimits;
+        /** 원화 환산 한도 잔여. {@code null}이면 금액으로 자를 한도가 없다. */
+        private final BigDecimal remainingKrw;
 
         CandidateEvaluation(BenefitCandidateResponse candidate, boolean exhausted,
-                             List<BenefitLimitResponse> exhaustedLimits) {
+                             List<BenefitLimitResponse> exhaustedLimits, BigDecimal remainingKrw) {
             this.candidate = candidate;
             this.exhausted = exhausted;
             this.exhaustedLimits = exhaustedLimits;
+            this.remainingKrw = remainingKrw;
+        }
+
+        BigDecimal remainingKrw() {
+            return remainingKrw;
         }
 
         BenefitCandidateResponse candidate() {
