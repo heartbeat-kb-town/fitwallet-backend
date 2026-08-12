@@ -8,6 +8,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import javax.sql.DataSource;
 import java.math.BigDecimal;
+import java.util.List;
+
+import com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse;
+import com.fitwallet.domain.report.dto.response.CategorySpendResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -52,6 +56,40 @@ class BenefitReportMapperIntegrationTest {
      * 그대로 돌려준다(stale read). 그래서 "before"는 JdbcTemplate 원본 쿼리로 직접 재고,
      * mapper는 insert 이후 딱 한 번만 호출한다.
      */
+    /**
+     * 추천 후보 쿼리가 tier/limit 조인으로 서비스당 여러 행을 뱉으면
+     * 서비스 레이어가 같은 예상 혜택을 중복 합산한다(#188). 매퍼가 (서비스, 카테고리)
+     * 조합당 정확히 한 행만 돌려주는지 — 실 시드 데이터로 잠근다.
+     */
+    @Test
+    void 추천_후보는_서비스와_카테고리_조합당_한_행만_반환한다() {
+        Long userId = 1L;
+        String yearMonth = "2026-07";
+
+        List<CategorySpendResponse> top = benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2);
+        assertThat(top).isNotEmpty();
+
+        List<Long> categoryIds = top.stream().map(CategorySpendResponse::getCategoryId).toList();
+
+        List<CardRecommendationRawResponse> rows = benefitReportMapper.getRecommendedCards(userId, categoryIds);
+
+        String inClause = categoryIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElseThrow();
+        Integer distinctCombos = jdbcTemplate().queryForObject(
+                "SELECT COUNT(*) FROM (" +
+                        "  SELECT DISTINCT bs.service_id, c.category_id" +
+                        "  FROM benefit_service bs" +
+                        "  JOIN service_category sc ON bs.service_id = sc.service_id" +
+                        "  JOIN category c ON sc.category_id = c.category_id" +
+                        "  JOIN card_product cp ON bs.card_product_id = cp.card_product_id" +
+                        "  WHERE c.category_id IN (" + inClause + ")" +
+                        "  AND cp.card_product_id NOT IN (SELECT card_product_id FROM user_card WHERE user_id = ?)" +
+                        ") t",
+                Integer.class, userId
+        );
+
+        assertThat(rows).hasSize(distinctCombos);
+    }
+
     @Test
     void 포인트로_받은_혜택은_krw_per_point만큼_환산되어_총액에_반영된다() {
         JdbcTemplate jdbc = jdbcTemplate();
