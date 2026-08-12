@@ -35,6 +35,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
@@ -188,7 +189,19 @@ public class DefaultBenefitService implements BenefitService {
                     reason(BenefitReasonCode.PREV_SPEND_NOT_MET, PREV_SPEND_NOT_MET_MESSAGE), null);
         }
 
-        List<CandidateEvaluation> evaluations = tierOkCandidates.stream()
+        // 건당 최소 이용금액 게이트. 전월실적 다음, 한도 판정 앞이다 — 실적이 아예 안 되면
+        // 금액을 올려도 소용없으므로 PREV_SPEND_NOT_MET이 먼저 나가야 한다.
+        List<BenefitCandidateResponse> minTxOkCandidates = tierOkCandidates.stream()
+                .filter(c -> meetsMinTxAmount(c, amount))
+                .collect(Collectors.toList());
+
+        if (minTxOkCandidates.isEmpty()) {
+            return buildCard(card, CardBenefitStatus.CONDITION_NOT_MET,
+                    reason(BenefitReasonCode.MIN_TX_AMOUNT_NOT_MET,
+                            minTxNotMetMessage(tierOkCandidates)), null);
+        }
+
+        List<CandidateEvaluation> evaluations = minTxOkCandidates.stream()
                 .map(c -> evaluateCandidateLimits(card.getUserCardId(), c, prevMonthSpend))
                 .collect(Collectors.toList());
 
@@ -207,6 +220,33 @@ public class DefaultBenefitService implements BenefitService {
         String message = limitExhaustedMessage(exhaustedLimit.getLimitPeriod(), exhaustedLimit.getLimitBasis());
         return buildCard(card, CardBenefitStatus.CONDITION_NOT_MET,
                 reason(BenefitReasonCode.LIMIT_EXHAUSTED, message), buildDetail(winner, amount));
+    }
+
+    /**
+     * 이번 결제 1건이 건당 최소 이용금액을 넘는지. 넘지 못하면 그 혜택은 <b>아예 발생하지 않는다</b> —
+     * 덜 받는 게 아니라 후보에서 빠진다.
+     * <p>
+     * 금액을 모르는 조회({@code amount == null})면 게이트를 건너뛴다. "조건 없음"은 DDL상
+     * {@code NULL}이 아니라 {@code 0}이지만, 방어적으로 {@code null}도 조건 없음으로 본다.
+     */
+    private boolean meetsMinTxAmount(BenefitCandidateResponse candidate, BigDecimal amount) {
+        if (amount == null || candidate.getMinTxAmount() == null) {
+            return true;
+        }
+        return amount.compareTo(candidate.getMinTxAmount()) >= 0;
+    }
+
+    /**
+     * 문턱이 <b>가장 낮은</b> 후보를 안내한다 — 사용자가 조금만 더 쓰면 되는 쪽을 알려주는 게 쓸모 있다.
+     * 호출 시점에 전부 미달이므로 최솟값도 결제금액보다 크다.
+     */
+    private String minTxNotMetMessage(List<BenefitCandidateResponse> candidates) {
+        BigDecimal lowestThreshold = candidates.stream()
+                .map(BenefitCandidateResponse::getMinTxAmount)
+                .filter(Objects::nonNull)
+                .min(Comparator.naturalOrder())
+                .orElseThrow();
+        return formatThousands(lowestThreshold) + "원 이상 결제해야 받을 수 있는 혜택이에요.";
     }
 
     private CandidateEvaluation evaluateCandidateLimits(Long userCardId, BenefitCandidateResponse candidate,

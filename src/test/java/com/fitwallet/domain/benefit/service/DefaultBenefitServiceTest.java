@@ -35,6 +35,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
@@ -717,7 +718,144 @@ class DefaultBenefitServiceTest {
         assertThat(result.getBenefit().getExpectedAmount()).isNull();
     }
 
+    // ---------- 건당 최소 이용금액 ----------
+
+    @Test
+    void 결제금액이_건당_최소_이용금액에_못_미치면_MIN_TX_AMOUNT_NOT_MET이다() {
+        givenMinTxFixture(new BigDecimal("10000"));
+
+        CardBenefitResponse result = singleCardResultFor("5000");
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.CONDITION_NOT_MET);
+        assertThat(result.getReason().getCode()).isEqualTo(BenefitReasonCode.MIN_TX_AMOUNT_NOT_MET);
+        assertThat(result.getReason().getMessage()).isEqualTo("10,000원 이상 결제해야 받을 수 있는 혜택이에요.");
+    }
+
+    @Test
+    void 조건_미달이면_benefit은_내려가지_않는다() {
+        // 혜택이 "덜" 발생하는 게 아니라 아예 발생하지 않는다 — PREV_SPEND_NOT_MET과 같은 모양이다
+        givenMinTxFixture(new BigDecimal("10000"));
+
+        CardBenefitResponse result = singleCardResultFor("5000");
+
+        assertThat(result.getBenefit()).isNull();
+    }
+
+    @ParameterizedTest(name = "최소 10,000원 · 결제 {0}원 → {1}")
+    @CsvSource({
+            "9999,  CONDITION_NOT_MET",
+            "10000, AVAILABLE",          // 이상(>=)이라 딱 맞으면 통과다
+            "10001, AVAILABLE"
+    })
+    void 건당_최소_이용금액은_이상_비교다(String amount, CardBenefitStatus expected) {
+        givenMinTxFixture(new BigDecimal("10000"));
+        // 9,999원 케이스는 게이트에 막혀 한도를 조회하지 않는다 — 그래서 lenient다
+        lenient().when(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).thenReturn(List.of());
+
+        CardBenefitResponse result = singleCardResultFor(amount);
+
+        assertThat(result.getStatus()).isEqualTo(expected);
+    }
+
+    @Test
+    void 문턱을_넘는_후보가_하나라도_있으면_그_후보로_판정한다() {
+        // 5,000원 결제: 문턱 10,000인 정률은 탈락하고 문턱 없는 정액이 남는다
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse blocked = candidateWithMinTx(35L, ValueType.RATE,
+                new BigDecimal("10"), new BigDecimal("10000"));
+        BenefitCandidateResponse passing = candidateWithMinTx(43L, ValueType.FIXED,
+                new BigDecimal("500"), BigDecimal.ZERO);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(blocked, passing));
+        given(benefitMapper.findLimits(null, 43L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        CardBenefitResponse result = singleCardResultFor("5000");
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.AVAILABLE);
+        assertThat(result.getBenefit().getBenefitServiceId()).isEqualTo(43L);
+        then(benefitMapper).should(never()).findLimits(any(), eq(35L), any());
+    }
+
+    @Test
+    void 전부_미달이면_문턱이_가장_낮은_후보를_안내한다() {
+        // 조금만 더 쓰면 되는 쪽을 알려준다 — 30,000이 아니라 10,000
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(
+                        candidateWithMinTx(35L, ValueType.RATE, new BigDecimal("10"), new BigDecimal("30000")),
+                        candidateWithMinTx(43L, ValueType.FIXED, new BigDecimal("500"), new BigDecimal("10000"))));
+
+        CardBenefitResponse result = singleCardResultFor("5000");
+
+        assertThat(result.getReason().getMessage()).isEqualTo("10,000원 이상 결제해야 받을 수 있는 혜택이에요.");
+    }
+
+    @Test
+    void 전월실적이_미달이면_건당_최소금액보다_먼저_안내한다() {
+        // 실적이 아예 안 되면 금액을 올려도 소용없다 — PREV_SPEND_NOT_MET이 이긴다
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = BenefitCandidateResponse.builder()
+                .serviceId(133L).benefitType(BenefitType.CASHBACK).valueType(ValueType.RATE)
+                .valueNumber(new BigDecimal("10")).minTxAmount(new BigDecimal("10000")).tierOk(false)
+                .build();
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+
+        CardBenefitResponse result = singleCardResultFor("5000");
+
+        assertThat(result.getReason().getCode()).isEqualTo(BenefitReasonCode.PREV_SPEND_NOT_MET);
+    }
+
+    @Test
+    void amount가_없으면_건당_최소금액_게이트를_건너뛴다() {
+        // 금액을 모르는 조회는 판정할 근거가 없다 — 현행 동작을 유지한다
+        givenMinTxFixture(new BigDecimal("10000"));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        CardBenefitResponse result = singleCardResult();
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.AVAILABLE);
+    }
+
+    @Test
+    void 최소금액이_0이면_조건이_없는_것이다() {
+        // DDL이 NOT NULL DEFAULT 0이라 "조건 없음"은 null이 아니라 0이다
+        givenMinTxFixture(BigDecimal.ZERO);
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        CardBenefitResponse result = singleCardResultFor("1");
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.AVAILABLE);
+    }
+
     // ---------- 픽스처 헬퍼 ----------
+
+    /** 정률 10% 후보 하나에 건당 최소 이용금액을 걸어 둔다. 한도는 걸지 않는다. */
+    private void givenMinTxFixture(BigDecimal minTxAmount) {
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidateWithMinTx(133L, ValueType.RATE, new BigDecimal("10"), minTxAmount)));
+    }
+
+    private BenefitCandidateResponse candidateWithMinTx(Long serviceId, ValueType valueType,
+                                                          BigDecimal valueNumber, BigDecimal minTxAmount) {
+        return BenefitCandidateResponse.builder()
+                .serviceId(serviceId)
+                .benefitType(BenefitType.CASHBACK)
+                .valueType(valueType)
+                .valueNumber(valueNumber)
+                .minTxAmount(minTxAmount)
+                .tierOk(true)
+                .build();
+    }
 
     /** 정률 10% 후보 하나에 월 AMOUNT 한도를 걸어 둔다. 35,000원 결제면 산출액은 3,500원이다. */
     private void givenClippingFixture(BigDecimal limitValue, BigDecimal usedAmount) {
