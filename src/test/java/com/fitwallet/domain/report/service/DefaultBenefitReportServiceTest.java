@@ -12,6 +12,10 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -36,13 +40,66 @@ class DefaultBenefitReportServiceTest {
                 .thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of());
-        when(benefitReportMapper.getRecommendedCards(userId, List.of()))
-                .thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
         assertThat(response.getTotalReceivedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(24500));
         assertThat(response.getTotalMissedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(6200));
+    }
+
+    @Test
+    void 상위_지출_카테고리가_없으면_추천을_조회하지_않고_빈_목록을_반환한다() {
+        Long userId = 1L;
+        String yearMonth = "2026-04";
+
+        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
+        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
+        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2)).thenReturn(List.of());
+
+        BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
+
+        assertThat(response.getRecommendations()).isEmpty();
+        // 빈 categoryIds로 매퍼를 호출하면 IN () 문법 오류가 나므로 아예 호출하지 않아야 한다
+        verify(benefitReportMapper, never()).getRecommendedCards(anyLong(), anyList());
+    }
+
+    @Test
+    void 전월실적_조건이_없는_혜택은_NPE_없이_추천된다() {
+        Long userId = 1L;
+        String yearMonth = "2026-04";
+
+        CategorySpendResponse category = CategorySpendResponse.builder()
+                .categoryId(1L)
+                .categoryName("카페/디저트")
+                .spendAmount(BigDecimal.valueOf(50000))
+                .build();
+
+        // 실적 무관 혜택: tier가 없어 minPrevMonthSpend가 null로 내려온다
+        CardRecommendationRawResponse card = CardRecommendationRawResponse.builder()
+                .cardProductId(90L)
+                .cardName("무조건 적립 카드")
+                .categoryId(1L)
+                .categoryName("카페/디저트")
+                .valueType("RATE")
+                .discountRate(BigDecimal.valueOf(1))
+                .minPrevMonthSpend(null)
+                .build();
+
+        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
+        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
+        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
+                .thenReturn(List.of(category));
+        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+                .thenReturn(List.of(card));
+
+        BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
+
+        // 50000 * 1% = 500원
+        assertThat(response.getRecommendations()).hasSize(1);
+        assertThat(response.getRecommendations().get(0).getExpectedBenefit())
+                .isEqualByComparingTo(BigDecimal.valueOf(500));
     }
 
     @Test

@@ -47,6 +47,12 @@ public class DefaultBenefitReportService implements BenefitReportService {
             categoryIds.add(category.getCategoryId());
         }
 
+        // 해당 월에 거래가 없으면 상위 카테고리가 비고, 빈 categoryIds를 그대로 넘기면
+        // 매퍼의 IN () 이 SQL 문법 오류를 낸다. 추천할 게 없으므로 여기서 끊는다.
+        if (categoryIds.isEmpty()) {
+            return new ArrayList<>();
+        }
+
         List<CardRecommendationRawResponse> candidates = benefitReportMapper.getRecommendedCards(userId, categoryIds);
 
         Map<Long, BigDecimal> expectedBenefitByCard = new HashMap<>();
@@ -57,7 +63,11 @@ public class DefaultBenefitReportService implements BenefitReportService {
                 if (!card.getCategoryId().equals(category.getCategoryId())) {
                     continue;
                 }
-                if (category.getSpendAmount().compareTo(card.getMinPrevMonthSpend()) < 0) {
+                // min_prev_month_spend는 실적 무관 혜택(tier 없음)이면 NULL이다.
+                // NULL은 "전월실적 조건 없음"이므로 무조건 통과시킨다. (NULL을 compareTo
+                // 하면 NPE — plan_group/실적무관 혜택 후보에서 실제로 터졌다)
+                if (card.getMinPrevMonthSpend() != null
+                        && category.getSpendAmount().compareTo(card.getMinPrevMonthSpend()) < 0) {
                     continue;
                 }
 
