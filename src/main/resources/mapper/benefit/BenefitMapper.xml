@@ -48,10 +48,15 @@
         PREV_SPEND_NOT_MET을 판정할 수 있다. ACCUMULATE만 point_currency를 조인해
         currency_name/krw_per_point를 채운다(CASHBACK은 point_currency_id가 NULL이라
         LEFT JOIN 결과도 자연히 NULL).
+
+        min_tx_amount(건당 최소 이용금액)와 per_tx_limit_amount(건당 캡)는 여기서 필터링하지 않고
+        값만 실어 보낸다 — 결제 금액을 아는 서비스가 판정한다. 금액을 모르는 조회(홈 화면)에서는
+        두 컬럼 모두 쓰이지 않는다.
     -->
     <select id="findCandidates" resultType="com.fitwallet.domain.benefit.dto.response.BenefitCandidateResponse">
         SELECT bs.service_id, bs.plan_group_id, bs.benefit_name, bs.benefit_type,
-               bs.value_type, bs.value_number, pc.currency_name, pc.krw_per_point,
+               bs.value_type, bs.value_number, bs.min_tx_amount, bs.per_tx_limit_amount,
+               pc.currency_name, pc.krw_per_point,
                (bs.min_payment_amount &lt;= #{prevMonthSpend}
                    AND (bs.max_payment_amount IS NULL OR #{prevMonthSpend} &lt; bs.max_payment_amount)) AS tier_ok
         FROM benefit_service bs

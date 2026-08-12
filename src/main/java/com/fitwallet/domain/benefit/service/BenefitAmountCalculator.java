@@ -1,0 +1,58 @@
+package com.fitwallet.domain.benefit.service;
+
+import com.fitwallet.domain.benefit.dto.BenefitType;
+import com.fitwallet.domain.benefit.dto.ValueType;
+import com.fitwallet.domain.benefit.dto.response.BenefitCandidateResponse;
+import org.springframework.stereotype.Component;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
+/**
+ * 혜택 하나가 이번 결제에서 만들어 내는 <b>원화 환산 기대혜택액</b>을 계산한다.
+ * <p>
+ * Mapper·시계·트랜잭션에 의존하지 않는 순수 계산이다. 조회는 서비스가, 산수는 여기가 한다 —
+ * 그래서 목 없이 단위 테스트할 수 있고, payment 도메인도 같은 계산을 재사용할 수 있다.
+ * <p>
+ * <b>단계 순서가 계약이다.</b> 순서가 바뀌면 답이 달라진다.
+ * <ol>
+ *   <li>원시값 — {@code RATE}는 {@code amount × valueNumber / 100}, {@code FIXED}는 {@code valueNumber}.
+ *       원 단위로 절사한다({@link RoundingMode#DOWN})</li>
+ *   <li>원화 환산 — {@code ACCUMULATE}면 원시값의 단위가 <b>포인트</b>이므로 {@code krwPerPoint}를 곱한다.
+ *       {@code CASHBACK}은 이미 원이다</li>
+ *   <li>건당 캡 — {@code perTxLimitAmount}가 있으면 그 값으로 자른다</li>
+ *   <li>결제액 상한 — 혜택은 결제액을 넘을 수 없다(1,000원 결제에 2,000원 정액 할인)</li>
+ * </ol>
+ * 1단계에서 {@code DOWN}을 쓰는 것은 "이번 결제에 실제로 받는 금액"이라 카드사 관례대로 절사하기
+ * 때문이다. {@code DefaultBenefitReportService}는 월 지출 <i>추정치</i>라 scale 2 {@code HALF_UP}을
+ * 쓰는데, 성격이 다른 값이므로 일부러 맞추지 않았다.
+ */
+@Component
+public class BenefitAmountCalculator {
+
+    private static final BigDecimal PERCENT_DIVISOR = BigDecimal.valueOf(100);
+
+    /**
+     * @param amount    결제 예정 금액(0보다 크다 — 검증은 호출부가 끝냈다고 본다)
+     * @param candidate 후보 혜택. {@code ACCUMULATE}면 {@code krwPerPoint}가 반드시 채워져 있어야 한다
+     * @return 원화 환산 기대혜택액. 한도 잔여는 아직 반영돼 있지 않다
+     */
+    public BigDecimal calculate(BigDecimal amount, BenefitCandidateResponse candidate) {
+        BigDecimal raw = candidate.getValueType() == ValueType.RATE
+                ? amount.multiply(candidate.getValueNumber())
+                        .divide(PERCENT_DIVISOR, 0, RoundingMode.DOWN)
+                : candidate.getValueNumber();
+
+        BigDecimal krw = candidate.getBenefitType() == BenefitType.ACCUMULATE
+                ? raw.multiply(candidate.getKrwPerPoint())
+                : raw;
+
+        BigDecimal capped = candidate.getPerTxLimitAmount() != null
+                ? krw.min(candidate.getPerTxLimitAmount())
+                : krw;
+
+        // 원 단위로 통일한다. 캡·한도는 DECIMAL(15,2)라 그대로 두면 같은 응답 필드가
+        // "4000.00"과 "100"을 섞어 내보낸다. 원 미만 혜택은 어차피 받을 수 없다.
+        return capped.min(amount).setScale(0, RoundingMode.DOWN);
+    }
+}

@@ -153,6 +153,21 @@ class BenefitMapperIntegrationTest {
     }
 
     @Test
+    void 건당_조건_컬럼을_SELECT에_포함한다() {
+        // resultType 매핑은 SQL이 안 뽑은 컬럼을 조용히 버린다 — DTO에 필드만 있으면 항상 null이다.
+        // 시드 service_id=1(TIME 할인 - 편의점)은 per_tx_limit_amount=1000, min_tx_amount=0이다.
+        List<BenefitCandidateResponse> candidates =
+                benefitMapper.findCandidates(1L, new BigDecimal("350000"), null, 2L);
+
+        assertThat(candidates).filteredOn(c -> c.getServiceId().equals(1L))
+                .singleElement()
+                .satisfies(c -> {
+                    assertThat(c.getPerTxLimitAmount()).isEqualByComparingTo("1000.00");
+                    assertThat(c.getMinTxAmount()).isEqualByComparingTo("0.00");
+                });
+    }
+
+    @Test
     void ACCUMULATE_행은_포인트_정보가_CASHBACK_행은_null이다() {
         List<BenefitCandidateResponse> accumulate =
                 benefitMapper.findCandidates(20L, new BigDecimal("250000"), 15L, 1L);

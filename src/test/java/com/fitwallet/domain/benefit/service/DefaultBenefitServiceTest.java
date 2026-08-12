@@ -23,6 +23,7 @@ import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.math.BigDecimal;
@@ -58,6 +59,13 @@ class DefaultBenefitServiceTest {
     @Mock
     private BenefitMapper benefitMapper;
 
+    /**
+     * 목이 아니라 실물이다. 순수 계산이라 스텁할 게 없고, 목으로 두면 산출액 비교가
+     * 실제 계산이 아니라 스텁 값을 검증하게 된다.
+     */
+    @Spy
+    private BenefitAmountCalculator benefitAmountCalculator = new BenefitAmountCalculator();
+
     @InjectMocks
     private DefaultBenefitService benefitService;
 
@@ -65,7 +73,7 @@ class DefaultBenefitServiceTest {
 
     @Test
     void storeId가_null이면_STORE_ID_REQUIRED_예외를_던진다() {
-        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, null))
+        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, null, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(BenefitErrorCode.STORE_ID_REQUIRED);
@@ -73,7 +81,7 @@ class DefaultBenefitServiceTest {
 
     @Test
     void storeId가_빈_문자열이면_STORE_ID_REQUIRED_예외를_던진다() {
-        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, ""))
+        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, "", null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(BenefitErrorCode.STORE_ID_REQUIRED);
@@ -81,7 +89,7 @@ class DefaultBenefitServiceTest {
 
     @Test
     void storeId가_공백이면_STORE_ID_REQUIRED_예외를_던진다() {
-        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, "   "))
+        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, "   ", null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(BenefitErrorCode.STORE_ID_REQUIRED);
@@ -89,7 +97,7 @@ class DefaultBenefitServiceTest {
 
     @Test
     void storeId가_숫자가_아니면_STORE_ID_REQUIRED_예외를_던진다() {
-        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, "abc"))
+        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, "abc", null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(BenefitErrorCode.STORE_ID_REQUIRED);
@@ -101,7 +109,7 @@ class DefaultBenefitServiceTest {
     void 존재하지_않는_가맹점이면_STORE_NOT_FOUND_예외를_던진다() {
         given(benefitMapper.findStore(STORE_ID_LONG)).willReturn(null);
 
-        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, STORE_ID))
+        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, STORE_ID, null))
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(BenefitErrorCode.STORE_NOT_FOUND);
@@ -112,7 +120,7 @@ class DefaultBenefitServiceTest {
         givenStore(CATEGORY_ID, BRAND_ID);
         given(benefitMapper.findUserCards(USER_ID)).willReturn(List.of());
 
-        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID);
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, null);
 
         assertThat(response.getHasCard()).isFalse();
         assertThat(response.getCards()).isEmpty();
@@ -470,7 +478,7 @@ class DefaultBenefitServiceTest {
                 .willReturn(List.of(notMetCandidate));
         given(benefitMapper.findCandidates(40L, BigDecimal.ZERO, BRAND_ID, CATEGORY_ID)).willReturn(List.of());
 
-        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID);
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, null);
 
         assertThat(response.getCards()).extracting(CardBenefitResponse::getUserCardId)
                 .containsExactly(2L, 3L, 1L, 4L);
@@ -485,9 +493,93 @@ class DefaultBenefitServiceTest {
         given(benefitMapper.findPrevMonthSpends(List.of(1L, 2L))).willReturn(List.of());
         given(benefitMapper.findCandidates(any(), any(), any(), any())).willReturn(List.of());
 
-        benefitService.findExpectedBenefits(USER_ID, STORE_ID);
+        benefitService.findExpectedBenefits(USER_ID, STORE_ID, null);
 
         then(benefitMapper).should(times(1)).findPrevMonthSpends(any());
+    }
+
+    // ---------- 결제 예정 금액 ----------
+
+    @ParameterizedTest(name = "amount={0} → AMOUNT_INVALID")
+    @CsvSource({"abc", "'1,000'", "0", "-1", "35000.5.5"})
+    void amount가_숫자가_아니거나_0이하면_AMOUNT_INVALID_예외를_던진다(String amount) {
+        assertThatThrownBy(() -> benefitService.findExpectedBenefits(USER_ID, STORE_ID, amount))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(BenefitErrorCode.AMOUNT_INVALID);
+    }
+
+    @Test
+    void amount가_공백이면_에러가_아니라_금액을_모르는_조회로_본다() {
+        givenStore(CATEGORY_ID, BRAND_ID);
+        given(benefitMapper.findUserCards(USER_ID)).willReturn(List.of());
+
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, "   ");
+
+        assertThat(response.getHasCard()).isFalse();
+    }
+
+    @Test
+    void 결제금액이_주어지면_정액이_아니라_산출액이_큰_후보를_고른다() {
+        // 시드 card_product 9(주유)에 실재하는 조합: 정액 100원 적립 vs 정률 2%
+        // 100,000원 결제면 정률이 2,000원으로 20배 유리한데, 기존 tie-break는 정액을 먼저 집었다.
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse fixed = candidate(35L, null, BenefitType.CASHBACK, ValueType.FIXED,
+                new BigDecimal("100"), null, null, true);
+        BenefitCandidateResponse rate = candidate(43L, null, BenefitType.CASHBACK, ValueType.RATE,
+                new BigDecimal("2"), null, null, true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(fixed, rate));
+        given(benefitMapper.findLimits(null, 35L, PREV_MONTH_SPEND)).willReturn(List.of());
+        given(benefitMapper.findLimits(null, 43L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        CardBenefitResponse result = singleCardResultFor("100000");
+
+        assertThat(result.getBenefit().getBenefitServiceId()).isEqualTo(43L);
+    }
+
+    @Test
+    void 적립_혜택의_expectedAmount는_포인트가_아니라_원화로_환산된_값이다() {
+        // 35,000 × 5% = 1,750 포인트, 1포인트 = 0.8원 → 1,400원
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = candidate(133L, null, BenefitType.ACCUMULATE, ValueType.RATE,
+                new BigDecimal("5"), "마이신한포인트", new BigDecimal("0.8"), true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        CardBenefitResponse result = singleCardResultFor("35000");
+
+        assertThat(result.getBenefit().getExpectedAmount()).isEqualByComparingTo("1400");
+    }
+
+    @Test
+    void amount를_안_보내면_expectedAmount는_null이다() {
+        CardBenefitResponse result = singleAvailableResultWith(BenefitType.CASHBACK, ValueType.RATE,
+                new BigDecimal("10"), null, null);
+
+        assertThat(result.getBenefit().getExpectedAmount()).isNull();
+    }
+
+    @Test
+    void 금액을_모르는_2인자_오버로드는_3인자에_null을_넘긴_것과_같다() {
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = candidate(133L, null, BenefitType.CASHBACK, ValueType.RATE,
+                new BigDecimal("10"), null, null, true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        CardBenefitResponse result = benefitService.findExpectedBenefits(USER_ID, STORE_ID).getCards().get(0);
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.AVAILABLE);
+        assertThat(result.getBenefit().getExpectedAmount()).isNull();
     }
 
     // ---------- 픽스처 헬퍼 ----------
@@ -508,7 +600,11 @@ class DefaultBenefitServiceTest {
     }
 
     private CardBenefitResponse singleCardResult() {
-        return benefitService.findExpectedBenefits(USER_ID, STORE_ID).getCards().get(0);
+        return benefitService.findExpectedBenefits(USER_ID, STORE_ID, null).getCards().get(0);
+    }
+
+    private CardBenefitResponse singleCardResultFor(String amount) {
+        return benefitService.findExpectedBenefits(USER_ID, STORE_ID, amount).getCards().get(0);
     }
 
     /** displayText 검증용 — 후보 하나를 AVAILABLE(한도 미발견)로 만들어 그 결과를 돌려준다. */

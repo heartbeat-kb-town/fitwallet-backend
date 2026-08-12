@@ -58,7 +58,7 @@ class BenefitControllerTest {
     @Test
     void 정상_호출이_200과_EXPECTED_BENEFIT_FOUND를_반환한다() throws Exception {
         given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
-        given(benefitService.findExpectedBenefits(eq(1L), any())).willReturn(
+        given(benefitService.findExpectedBenefits(eq(1L), any(), any())).willReturn(
                 ExpectedBenefitResponse.builder()
                         .store(ExpectedBenefitStoreResponse.builder()
                                 .storeId(3011L).storeName("스타벅스 강남점").build())
@@ -83,7 +83,7 @@ class BenefitControllerTest {
     @Test
     void storeId_쿼리_파라미터가_가공_없이_서비스로_전달된다() throws Exception {
         given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
-        given(benefitService.findExpectedBenefits(any(), any())).willReturn(
+        given(benefitService.findExpectedBenefits(any(), any(), any())).willReturn(
                 ExpectedBenefitResponse.builder().hasCard(false).cards(List.of()).build());
 
         mockMvc.perform(get("/api/benefit/expected")
@@ -91,14 +91,45 @@ class BenefitControllerTest {
                         .param("storeId", "abc"))
                 .andExpect(status().isOk());
 
-        then(benefitService).should().findExpectedBenefits(eq(1L), eq("abc"));
+        then(benefitService).should().findExpectedBenefits(eq(1L), eq("abc"), isNull());
+    }
+
+    /** {@code amount}도 {@code storeId}와 같은 이유로 컨트롤러가 파싱하지 않는다. */
+    @Test
+    void amount_쿼리_파라미터가_가공_없이_서비스로_전달된다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(benefitService.findExpectedBenefits(any(), any(), any())).willReturn(
+                ExpectedBenefitResponse.builder().hasCard(false).cards(List.of()).build());
+
+        mockMvc.perform(get("/api/benefit/expected")
+                        .header("Authorization", "Bearer access-token")
+                        .param("storeId", "1")
+                        .param("amount", "abc"))
+                .andExpect(status().isOk());
+
+        then(benefitService).should().findExpectedBenefits(eq(1L), eq("1"), eq("abc"));
+    }
+
+    @Test
+    void amount가_잘못되면_서비스가_던진_400_AMOUNT_INVALID가_그대로_나간다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        willThrow(new BusinessException(BenefitErrorCode.AMOUNT_INVALID))
+                .given(benefitService).findExpectedBenefits(eq(1L), eq("1"), eq("0"));
+
+        mockMvc.perform(get("/api/benefit/expected")
+                        .header("Authorization", "Bearer access-token")
+                        .param("storeId", "1")
+                        .param("amount", "0"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.code").value("AMOUNT_INVALID"))
+                .andExpect(jsonPath("$.message").value("결제 금액은 0보다 큰 숫자로 입력해 주세요."));
     }
 
     @Test
     void storeId가_없으면_500이_아니라_서비스가_던진_400이_그대로_나간다() throws Exception {
         given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
         willThrow(new BusinessException(BenefitErrorCode.STORE_ID_REQUIRED))
-                .given(benefitService).findExpectedBenefits(eq(1L), isNull());
+                .given(benefitService).findExpectedBenefits(eq(1L), isNull(), isNull());
 
         mockMvc.perform(get("/api/benefit/expected")
                         .header("Authorization", "Bearer access-token"))
@@ -107,6 +138,6 @@ class BenefitControllerTest {
                 .andExpect(jsonPath("$.code").value("STORE_ID_REQUIRED"))
                 .andExpect(jsonPath("$.data").doesNotExist());
 
-        then(benefitService).should().findExpectedBenefits(eq(1L), isNull());
+        then(benefitService).should().findExpectedBenefits(eq(1L), isNull(), isNull());
     }
 }
