@@ -48,4 +48,28 @@ class CardBenefitMapperIntegrationTest {
 
         assertThat(result).isEmpty();
     }
+
+    @Test
+    void 상세는_혜택_받은_결제만_조회되고_benefitType이_채워진다() {
+        List<CategoryTransactionRawResponse> result =
+                cardBenefitMapper.getCategoryTransactions(1L, 1L, "2026-07");
+
+        // 혜택 없는 결제(applied_benefit_service_id IS NULL)는 제외되므로
+        // 돌아온 모든 행은 benefitType과 benefitAmount가 반드시 있어야 한다
+        assertThat(result).isNotEmpty();
+        assertThat(result).allSatisfy(tx -> {
+            assertThat(tx.getBenefitType()).isNotNull();
+            assertThat(tx.getBenefitAmount()).isNotNull();
+        });
+    }
+
+    @Test
+    void 카드_요약은_할인과_포인트를_분리해_집계한다() {
+        CardSummaryResponse result = cardBenefitMapper.getCardSummary(1L, 1L, "2026-07");
+
+        assertThat(result).isNotNull();
+        assertThat(result.getTotalDiscount()).isNotNull();
+        assertThat(result.getTotalPoint()).isNotNull();
+        assertThat(result.getTotalSpend()).isNotNull();
+    }
 }

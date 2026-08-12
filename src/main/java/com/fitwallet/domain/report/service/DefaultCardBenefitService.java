@@ -1,5 +1,6 @@
 package com.fitwallet.domain.report.service;
 
+import com.fitwallet.domain.report.dto.BenefitType;
 import com.fitwallet.domain.report.dto.response.CardBenefitDetailResponse;
 import com.fitwallet.domain.report.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.report.dto.response.CategoryTransactionGroupResponse;
@@ -43,6 +44,7 @@ public class DefaultCardBenefitService implements CardBenefitService {
                 .cardImageUrl(summary.getCardImageUrl())
                 .maskedCardNumber(summary.getMaskedCardNumber())
                 .totalDiscount(summary.getTotalDiscount())
+                .totalPoint(summary.getTotalPoint())
                 .totalSpend(summary.getTotalSpend())
                 .categories(categories)
                 .build();
@@ -67,15 +69,22 @@ public class DefaultCardBenefitService implements CardBenefitService {
         for (Map.Entry<Long, List<CategoryTransactionRawResponse>> entry : groupedByCategory.entrySet()) {
             List<CategoryTransactionRawResponse> txList = entry.getValue();
 
-            BigDecimal totalBenefit = BigDecimal.ZERO;
+            // 원화 할인과 포인트 적립은 단위가 달라 합계를 따로 낸다 (환산하지 않는다)
+            BigDecimal discountSum = BigDecimal.ZERO;
+            BigDecimal pointSum = BigDecimal.ZERO;
             List<TransactionDetailResponse> transactions = new ArrayList<>();
 
             for (CategoryTransactionRawResponse tx : txList) {
-                totalBenefit = totalBenefit.add(tx.getBenefitAmount());
+                if (tx.getBenefitType() == BenefitType.ACCUMULATE) {
+                    pointSum = pointSum.add(tx.getBenefitAmount());
+                } else {
+                    discountSum = discountSum.add(tx.getBenefitAmount());
+                }
                 transactions.add(TransactionDetailResponse.builder()
                         .approvedAt(tx.getApprovedAt())
                         .storeName(tx.getStoreName())
-                        .discountRate(tx.getDiscountRate())
+                        .benefitType(tx.getBenefitType())
+                        .benefitRate(tx.getBenefitRate())
                         .paidAmount(tx.getPaidAmount())
                         .benefitAmount(tx.getBenefitAmount())
                         .build());
@@ -87,7 +96,8 @@ public class DefaultCardBenefitService implements CardBenefitService {
                     .categoryId(first.getCategoryId())
                     .categoryName(first.getCategoryName())
                     .usageCount(txList.size())
-                    .benefitAmount(totalBenefit)
+                    .discountAmount(discountSum)
+                    .pointAmount(pointSum)
                     .transactions(transactions)
                     .build());
         }
