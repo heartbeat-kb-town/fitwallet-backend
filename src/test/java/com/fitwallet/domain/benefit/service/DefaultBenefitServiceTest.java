@@ -582,7 +582,157 @@ class DefaultBenefitServiceTest {
         assertThat(result.getBenefit().getExpectedAmount()).isNull();
     }
 
+    // ---------- 한도 잔여 클리핑 ----------
+
+    @ParameterizedTest(name = "월 한도 20,000 중 {0} 사용 → expectedAmount {1}")
+    @CsvSource({
+            "16500, 3500",   // 잔여 3,500 — 산출액과 딱 맞음
+            "16501, 3499",   // 잔여 3,499 — 잔여만큼만
+            "19999, 1"       // 잔여 1원
+    })
+    void 한도가_일부만_남으면_잔여까지만_안내한다(String usedAmount, String expected) {
+        givenClippingFixture(new BigDecimal("20000.00"), new BigDecimal(usedAmount));
+
+        CardBenefitResponse result = singleCardResultFor("35000");
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.AVAILABLE);
+        assertThat(result.getBenefit().getExpectedAmount()).isEqualByComparingTo(expected);
+    }
+
+    @Test
+    void 한도가_소진되면_expectedAmount는_0이다() {
+        // 못 받는 혜택에 금액이 실리면 안 된다 — status는 예전대로 CONDITION_NOT_MET이다
+        givenClippingFixture(new BigDecimal("20000.00"), new BigDecimal("20000"));
+
+        CardBenefitResponse result = singleCardResultFor("35000");
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.CONDITION_NOT_MET);
+        assertThat(result.getReason().getCode()).isEqualTo(BenefitReasonCode.LIMIT_EXHAUSTED);
+        assertThat(result.getBenefit().getExpectedAmount()).isEqualByComparingTo("0");
+    }
+
+    @Test
+    void 잔여가_산출액보다_넉넉하면_산출액_그대로_안내한다() {
+        givenClippingFixture(new BigDecimal("20000.00"), new BigDecimal("1000"));
+
+        CardBenefitResponse result = singleCardResultFor("35000");
+
+        assertThat(result.getBenefit().getExpectedAmount()).isEqualByComparingTo("3500");
+    }
+
+    @Test
+    void POINT_한도의_잔여는_원화로_환산해_자른다() {
+        // 35,000 × 5% = 1,750 포인트 = 1,400원. 잔여 1,000포인트 × 0.8 = 800원이라 800원까지만.
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = candidate(133L, null, BenefitType.ACCUMULATE, ValueType.RATE,
+                new BigDecimal("5"), "마이신한포인트", new BigDecimal("0.8"), true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND))
+                .willReturn(List.of(limit(21L, LimitBasis.POINT, LimitPeriod.MONTH, new BigDecimal("1000"))));
+        given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(21L), any()))
+                .willReturn(usage(BigDecimal.ZERO, 0L));
+
+        CardBenefitResponse result = singleCardResultFor("35000");
+
+        assertThat(result.getBenefit().getExpectedAmount()).isEqualByComparingTo("800");
+    }
+
+    @Test
+    void COUNT_한도는_잔여가_있으면_금액을_자르지_않는다() {
+        // 횟수는 금액 축이 아니다 — 1회라도 남았으면 그 결제는 만액을 받는다
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = candidate(133L, null, BenefitType.CASHBACK, ValueType.RATE,
+                new BigDecimal("10"), null, null, true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND))
+                .willReturn(List.of(limit(21L, LimitBasis.COUNT, LimitPeriod.MONTH, new BigDecimal("3"))));
+        given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(21L), any()))
+                .willReturn(usage(BigDecimal.ZERO, 1L));
+
+        CardBenefitResponse result = singleCardResultFor("35000");
+
+        assertThat(result.getBenefit().getExpectedAmount()).isEqualByComparingTo("3500");
+    }
+
+    @Test
+    void 한도가_여러_개면_가장_빡빡한_잔여가_이긴다() {
+        // 월 잔여 4,000 · 일 잔여 2,000 → 2,000
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = candidate(133L, null, BenefitType.CASHBACK, ValueType.RATE,
+                new BigDecimal("10"), null, null, true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).willReturn(List.of(
+                limit(21L, LimitBasis.AMOUNT, LimitPeriod.MONTH, new BigDecimal("20000.00")),
+                limit(22L, LimitBasis.AMOUNT, LimitPeriod.DAY, new BigDecimal("5000.00"))));
+        given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(21L), any()))
+                .willReturn(usage(new BigDecimal("16000"), 0L));
+        given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(22L), any()))
+                .willReturn(usage(new BigDecimal("3000"), 0L));
+
+        CardBenefitResponse result = singleCardResultFor("35000");
+
+        assertThat(result.getBenefit().getExpectedAmount()).isEqualByComparingTo("2000");
+    }
+
+    @Test
+    void 잔여가_적은_후보보다_실제로_더_주는_후보가_이긴다() {
+        // 산출액만 보면 정률(3,500)이 이기지만 잔여가 500뿐이라 실제로는 정액(1,000)이 낫다
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse rate = candidate(35L, null, BenefitType.CASHBACK, ValueType.RATE,
+                new BigDecimal("10"), null, null, true);
+        BenefitCandidateResponse fixed = candidate(43L, null, BenefitType.CASHBACK, ValueType.FIXED,
+                new BigDecimal("1000"), null, null, true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(rate, fixed));
+        given(benefitMapper.findLimits(null, 35L, PREV_MONTH_SPEND))
+                .willReturn(List.of(limit(21L, LimitBasis.AMOUNT, LimitPeriod.MONTH, new BigDecimal("20000.00"))));
+        given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(21L), any()))
+                .willReturn(usage(new BigDecimal("19500"), 0L));
+        given(benefitMapper.findLimits(null, 43L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        CardBenefitResponse result = singleCardResultFor("35000");
+
+        assertThat(result.getBenefit().getBenefitServiceId()).isEqualTo(43L);
+        assertThat(result.getBenefit().getExpectedAmount()).isEqualByComparingTo("1000");
+    }
+
+    @Test
+    void amount가_없으면_잔여가_있어도_expectedAmount는_null이다() {
+        givenClippingFixture(new BigDecimal("20000.00"), new BigDecimal("19999"));
+
+        CardBenefitResponse result = singleCardResult();
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.AVAILABLE);
+        assertThat(result.getBenefit().getExpectedAmount()).isNull();
+    }
+
     // ---------- 픽스처 헬퍼 ----------
+
+    /** 정률 10% 후보 하나에 월 AMOUNT 한도를 걸어 둔다. 35,000원 결제면 산출액은 3,500원이다. */
+    private void givenClippingFixture(BigDecimal limitValue, BigDecimal usedAmount) {
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = candidate(133L, null, BenefitType.CASHBACK, ValueType.RATE,
+                new BigDecimal("10"), null, null, true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND))
+                .willReturn(List.of(limit(21L, LimitBasis.AMOUNT, LimitPeriod.MONTH, limitValue)));
+        given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(21L), any()))
+                .willReturn(usage(usedAmount, 0L));
+    }
 
     private void givenStore(Long categoryId, Long brandId) {
         given(benefitMapper.findStore(STORE_ID_LONG)).willReturn(BenefitStoreResponse.builder()

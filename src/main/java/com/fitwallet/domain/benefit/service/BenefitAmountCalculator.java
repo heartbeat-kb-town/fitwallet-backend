@@ -21,6 +21,9 @@ import java.math.RoundingMode;
  *   <li>원화 환산 — {@code ACCUMULATE}면 원시값의 단위가 <b>포인트</b>이므로 {@code krwPerPoint}를 곱한다.
  *       {@code CASHBACK}은 이미 원이다</li>
  *   <li>건당 캡 — {@code perTxLimitAmount}가 있으면 그 값으로 자른다</li>
+ *   <li>한도 잔여 — 일·월·년 한도에 남은 금액으로 자른다. 잔여를 원화로 환산하고 여러 한도의
+ *       최솟값을 고르는 일은 조회가 필요하므로 {@code DefaultBenefitService}가 하고,
+ *       여기는 받은 값을 쓰기만 한다</li>
  *   <li>결제액 상한 — 혜택은 결제액을 넘을 수 없다(1,000원 결제에 2,000원 정액 할인)</li>
  * </ol>
  * 1단계에서 {@code DOWN}을 쓰는 것은 "이번 결제에 실제로 받는 금액"이라 카드사 관례대로 절사하기
@@ -33,11 +36,13 @@ public class BenefitAmountCalculator {
     private static final BigDecimal PERCENT_DIVISOR = BigDecimal.valueOf(100);
 
     /**
-     * @param amount    결제 예정 금액(0보다 크다 — 검증은 호출부가 끝냈다고 본다)
-     * @param candidate 후보 혜택. {@code ACCUMULATE}면 {@code krwPerPoint}가 반드시 채워져 있어야 한다
-     * @return 원화 환산 기대혜택액. 한도 잔여는 아직 반영돼 있지 않다
+     * @param amount       결제 예정 금액(0보다 크다 — 검증은 호출부가 끝냈다고 본다)
+     * @param candidate    후보 혜택. {@code ACCUMULATE}면 {@code krwPerPoint}가 반드시 채워져 있어야 한다
+     * @param remainingKrw 이 혜택에 남은 한도(원화 환산). <b>{@code null}이면 금액으로 자를 한도가 없다는 뜻</b>이다 —
+     *                     한도가 아예 안 걸렸거나 {@code COUNT} 기준뿐인 경우다. 음수는 0으로 본다(소진)
+     * @return 원화 환산 기대혜택액. {@code min_tx_amount} 미달 판정은 아직 들어 있지 않다(#182)
      */
-    public BigDecimal calculate(BigDecimal amount, BenefitCandidateResponse candidate) {
+    public BigDecimal calculate(BigDecimal amount, BenefitCandidateResponse candidate, BigDecimal remainingKrw) {
         BigDecimal raw = candidate.getValueType() == ValueType.RATE
                 ? amount.multiply(candidate.getValueNumber())
                         .divide(PERCENT_DIVISOR, 0, RoundingMode.DOWN)
@@ -51,8 +56,12 @@ public class BenefitAmountCalculator {
                 ? krw.min(candidate.getPerTxLimitAmount())
                 : krw;
 
+        BigDecimal clipped = remainingKrw != null
+                ? capped.min(remainingKrw.max(BigDecimal.ZERO))
+                : capped;
+
         // 원 단위로 통일한다. 캡·한도는 DECIMAL(15,2)라 그대로 두면 같은 응답 필드가
         // "4000.00"과 "100"을 섞어 내보낸다. 원 미만 혜택은 어차피 받을 수 없다.
-        return capped.min(amount).setScale(0, RoundingMode.DOWN);
+        return clipped.min(amount).setScale(0, RoundingMode.DOWN);
     }
 }
