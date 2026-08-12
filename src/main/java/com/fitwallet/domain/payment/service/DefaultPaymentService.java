@@ -80,8 +80,6 @@ public class DefaultPaymentService implements PaymentService {
             throw new BusinessException(PaymentErrorCode.PIN_AUTH_ID_INVALID);
         }
 
-        paymentMapper.markPinAuthUsed(userId);
-
         String qrToken = "qrt_" + UUID.randomUUID().toString().replace("-", "");
 
         paymentMapper.insertPaymentSession(request.getUserCardId(), qrToken, PaymentSessionStatus.PENDING, LocalDateTime.now().plusSeconds(QR_SESSION_TTL_SECONDS));
@@ -200,8 +198,6 @@ public class DefaultPaymentService implements PaymentService {
             throw new BusinessException(PaymentErrorCode.STORE_NOT_FOUND);
         }
 
-        paymentMapper.markPinAuthUsed(userId);
-
         String sessionToken = "mpm_" + UUID.randomUUID().toString().replace("-", "");
         String paymentId = "pay_" + UUID.randomUUID().toString().replace("-", "");
 
@@ -280,6 +276,7 @@ public class DefaultPaymentService implements PaymentService {
                 amount, discountAmount, finalAmount, LocalDateTime.now(), appliedBenefitServiceId,
                 missedBenefit.getBetterUserCardId(), missedBenefit.getAlternativeDiscountAmount(), missedBenefit.getMissedAmount());
         paymentMapper.markSessionCompleted(paymentId);
+        paymentMapper.markPinAuthUsed(userId);
 
         return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
     }
