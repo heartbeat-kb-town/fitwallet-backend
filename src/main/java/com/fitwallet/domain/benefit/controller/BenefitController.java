@@ -47,6 +47,8 @@ public class BenefitController {
             홈 화면의 "내 카드별 혜택" 목록이 이 응답 하나로 그려진다.
 
             - `cards`는 `status` 기준으로 정렬돼 내려간다 — `AVAILABLE` → `CONDITION_NOT_MET` → `NO_BENEFIT`.
+              **`amount`를 보내면 그 안에서 다시 기대혜택액 내림차순으로 정렬되고 `rank`가 붙는다**(1위가 가장 이득).
+              동점은 같은 순위를 주고 다음 순위를 건너뛴다(`1, 1, 3`). `AVAILABLE`이 아닌 카드는 `rank`가 `null`이다.
             - **보유 카드가 없으면 `hasCard=false`이고 `cards`는 빈 배열이다.** 빈 상태 화면은 이 값으로 분기한다.
               (카드가 없어도 200이고, `store`는 정상적으로 채워진다.)
             - 카드 한 장의 `reason`·`benefit`은 `status`에 따라 아래처럼 채워지거나 `null`이 된다.
