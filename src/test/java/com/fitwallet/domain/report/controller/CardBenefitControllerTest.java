@@ -36,6 +36,7 @@ class CardBenefitControllerTest {
                 .cardImageUrl("https://.../card.png")
                 .maskedCardNumber("**** 1234")
                 .totalDiscount(BigDecimal.valueOf(12500))
+                .totalPoint(BigDecimal.valueOf(4000))
                 .totalSpend(BigDecimal.valueOf(950000))
                 .categories(List.of())
                 .build();
