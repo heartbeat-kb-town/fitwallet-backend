@@ -114,12 +114,10 @@ public class DefaultBenefitService implements BenefitService {
                         prevMonthSpends.getOrDefault(card.getUserCardId(), BigDecimal.ZERO), resolvedAmount))
                 .collect(Collectors.toList());
 
-        sortByStatusGroup(cards);
-
         return ExpectedBenefitResponse.builder()
                 .store(toStoreResponse(store))
                 .hasCard(true)
-                .cards(cards)
+                .cards(sortAndRank(cards, resolvedAmount))
                 .build();
     }
 
@@ -427,8 +425,62 @@ public class DefaultBenefitService implements BenefitService {
                 .build();
     }
 
-    private void sortByStatusGroup(List<CardBenefitResponse> cards) {
-        cards.sort(Comparator.comparingInt(c -> STATUS_GROUP_RANK.get(c.getStatus())));
+    /**
+     * 카드 목록을 정렬하고 순위를 매긴다. 정렬 기준은 3단이다 —
+     * {@code status} 그룹 → {@code expectedAmount} 내림차순 → 기존 표시 순서.
+     * <p>
+     * 세 번째 단은 코드가 아니라 {@code List.sort}가 <b>안정 정렬</b>이라는 성질이 만든다.
+     * 앞의 두 기준이 같으면 {@code findUserCards}가 준 순서(= {@code display_order})가 그대로 남는다.
+     * <p>
+     * <b>금액을 모르면 상태 그룹까지만 정렬한다</b> — 비교할 금액이 없으므로 현행 동작 그대로다.
+     */
+    private List<CardBenefitResponse> sortAndRank(List<CardBenefitResponse> cards, BigDecimal amount) {
+        Comparator<CardBenefitResponse> byStatusGroup =
+                Comparator.comparingInt(c -> STATUS_GROUP_RANK.get(c.getStatus()));
+
+        if (amount == null) {
+            cards.sort(byStatusGroup);
+            return cards;
+        }
+
+        cards.sort(byStatusGroup.thenComparing(
+                DefaultBenefitService::expectedAmountOf,
+                Comparator.nullsLast(Comparator.reverseOrder())));
+        return assignRanks(cards);
+    }
+
+    private static BigDecimal expectedAmountOf(CardBenefitResponse card) {
+        return card.getBenefit() == null ? null : card.getBenefit().getExpectedAmount();
+    }
+
+    /**
+     * 정렬이 끝난 목록에 순위를 매긴다. <b>동점은 같은 순위를 주고 다음 순위를 건너뛴다</b>(1, 1, 3).
+     * <p>
+     * {@code AVAILABLE}이 아닌 카드는 순위를 세지도 부여하지도 않는다 — 받지 못하는 혜택에 등수를
+     * 매기면 "3위 카드"가 실제로는 못 쓰는 카드가 된다.
+     * <p>
+     * {@code @Setter}를 쓰지 않으므로(§4) 순위가 붙는 카드만 {@code toBuilder()}로 새로 만든다.
+     */
+    private List<CardBenefitResponse> assignRanks(List<CardBenefitResponse> cards) {
+        List<CardBenefitResponse> ranked = new ArrayList<>(cards.size());
+        int position = 0;
+        int currentRank = 0;
+        BigDecimal previousAmount = null;
+
+        for (CardBenefitResponse card : cards) {
+            BigDecimal expected = expectedAmountOf(card);
+            if (card.getStatus() != CardBenefitStatus.AVAILABLE || expected == null) {
+                ranked.add(card);
+                continue;
+            }
+            position++;
+            if (previousAmount == null || previousAmount.compareTo(expected) != 0) {
+                currentRank = position;
+                previousAmount = expected;
+            }
+            ranked.add(card.toBuilder().rank(currentRank).build());
+        }
+        return ranked;
     }
 
     /** tie-break·소진 판정 계산용 내부 홀더. 응답 DTO가 아니므로 record 대신 일반 클래스로 둔다. */

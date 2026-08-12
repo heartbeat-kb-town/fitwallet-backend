@@ -26,6 +26,9 @@ public class ExpectedBenefitResponse {
             example = "true")
     private Boolean hasCard;
 
-    @ApiModelProperty(value = "카드별 판정 결과. AVAILABLE → CONDITION_NOT_MET → NO_BENEFIT 순으로 정렬돼 있다")
+    @ApiModelProperty(value = """
+            카드별 판정 결과. 정렬 순서는 status 그룹(AVAILABLE → CONDITION_NOT_MET → NO_BENEFIT)
+            → 기대혜택액 내림차순 → 카드 표시 순서다.
+            `amount`를 보내지 않으면 기대혜택액을 모르므로 status 그룹까지만 정렬된다.""")
     private List<CardBenefitResponse> cards;
 }

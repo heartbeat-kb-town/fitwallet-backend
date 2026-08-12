@@ -834,7 +834,105 @@ class DefaultBenefitServiceTest {
         assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.AVAILABLE);
     }
 
+    // ---------- 기대혜택액 기준 순위 ----------
+
+    @Test
+    void 금액을_보내면_기대혜택액이_큰_카드가_위로_온다() {
+        // 표시 순서는 1 → 2 → 3 이지만 기대혜택액은 3 > 1 > 2 다
+        givenThreeAvailableCards(new BigDecimal("1000"), new BigDecimal("500"), new BigDecimal("3000"));
+
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, "35000");
+
+        assertThat(response.getCards()).extracting(CardBenefitResponse::getUserCardId)
+                .containsExactly(3L, 1L, 2L);
+    }
+
+    @Test
+    void 순위는_1부터_붙고_동점이면_다음_순위를_건너뛴다() {
+        // 기대혜택액 3,000 · 3,000 · 1,000 → rank 1, 1, 3
+        givenThreeAvailableCards(new BigDecimal("3000"), new BigDecimal("3000"), new BigDecimal("1000"));
+
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, "35000");
+
+        assertThat(response.getCards()).extracting(CardBenefitResponse::getRank)
+                .containsExactly(1, 1, 3);
+    }
+
+    @Test
+    void 기대혜택액이_전부_다르면_순위는_1_2_3이다() {
+        givenThreeAvailableCards(new BigDecimal("3000"), new BigDecimal("2000"), new BigDecimal("1000"));
+
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, "35000");
+
+        assertThat(response.getCards()).extracting(CardBenefitResponse::getRank)
+                .containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void amount를_안_보내면_rank는_전부_null이고_정렬은_상태그룹까지만이다() {
+        givenThreeAvailableCards(new BigDecimal("1000"), new BigDecimal("500"), new BigDecimal("3000"));
+
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, null);
+
+        assertThat(response.getCards()).extracting(CardBenefitResponse::getRank)
+                .containsOnlyNulls();
+        assertThat(response.getCards()).extracting(CardBenefitResponse::getUserCardId)
+                .containsExactly(1L, 2L, 3L);  // 표시 순서 그대로
+    }
+
+    @Test
+    void 상태_그룹이_기대혜택액보다_우선한다() {
+        // 실적 미달 카드가 금액상 더 유리해도 AVAILABLE 아래로 내려간다
+        givenStore(CATEGORY_ID, BRAND_ID);
+        BenefitUserCardResponse available = card(1L, 10L, 1);
+        BenefitUserCardResponse notMet = card(2L, 20L, 2);
+        given(benefitMapper.findUserCards(USER_ID)).willReturn(List.of(notMet, available));
+        given(benefitMapper.findPrevMonthSpends(List.of(2L, 1L))).willReturn(List.of());
+        given(benefitMapper.findCandidates(10L, BigDecimal.ZERO, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate(100L, null, BenefitType.CASHBACK, ValueType.FIXED,
+                        new BigDecimal("500"), null, null, true)));
+        given(benefitMapper.findLimits(null, 100L, BigDecimal.ZERO)).willReturn(List.of());
+        given(benefitMapper.findCandidates(20L, BigDecimal.ZERO, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate(200L, null, BenefitType.CASHBACK, ValueType.FIXED,
+                        new BigDecimal("9999"), null, null, false)));
+
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, "35000");
+
+        assertThat(response.getCards()).extracting(CardBenefitResponse::getUserCardId)
+                .containsExactly(1L, 2L);
+        assertThat(response.getCards()).extracting(CardBenefitResponse::getRank)
+                .containsExactly(1, null);   // AVAILABLE이 아닌 카드는 순위를 세지 않는다
+    }
+
+    @Test
+    void 기대혜택액이_같으면_카드_표시_순서를_유지한다() {
+        givenThreeAvailableCards(new BigDecimal("1000"), new BigDecimal("1000"), new BigDecimal("1000"));
+
+        ExpectedBenefitResponse response = benefitService.findExpectedBenefits(USER_ID, STORE_ID, "35000");
+
+        assertThat(response.getCards()).extracting(CardBenefitResponse::getUserCardId)
+                .containsExactly(1L, 2L, 3L);
+    }
+
     // ---------- 픽스처 헬퍼 ----------
+
+    /** 카드 3장을 전부 AVAILABLE로 만든다. 정액 캐시백이라 결제금액과 무관하게 산출액이 그 값 그대로다. */
+    private void givenThreeAvailableCards(BigDecimal amount1, BigDecimal amount2, BigDecimal amount3) {
+        givenStore(CATEGORY_ID, BRAND_ID);
+        given(benefitMapper.findUserCards(USER_ID)).willReturn(List.of(
+                card(1L, 10L, 1), card(2L, 20L, 2), card(3L, 30L, 3)));
+        given(benefitMapper.findPrevMonthSpends(List.of(1L, 2L, 3L))).willReturn(List.of());
+
+        BigDecimal[] amounts = {amount1, amount2, amount3};
+        for (int i = 0; i < amounts.length; i++) {
+            long cardProductId = 10L * (i + 1);
+            long serviceId = 100L * (i + 1);
+            given(benefitMapper.findCandidates(cardProductId, BigDecimal.ZERO, BRAND_ID, CATEGORY_ID))
+                    .willReturn(List.of(candidate(serviceId, null, BenefitType.CASHBACK, ValueType.FIXED,
+                            amounts[i], null, null, true)));
+            lenient().when(benefitMapper.findLimits(null, serviceId, BigDecimal.ZERO)).thenReturn(List.of());
+        }
+    }
 
     /** 정률 10% 후보 하나에 건당 최소 이용금액을 걸어 둔다. 한도는 걸지 않는다. */
     private void givenMinTxFixture(BigDecimal minTxAmount) {
