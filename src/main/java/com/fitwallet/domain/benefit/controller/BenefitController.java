@@ -55,6 +55,7 @@ public class BenefitController {
             |---|---|---|---|
             | `AVAILABLE` | — | `null` | 적용될 혜택 |
             | `CONDITION_NOT_MET` | `PREV_SPEND_NOT_MET` | 있음 | `null` |
+            | `CONDITION_NOT_MET` | `MIN_TX_AMOUNT_NOT_MET` | 있음 | `null` |
             | `CONDITION_NOT_MET` | `LIMIT_EXHAUSTED` | 있음 | 한도가 소진된 그 혜택 |
             | `NO_BENEFIT` | `NO_BENEFIT_FOR_STORE` | 있음 | `null` |
 

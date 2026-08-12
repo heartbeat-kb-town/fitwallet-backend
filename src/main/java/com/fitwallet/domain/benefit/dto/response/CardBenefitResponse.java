@@ -10,7 +10,8 @@ import lombok.NoArgsConstructor;
 
 /**
  * 카드 한 장의 예상 혜택 판정 결과. {@code status=AVAILABLE}이면 {@code reason}은 null이고,
- * {@code status}가 {@code NO_BENEFIT}이거나 사유가 {@code PREV_SPEND_NOT_MET}이면 {@code benefit}은 null이다.
+ * {@code status}가 {@code NO_BENEFIT}이거나 사유가 {@code PREV_SPEND_NOT_MET}·{@code MIN_TX_AMOUNT_NOT_MET}이면
+ * {@code benefit}은 null이다.
  */
 @ApiModel(description = "카드 한 장의 예상 혜택 판정 결과")
 @Getter
@@ -44,6 +45,7 @@ public class CardBenefitResponse {
     private BenefitReasonResponse reason;
 
     @ApiModelProperty(value = """
-            적용될(또는 한도가 소진된) 혜택. status가 NO_BENEFIT이거나 사유가 PREV_SPEND_NOT_MET이면 null""")
+            적용될(또는 한도가 소진된) 혜택. status가 NO_BENEFIT이거나
+            사유가 PREV_SPEND_NOT_MET·MIN_TX_AMOUNT_NOT_MET이면 null""")
     private BenefitDetailResponse benefit;
 }
