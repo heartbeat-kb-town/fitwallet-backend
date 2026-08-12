@@ -277,7 +277,7 @@ class DefaultBenefitServiceTest {
     }
 
     @Test
-    void POINT_한도는_원화_사용액을_krwPerPoint로_나눠_환산하고_여유가_있으면_AVAILABLE이다() {
+    void POINT_한도는_사용량을_포인트_개수_그대로_비교하고_여유가_있으면_AVAILABLE이다() {
         givenStore(CATEGORY_ID, BRAND_ID);
         givenOneCard();
         givenPrevMonthSpend(PREV_MONTH_SPEND);
@@ -288,7 +288,7 @@ class DefaultBenefitServiceTest {
         given(benefitMapper.findLimits(null, 72L, PREV_MONTH_SPEND))
                 .willReturn(List.of(limit(69L, LimitBasis.POINT, LimitPeriod.MONTH, BigDecimal.TEN)));
         given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(69L), any()))
-                .willReturn(usage(new BigDecimal("4500"), 0L)); // 4500/500=9 < 10
+                .willReturn(usage(new BigDecimal("9"), 0L)); // 9포인트 < 10포인트
 
         CardBenefitResponse result = singleCardResult();
 
@@ -307,7 +307,29 @@ class DefaultBenefitServiceTest {
         given(benefitMapper.findLimits(null, 72L, PREV_MONTH_SPEND))
                 .willReturn(List.of(limit(69L, LimitBasis.POINT, LimitPeriod.MONTH, BigDecimal.TEN)));
         given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(69L), any()))
-                .willReturn(usage(new BigDecimal("5000"), 0L)); // 5000/500=10 == 10
+                .willReturn(usage(BigDecimal.TEN, 0L)); // 10포인트 == 10포인트
+
+        CardBenefitResponse result = singleCardResult();
+
+        assertThat(result.getStatus()).isEqualTo(CardBenefitStatus.CONDITION_NOT_MET);
+        assertThat(result.getReason().getCode()).isEqualTo(BenefitReasonCode.LIMIT_EXHAUSTED);
+    }
+
+    @Test
+    void POINT_한도_사용량을_krwPerPoint로_나누지_않는다() {
+        // findUsage가 합산하는 discount_amount는 ACCUMULATE tier에서 이미 포인트 개수다.
+        // 한 번 더 나누면 4500포인트가 9포인트로 보여, 소진된 한도를 AVAILABLE로 내보낸다.
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        BenefitCandidateResponse candidate = candidate(72L, null, BenefitType.ACCUMULATE, ValueType.FIXED,
+                new BigDecimal("80"), "마이신한포인트", new BigDecimal("500"), true);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate));
+        given(benefitMapper.findLimits(null, 72L, PREV_MONTH_SPEND))
+                .willReturn(List.of(limit(69L, LimitBasis.POINT, LimitPeriod.MONTH, BigDecimal.TEN)));
+        given(benefitMapper.findUsage(eq(USER_CARD_ID), eq(69L), any()))
+                .willReturn(usage(new BigDecimal("4500"), 0L));
 
         CardBenefitResponse result = singleCardResult();
 
