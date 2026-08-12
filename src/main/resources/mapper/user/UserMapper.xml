@@ -104,4 +104,17 @@
         WHERE user_id = #{userId}
     </delete>
 
+    <!-- 현재 PIN 검증은 SQL로 못 한다(BCrypt 해시는 매번 값이 달라 비교 불가) — 서비스가 조회해 대조한다. -->
+    <select id="findPaymentPinHash" resultType="string">
+        SELECT payment_pin_hash
+        FROM users
+        WHERE user_id = #{userId}
+    </select>
+
+    <update id="updatePaymentPin">
+        UPDATE users
+        SET payment_pin_hash = #{newPinHash}
+        WHERE user_id = #{userId}
+    </update>
+
 </mapper>

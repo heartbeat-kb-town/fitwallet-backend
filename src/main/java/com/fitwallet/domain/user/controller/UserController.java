@@ -3,6 +3,7 @@ package com.fitwallet.domain.user.controller;
 import com.fitwallet.domain.user.dto.UserSuccessCode;
 import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
+import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
@@ -155,6 +156,19 @@ public class UserController {
 
         return ApiResponse.of(
                 UserSuccessCode.LOGOUT_SUCCESS,
+                null
+        );
+    }
+
+    @PatchMapping("/user/payment-pin")
+    public ResponseEntity<ApiResponse<Void>> updatePaymentPin(
+            @LoginUserId Long userId,
+            @Valid @RequestBody PinUpdateRequest request) {
+
+        userService.updatePaymentPin(userId, request);
+
+        return ApiResponse.of(
+                UserSuccessCode.PAYMENT_PIN_UPDATED,
                 null
         );
     }

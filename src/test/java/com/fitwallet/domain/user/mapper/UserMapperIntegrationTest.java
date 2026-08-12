@@ -169,6 +169,31 @@ class UserMapperIntegrationTest {
     }
 
     @Test
+    void PIN을_등록한_적_없으면_해시_조회는_null이다() {
+        Long userId = registerAndGetUserId();
+
+        assertThat(userMapper.findPaymentPinHash(userId)).isNull();
+    }
+
+    @Test
+    void 등록된_PIN_해시를_그대로_조회한다() {
+        Long userId = registerAndGetUserId();
+        userMapper.registerPaymentPin(userId, PIN_HASH);
+
+        assertThat(userMapper.findPaymentPinHash(userId)).isEqualTo(PIN_HASH);
+    }
+
+    @Test
+    void PIN을_변경하면_등록된_상태여도_해시가_덮어써진다() {
+        Long userId = registerAndGetUserId();
+        userMapper.registerPaymentPin(userId, PIN_HASH);
+
+        userMapper.updatePaymentPin(userId, PIN_HASH_B);
+
+        assertThat(userMapper.findPaymentPinHash(userId)).isEqualTo(PIN_HASH_B);
+    }
+
+    @Test
     void 위치_정보_동의로_저장하면_컬럼이_true가_된다() {
         Long userId = registerAndGetUserId();
 

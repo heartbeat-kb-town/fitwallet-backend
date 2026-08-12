@@ -15,7 +15,8 @@ public enum UserSuccessCode implements SuccessCode {
     TOKEN_REISSUE_SUCCESS(HttpStatus.OK, "Access Token이 재발급되었습니다."),
     PAYMENT_PIN_CREATED(HttpStatus.CREATED, "결제 PIN을 등록했습니다."),
     LOCATION_AGREEMENT_UPDATED(HttpStatus.OK, "위치 정보 이용 동의 상태를 변경했습니다."),
-    LOGOUT_SUCCESS(HttpStatus.OK, "로그아웃되었습니다.");
+    LOGOUT_SUCCESS(HttpStatus.OK, "로그아웃되었습니다."),
+    PAYMENT_PIN_UPDATED(HttpStatus.OK, "결제 비밀번호를 변경했습니다.");
 
     private final HttpStatus status;
     private final String message;

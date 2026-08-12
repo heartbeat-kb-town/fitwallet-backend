@@ -2,6 +2,7 @@ package com.fitwallet.domain.user.service;
 
 import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
+import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
@@ -32,4 +33,7 @@ public interface UserService {
 
     /** 로그인 사용자의 저장된 Refresh Token을 삭제해 로그아웃 처리한다. */
     void logout(Long userId);
+
+    /** 사용자의 결제 PIN을 변경한다. */
+    void updatePaymentPin(Long userId, PinUpdateRequest request);
 }

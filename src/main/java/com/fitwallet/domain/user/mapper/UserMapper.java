@@ -64,4 +64,9 @@ public interface UserMapper {
     /** 로그아웃 시 저장된 리프레시 토큰을 삭제해 이후 재발급을 차단한다. */
     void deleteRefreshToken(@Param("userId") Long userId);
 
+    /** 결제 PIN 해시를 조회한다. 등록된 적 없으면 null. */
+    String findPaymentPinHash(@Param("userId") Long userId);
+
+    /** 결제 PIN을 변경한다. */
+    void updatePaymentPin(@Param("userId") Long userId, @Param("newPinHash") String newPinHash);
 }

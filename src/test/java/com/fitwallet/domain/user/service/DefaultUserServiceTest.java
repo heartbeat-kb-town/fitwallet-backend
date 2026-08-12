@@ -2,9 +2,11 @@ package com.fitwallet.domain.user.service;
 
 import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
+import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
+import com.fitwallet.domain.user.dto.response.CurrentPaymentPinMismatchResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
@@ -279,6 +281,98 @@ class DefaultUserServiceTest {
         userService.logout(1L);
 
         then(userMapper).should().deleteRefreshToken(1L);
+    }
+
+    @Test
+    void 결제_PIN_변경시_새_PIN을_암호화해_저장한다() {
+        PinUpdateRequest request = pinUpdateRequest("111111", "222222", "222222");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("111111", "stored-hash")).willReturn(true);
+        given(passwordEncoder.encode("222222")).willReturn("encoded-new-pin");
+
+        userService.updatePaymentPin(1L, request);
+
+        then(userMapper).should().updatePaymentPin(1L, "encoded-new-pin");
+    }
+
+    @Test
+    void 새_PIN과_새_PIN확인이_다르면_NEW_PAYMENT_PIN_CONFIRM_MISMATCH_예외를_던진다() {
+        PinUpdateRequest request = pinUpdateRequest("111111", "222222", "333333");
+
+        assertThatThrownBy(() -> userService.updatePaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.NEW_PAYMENT_PIN_CONFIRM_MISMATCH);
+
+        then(userMapper).shouldHaveNoInteractions();
+        then(passwordEncoder).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void 현재_PIN이_저장된_해시와_다르면_INVALID_CURRENT_PAYMENT_PIN과_남은시도횟수_4를_던진다() {
+        PinUpdateRequest request = pinUpdateRequest("999999", "222222", "222222");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("999999", "stored-hash")).willReturn(false);
+
+        assertThatThrownBy(() -> userService.updatePaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .satisfies(e -> {
+                    BusinessException businessException = (BusinessException) e;
+                    assertThat(businessException.getErrorCode())
+                            .isEqualTo(UserErrorCode.INVALID_CURRENT_PAYMENT_PIN);
+                    assertThat(((CurrentPaymentPinMismatchResponse) businessException.getData()).getRemainingVerificationAttempts())
+                            .isEqualTo(4);
+                });
+
+        then(userMapper).should(never())
+                .updatePaymentPin(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void 현재_PIN을_연속으로_틀리면_남은_시도횟수가_계속_줄어든다() {
+        PinUpdateRequest request = pinUpdateRequest("999999", "222222", "222222");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("999999", "stored-hash")).willReturn(false);
+
+        assertCurrentPinMismatchRemainingAttempts(1L, request, 4);
+        assertCurrentPinMismatchRemainingAttempts(1L, request, 3);
+        assertCurrentPinMismatchRemainingAttempts(1L, request, 2);
+    }
+
+    @Test
+    void 현재_PIN_검증에_성공하면_실패횟수가_초기화된다() {
+        PinUpdateRequest failRequest = pinUpdateRequest("999999", "222222", "222222");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("999999", "stored-hash")).willReturn(false);
+        assertCurrentPinMismatchRemainingAttempts(1L, failRequest, 4);
+        assertCurrentPinMismatchRemainingAttempts(1L, failRequest, 3);
+
+        PinUpdateRequest successRequest = pinUpdateRequest("111111", "222222", "222222");
+        given(passwordEncoder.matches("111111", "stored-hash")).willReturn(true);
+        given(passwordEncoder.encode("222222")).willReturn("encoded-new-pin");
+        userService.updatePaymentPin(1L, successRequest);
+
+        given(passwordEncoder.matches("999999", "stored-hash")).willReturn(false);
+        assertCurrentPinMismatchRemainingAttempts(1L, failRequest, 4);
+    }
+
+    private void assertCurrentPinMismatchRemainingAttempts(
+            Long userId, PinUpdateRequest request, int expectedRemainingAttempts) {
+        assertThatThrownBy(() -> userService.updatePaymentPin(userId, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((CurrentPaymentPinMismatchResponse) ((BusinessException) e).getData())
+                        .getRemainingVerificationAttempts())
+                .isEqualTo(expectedRemainingAttempts);
+    }
+
+    private PinUpdateRequest pinUpdateRequest(String currentPin, String newPin, String newPinConfirm) {
+        PinUpdateRequest request = new PinUpdateRequest();
+
+        ReflectionTestUtils.setField(request, "currentPin", currentPin);
+        ReflectionTestUtils.setField(request, "newPin", newPin);
+        ReflectionTestUtils.setField(request, "newPinConfirm", newPinConfirm);
+
+        return request;
     }
 
     private LocationAgreeRequest locationAgreeRequest(boolean agreed) {
