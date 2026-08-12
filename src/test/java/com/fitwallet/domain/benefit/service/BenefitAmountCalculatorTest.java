@@ -95,6 +95,42 @@ class BenefitAmountCalculatorTest {
         assertThat(result).isEqualByComparingTo("1000");
     }
 
+    @Test
+    void 적립_혜택의_건당_캡은_포인트_개수라_원화_환산_전에_건다() {
+        // service_id 72 모델 — RATE 10%, 건당 1,000 마이신한포인트.
+        // 30,000 × 10% = 3,000P → 캡 1,000P → 1포인트 2원 → 2,000원.
+        // 환산 뒤에 캡을 걸면 min(6000원, 1000)이 되어 1,000원으로 절반이 깎인다.
+        BenefitCandidateResponse candidate = accumulateRateCapped(
+                new BigDecimal("10"), new BigDecimal("2"), new BigDecimal("1000"));
+
+        BigDecimal result = calculator.calculate(new BigDecimal("30000"), candidate, NO_LIMIT);
+
+        assertThat(result).isEqualByComparingTo("2000");
+    }
+
+    @Test
+    void krwPerPoint가_1보다_작아도_건당_캡은_포인트_축에서_걸린다() {
+        // 30,000 × 10% = 3,000P → 캡 1,000P → 1포인트 0.5원 → 500원.
+        // 환산 뒤에 캡을 걸면 min(1500원, 1000)이 되어 1,000원으로 과다 지급된다.
+        BenefitCandidateResponse candidate = accumulateRateCapped(
+                new BigDecimal("10"), new BigDecimal("0.5"), new BigDecimal("1000"));
+
+        BigDecimal result = calculator.calculate(new BigDecimal("30000"), candidate, NO_LIMIT);
+
+        assertThat(result).isEqualByComparingTo("500");
+    }
+
+    @Test
+    void 적립_혜택의_건당_캡과_한도_잔여는_각자의_축에서_걸린다() {
+        // 캡은 포인트 축(3,000P → 1,000P), 잔여는 원화 축(1,000P × 2 = 2,000원 vs 잔여 1,500원)
+        BenefitCandidateResponse candidate = accumulateRateCapped(
+                new BigDecimal("10"), new BigDecimal("2"), new BigDecimal("1000"));
+
+        BigDecimal result = calculator.calculate(new BigDecimal("30000"), candidate, new BigDecimal("1500"));
+
+        assertThat(result).isEqualByComparingTo("1500");
+    }
+
     @ParameterizedTest(name = "잔여 {0}원 → expectedAmount {1}원")
     @CsvSource({
             "3500, 3500",   // 딱 맞음
@@ -154,6 +190,19 @@ class BenefitAmountCalculatorTest {
                 .valueType(ValueType.RATE)
                 .valueNumber(valueNumber)
                 .krwPerPoint(krwPerPoint)
+                .build();
+    }
+
+    /** {@code perTxLimitAmount}는 ACCUMULATE 행에서 원이 아니라 <b>포인트 개수</b>다. */
+    private BenefitCandidateResponse accumulateRateCapped(BigDecimal valueNumber, BigDecimal krwPerPoint,
+                                                          BigDecimal perTxLimitPoints) {
+        return BenefitCandidateResponse.builder()
+                .serviceId(72L)
+                .benefitType(BenefitType.ACCUMULATE)
+                .valueType(ValueType.RATE)
+                .valueNumber(valueNumber)
+                .krwPerPoint(krwPerPoint)
+                .perTxLimitAmount(perTxLimitPoints)
                 .build();
     }
 

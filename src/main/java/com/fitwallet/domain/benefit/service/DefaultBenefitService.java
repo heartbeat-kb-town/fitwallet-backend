@@ -25,7 +25,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.text.DecimalFormat;
 import java.text.DecimalFormatSymbols;
 import java.time.LocalDate;
@@ -262,7 +261,7 @@ public class DefaultBenefitService implements BenefitService {
             }
             LocalDateTime periodStart = resolvePeriodStart(limit.getLimitPeriod());
             BenefitUsageResponse usage = benefitMapper.findUsage(userCardId, limit.getTierId(), periodStart);
-            BigDecimal usedValue = resolveUsedValue(limit, usage, candidate.getKrwPerPoint());
+            BigDecimal usedValue = resolveUsedValue(limit, usage);
             BigDecimal remainingValue = limit.getLimitValue().subtract(usedValue);
 
             if (remainingValue.compareTo(BigDecimal.ZERO) <= 0) {
@@ -306,13 +305,17 @@ public class DefaultBenefitService implements BenefitService {
         };
     }
 
-    /** POINT는 원 사용액을 {@code krwPerPoint}로 나눠 포인트 단위로 환산한다(반올림 HALF_UP). */
-    private BigDecimal resolveUsedValue(BenefitLimitResponse limit, BenefitUsageResponse usage,
-                                         BigDecimal krwPerPoint) {
+    /**
+     * 이미 쌓인 사용량을 {@code limit_value}와 같은 축으로 맞춘다.
+     * <p>
+     * {@code AMOUNT}와 {@code POINT}가 같은 식인 것은 실수가 아니다 — {@code findUsage}가 합산하는
+     * {@code payment_transaction.discount_amount}는 <b>행 자신의 단위</b>이고(CASHBACK=원,
+     * ACCUMULATE=포인트 개수), {@code applied_tier_id}로 묶여 있어 한 tier 안에는 같은 단위만 모인다.
+     * 즉 {@code POINT} 기준 한도가 걸린 tier의 사용액은 이미 포인트 개수라 환산할 것이 없다.
+     */
+    private BigDecimal resolveUsedValue(BenefitLimitResponse limit, BenefitUsageResponse usage) {
         return switch (limit.getLimitBasis()) {
-            case AMOUNT -> usage.getUsedAmount();
-            case POINT -> usage.getUsedAmount()
-                    .divide(krwPerPoint, limit.getLimitValue().scale(), RoundingMode.HALF_UP);
+            case AMOUNT, POINT -> usage.getUsedAmount();
             case COUNT -> BigDecimal.valueOf(usage.getUsedCount());
         };
     }

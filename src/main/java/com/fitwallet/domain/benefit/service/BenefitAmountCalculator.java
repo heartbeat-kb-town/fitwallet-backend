@@ -17,15 +17,20 @@ import java.math.RoundingMode;
  * <b>단계 순서가 계약이다.</b> 순서가 바뀌면 답이 달라진다.
  * <ol>
  *   <li>원시값 — {@code RATE}는 {@code amount × valueNumber / 100}, {@code FIXED}는 {@code valueNumber}.
- *       원 단위로 절사한다({@link RoundingMode#DOWN})</li>
- *   <li>원화 환산 — {@code ACCUMULATE}면 원시값의 단위가 <b>포인트</b>이므로 {@code krwPerPoint}를 곱한다.
- *       {@code CASHBACK}은 이미 원이다</li>
- *   <li>건당 캡 — {@code perTxLimitAmount}가 있으면 그 값으로 자른다</li>
+ *       단위 절사({@link RoundingMode#DOWN}). <b>{@code ACCUMULATE}면 이 값의 단위는 포인트다</b></li>
+ *   <li>건당 캡 — {@code perTxLimitAmount}가 있으면 그 값으로 자른다. <b>환산 전에 건다</b> —
+ *       이 컬럼은 원화가 아니라 행 자신의 {@code benefit_type} 단위다(ACCUMULATE=포인트, CASHBACK=원).
+ *       {@code service_id 72·73}의 "건당 1,000 마이신한포인트"가 그 예다</li>
+ *   <li>원화 환산 — {@code ACCUMULATE}면 {@code krwPerPoint}를 곱한다. {@code CASHBACK}은 이미 원이다</li>
  *   <li>한도 잔여 — 일·월·년 한도에 남은 금액으로 자른다. 잔여를 원화로 환산하고 여러 한도의
  *       최솟값을 고르는 일은 조회가 필요하므로 {@code DefaultBenefitService}가 하고,
  *       여기는 받은 값을 쓰기만 한다</li>
  *   <li>결제액 상한 — 혜택은 결제액을 넘을 수 없다(1,000원 결제에 2,000원 정액 할인)</li>
  * </ol>
+ * <b>2단계와 3단계를 뒤집으면 원화와 포인트를 {@code min()}으로 비교하게 된다.</b> 지금
+ * {@code point_currency}가 전부 {@code krw_per_point = 1.0000}이라 값이 같아 드러나지 않을 뿐이다 —
+ * 이 순서를 검증하는 테스트는 반드시 1이 아닌 {@code krwPerPoint}를 쓴다.
+ * <p>
  * 1단계에서 {@code DOWN}을 쓰는 것은 "이번 결제에 실제로 받는 금액"이라 카드사 관례대로 절사하기
  * 때문이다. {@code DefaultBenefitReportService}는 월 지출 <i>추정치</i>라 scale 2 {@code HALF_UP}을
  * 쓰는데, 성격이 다른 값이므로 일부러 맞추지 않았다.
@@ -48,17 +53,18 @@ public class BenefitAmountCalculator {
                         .divide(PERCENT_DIVISOR, 0, RoundingMode.DOWN)
                 : candidate.getValueNumber();
 
-        BigDecimal krw = candidate.getBenefitType() == BenefitType.ACCUMULATE
-                ? raw.multiply(candidate.getKrwPerPoint())
+        // 캡은 환산 전에 건다 — perTxLimitAmount는 raw와 같은 단위다(ACCUMULATE면 포인트).
+        BigDecimal capped = candidate.getPerTxLimitAmount() != null
+                ? raw.min(candidate.getPerTxLimitAmount())
                 : raw;
 
-        BigDecimal capped = candidate.getPerTxLimitAmount() != null
-                ? krw.min(candidate.getPerTxLimitAmount())
-                : krw;
+        BigDecimal krw = candidate.getBenefitType() == BenefitType.ACCUMULATE
+                ? capped.multiply(candidate.getKrwPerPoint())
+                : capped;
 
         BigDecimal clipped = remainingKrw != null
-                ? capped.min(remainingKrw.max(BigDecimal.ZERO))
-                : capped;
+                ? krw.min(remainingKrw.max(BigDecimal.ZERO))
+                : krw;
 
         // 원 단위로 통일한다. 캡·한도는 DECIMAL(15,2)라 그대로 두면 같은 응답 필드가
         // "4000.00"과 "100"을 섞어 내보낸다. 원 미만 혜택은 어차피 받을 수 없다.
