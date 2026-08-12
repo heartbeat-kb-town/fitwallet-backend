@@ -35,6 +35,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -203,6 +204,51 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.message").value("결제 PIN을 등록했습니다."));
 
         then(userService).should().registerPaymentPin(eq(1L), ArgumentMatchers.any());
+    }
+
+    @Test
+    void 결제_PIN_변경은_LoginUserId를_서비스에_전달하고_200과_PAYMENT_PIN_UPDATED를_반환한다() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new UserController(userService, refreshTokenCookieProvider))
+                .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
+                .addInterceptors(new AuthInterceptor(jwtProvider))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+
+        mockMvc.perform(patch("/api/user/payment-pin")
+                        .header("Authorization", "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPin\":\"111111\",\"newPin\":\"222222\",\"newPinConfirm\":\"222222\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("PAYMENT_PIN_UPDATED"))
+                .andExpect(jsonPath("$.message").value("결제 비밀번호를 변경했습니다."));
+
+        then(userService).should().updatePaymentPin(eq(1L), ArgumentMatchers.any());
+    }
+
+    @Test
+    void 결제_PIN_변경시_필드가_누락되면_400과_INVALID_INPUT_VALUE를_반환한다() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new UserController(userService, refreshTokenCookieProvider))
+                .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
+                .addInterceptors(new AuthInterceptor(jwtProvider))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+
+        mockMvc.perform(patch("/api/user/payment-pin")
+                        .header("Authorization", "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"newPin\":\"222222\",\"newPinConfirm\":\"222222\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT_VALUE"));
+
+        then(userService).shouldHaveNoInteractions();
     }
 
     @Test
