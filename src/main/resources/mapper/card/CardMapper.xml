@@ -386,6 +386,9 @@
     <!--
         transactionCount는 카테고리·브랜드 전체 거래가 아니라 실제 혜택 서비스가 적용된 거래 건수다.
         store가 없는 적용 거래도 서비스/공유 한도 사용량에는 포함돼야 하므로 LEFT JOIN을 사용한다.
+
+        receivedBenefitAmount는 원화다. discount_amount는 네이티브 단위(CASHBACK=원,
+        ACCUMULATE=포인트 개수)라 그냥 SUM하면 원과 포인트를 섞어 더한다 — krw_per_point로 환산한다.
     -->
     <select id="findMonthlyBenefitTargetUsages"
             resultType="com.fitwallet.domain.card.dto.CardMonthlyBenefitTargetUsage">
@@ -394,10 +397,15 @@
                s.brand_id,
                COUNT(*) transaction_count,
                COALESCE(SUM(pt.amount), 0) total_payment_amount,
-               COALESCE(SUM(pt.discount_amount), 0) received_benefit_amount
+               COALESCE(SUM(CASE WHEN bs.point_currency_id IS NOT NULL
+                                 THEN pt.discount_amount * pc.krw_per_point
+                                 ELSE pt.discount_amount
+                            END), 0) received_benefit_amount
         FROM payment_transaction pt
                  JOIN user_card uc ON uc.user_card_id = pt.user_card_id
                  LEFT JOIN store s ON s.store_id = pt.store_id
+                 LEFT JOIN benefit_service bs ON bs.service_id = pt.applied_benefit_service_id
+                 LEFT JOIN point_currency pc ON pc.point_currency_id = bs.point_currency_id
         WHERE uc.user_id = #{userId}
           AND uc.user_card_id = #{cardId}
           AND uc.is_deleted = 0
