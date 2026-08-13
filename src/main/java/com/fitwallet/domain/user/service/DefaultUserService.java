@@ -1,6 +1,7 @@
 package com.fitwallet.domain.user.service;
 
 import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
+import com.fitwallet.domain.user.dto.request.PaymentPinVerifyRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
@@ -168,14 +169,25 @@ public class DefaultUserService implements UserService {
     @Transactional
     public void updatePaymentPin(Long userId, PinUpdateRequest request) {
         validateNewPinConfirmation(request);
-
-        String storedHash = userMapper.findPaymentPinHash(userId);
-        if (!passwordEncoder.matches(request.getCurrentPin(), storedHash)) {
-            throw new BusinessException(UserErrorCode.INVALID_CURRENT_PAYMENT_PIN);
-        }
+        verifyCurrentPin(userId, request.getCurrentPin());
 
         String newPinHash = passwordEncoder.encode(request.getNewPin());
         userMapper.updatePaymentPin(userId, newPinHash);
+    }
+
+    /** 결제 도메인의 PIN 인증(pin_auth_id/pin_fail_count)과는 별개다 — 잠금 상태를 공유하지 않는다. */
+    @Override
+    @Transactional(readOnly = true)
+    public void verifyPaymentPin(Long userId, PaymentPinVerifyRequest request) {
+        verifyCurrentPin(userId, request.getCurrentPin());
+    }
+
+    /** 저장된 해시와 입력한 현재 PIN이 일치하는지 검증한다. */
+    private void verifyCurrentPin(Long userId, String currentPin) {
+        String storedHash = userMapper.findPaymentPinHash(userId);
+        if (!passwordEncoder.matches(currentPin, storedHash)) {
+            throw new BusinessException(UserErrorCode.INVALID_CURRENT_PAYMENT_PIN);
+        }
     }
 
     /** PIN과 PIN 확인값이 일치하는지 검증한다. */

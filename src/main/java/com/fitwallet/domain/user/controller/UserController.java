@@ -2,6 +2,7 @@ package com.fitwallet.domain.user.controller;
 
 import com.fitwallet.domain.user.dto.UserSuccessCode;
 import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
+import com.fitwallet.domain.user.dto.request.PaymentPinVerifyRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
@@ -170,6 +171,20 @@ public class UserController {
 
         return ApiResponse.of(
                 UserSuccessCode.PAYMENT_PIN_UPDATED,
+                null
+        );
+    }
+
+    /** 새 PIN 입력 화면 전 현재 PIN만 확인하는 API — 실제 변경은 updatePaymentPin이 처리한다. */
+    @PostMapping("/user/payment-pin/verify")
+    public ResponseEntity<ApiResponse<Void>> verifyPaymentPin(
+            @LoginUserId Long userId,
+            @Valid @RequestBody PaymentPinVerifyRequest request) {
+
+        userService.verifyPaymentPin(userId, request);
+
+        return ApiResponse.of(
+                UserSuccessCode.CURRENT_PAYMENT_PIN_VERIFIED,
                 null
         );
     }

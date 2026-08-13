@@ -1,6 +1,7 @@
 package com.fitwallet.domain.user.service;
 
 import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
+import com.fitwallet.domain.user.dto.request.PaymentPinVerifyRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
@@ -37,6 +38,9 @@ public interface UserService {
 
     /** 사용자의 결제 PIN을 변경한다. */
     void updatePaymentPin(Long userId, PinUpdateRequest request);
+
+    /** 마이페이지 PIN 변경 1단계: 현재 결제 PIN만 확인하고 상태는 바꾸지 않는다. */
+    void verifyPaymentPin(Long userId, PaymentPinVerifyRequest request);
 
     /** 마이페이지 표시용 사용자 정보를 조회한다. 없으면 예외를 던진다. */
     UserInfoResponse findUserInfo(Long userId);
