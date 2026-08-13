@@ -268,6 +268,16 @@ class DefaultCardServiceTest {
                 .isEqualTo("1구간");
         assertThat(response.getCategoryBenefits()).isEmpty();
         assertThat(response.getBrandBenefits()).isEmpty();
+        assertThat(response.getSharedLimitGroups()).isEmpty();
+
+        InOrder queryOrder = inOrder(cardMapper);
+        queryOrder.verify(cardMapper).findSummaryCardInfo(1L, 2L);
+        queryOrder.verify(cardMapper).findUsageAmounts(eq(1L), eq(2L), any());
+        queryOrder.verify(cardMapper).findUsageBenefitRules(15L);
+        queryOrder.verify(cardMapper).findMonthlyBenefitRules(15L);
+        queryOrder.verify(cardMapper).findMonthlyBenefitCategoryTargets(15L);
+        queryOrder.verify(cardMapper).findMonthlyBenefitBrandTargets(15L);
+        queryOrder.verify(cardMapper).findMonthlyBenefitTargetUsages(eq(1L), eq(2L), any());
 
         ArgumentCaptor<CardUsagePeriodCondition> conditionCaptor =
                 ArgumentCaptor.forClass(CardUsagePeriodCondition.class);

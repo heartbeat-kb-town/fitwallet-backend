@@ -30,6 +30,8 @@ import java.util.Objects;
 import static com.fitwallet.domain.card.service.CardMonthlyBenefitCalculationContext.SelectedService;
 import static com.fitwallet.domain.card.service.CardMonthlyBenefitCalculationContext.SummaryAmounts;
 import static com.fitwallet.domain.card.service.CardMonthlyBenefitCalculationContext.UsageIndex;
+import static com.fitwallet.domain.card.service.CardMonthlyBenefitCalculationContext.LimitUsageSnapshot;
+import static com.fitwallet.domain.card.service.CardMonthlyBenefitCalculationContext.LimitUsageSnapshotBuilder;
 
 @Component
 @RequiredArgsConstructor
@@ -61,10 +63,14 @@ public class CardMonthlyBenefitCalculator {
         usageCalculator.validatePointCurrencies(selectedServices);
         SummaryAmounts summaryAmounts = usageCalculator.calculateSummaryAmounts(
                 selectedServices, rulesByService, usageIndex);
+        LimitUsageSnapshotBuilder snapshotBuilder = new LimitUsageSnapshotBuilder();
         List<CardMonthlyCategoryBenefitResponse> categoryBenefits =
-                itemAssembler.createCategoryBenefits(selectedServices, categoryTargets, usageIndex);
+                itemAssembler.createCategoryBenefits(
+                        selectedServices, categoryTargets, usageIndex, snapshotBuilder);
         List<CardMonthlyBrandBenefitResponse> brandBenefits =
-                itemAssembler.createBrandBenefits(selectedServices, brandTargets, usageIndex);
+                itemAssembler.createBrandBenefits(
+                        selectedServices, brandTargets, usageIndex, snapshotBuilder);
+        LimitUsageSnapshot limitUsageSnapshot = snapshotBuilder.freeze();
 
         return CardMonthlyBenefitResponse.builder()
                 .card(CardMonthlyBenefitCardResponse.builder()
@@ -91,6 +97,9 @@ public class CardMonthlyBenefitCalculator {
                         .build())
                 .categoryBenefits(categoryBenefits)
                 .brandBenefits(brandBenefits)
+                .sharedLimitGroups(itemAssembler.createSharedLimitGroups(
+                        selectedServices, categoryTargets, brandTargets,
+                        usageIndex, limitUsageSnapshot))
                 .build();
     }
 
@@ -202,6 +211,7 @@ public class CardMonthlyBenefitCalculator {
             List<CardMonthlyBenefitRule> rows) {
         boolean inconsistent = rows.stream().anyMatch(row ->
                 !Objects.equals(definition.getBenefitName(), row.getBenefitName())
+                        || !Objects.equals(definition.getServicePlanGroupId(), row.getServicePlanGroupId())
                         || definition.getBenefitType() != row.getBenefitType()
                         || definition.getValueType() != row.getValueType()
                         || definition.getValueNumber().compareTo(row.getValueNumber()) != 0
