@@ -259,45 +259,33 @@ public class DefaultPaymentService implements PaymentService {
         BigDecimal amount = session.getAmount();
 
         List<PaymentBenefitResponse> benefits = benefitService.findPaymentBenefits(userId, storeId, amount);
-        PaymentTransactionValues values = buildTransactionValues(benefits, userCardId, amount);
-
-        paymentMapper.insertPaymentTransaction(userCardId, storeId, session.getPaymentSessionId(),
-                amount, values.getDiscountAmount(), values.getFinalAmount(), LocalDateTime.now(),
-                values.getAppliedBenefitServiceId(), values.getAppliedTierId(),
-                values.getBetterUserCardId(), values.getAlternativeDiscountAmount(), values.getMissedAmount());
-        paymentMapper.markSessionCompleted(paymentId);
-        paymentMapper.markPinAuthUsed(userId);
-
-        return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
-    }
-
-    /**
-     * 판정 결과를 {@code payment_transaction} 컬럼 값으로 옮긴다.
-     * <p>
-     * package-private: 승인 여부가 {@code Math.random()} 목업이라 {@code completeAndBuildResponse}는
-     * 결정적으로 테스트할 수 없다. 값 계산만 떼어 내 직접 검증한다.
-     */
-    PaymentTransactionValues buildTransactionValues(List<PaymentBenefitResponse> benefits,
-                                                      Long userCardId, BigDecimal amount) {
         PaymentBenefitResponse applied = benefits.stream()
                 .filter(benefit -> benefit.getUserCardId().equals(userCardId))
                 .findFirst()
                 .orElse(null);
 
+        Long appliedBenefitServiceId = applied == null ? null : applied.getBenefitServiceId();
+        // 이게 없으면 BenefitMapper.findUsage(WHERE applied_tier_id = ?)가 이 결제를 세지 못해
+        // 앱 결제로는 한도 잔여가 영영 줄지 않는다.
+        Long appliedTierId = applied == null ? null : applied.getTierId();
+        // ⚠️ 네이티브다(CASHBACK=원, ACCUMULATE=포인트 개수). expectedAmount(원화)를 넣지 말 것 —
+        // 지금은 krw_per_point가 전부 1.0000이라 바꿔 넣어도 숫자가 같아 아무 테스트도 깨지지 않는다.
+        BigDecimal discountAmount = applied == null ? BigDecimal.ZERO : applied.getNativeAmount();
         BigDecimal receivedKrw = applied == null ? BigDecimal.ZERO : applied.getExpectedAmount();
+
+        // 빼는 값은 네이티브가 아니라 원화다. discountAmount를 그대로 빼면 적립 건에서
+        // 포인트 개수를 원화에서 빼게 된다 — 3,000P 적립에 1포인트 0.8원이면 2,400원을 빼야 한다.
+        BigDecimal finalAmount = amount.subtract(receivedKrw);
+
         MissedBenefitInfo missedBenefit = calculateMissedBenefit(benefits, userCardId, receivedKrw);
 
-        return PaymentTransactionValues.builder()
-                .appliedBenefitServiceId(applied == null ? null : applied.getBenefitServiceId())
-                .appliedTierId(applied == null ? null : applied.getTierId())
-                .discountAmount(applied == null ? BigDecimal.ZERO : applied.getNativeAmount())
-                // 빼는 값은 네이티브가 아니라 원화다. 그대로 빼면 적립 건에서 포인트 개수를
-                // 원화에서 빼게 된다 — 3,000P 적립에 1포인트 0.8원이면 2,400원을 빼야 한다.
-                .finalAmount(amount.subtract(receivedKrw))
-                .betterUserCardId(missedBenefit.getBetterUserCardId())
-                .alternativeDiscountAmount(missedBenefit.getAlternativeDiscountAmount())
-                .missedAmount(missedBenefit.getMissedAmount())
-                .build();
+        paymentMapper.insertPaymentTransaction(userCardId, storeId, session.getPaymentSessionId(),
+                amount, discountAmount, finalAmount, LocalDateTime.now(), appliedBenefitServiceId, appliedTierId,
+                missedBenefit.getBetterUserCardId(), missedBenefit.getAlternativeDiscountAmount(), missedBenefit.getMissedAmount());
+        paymentMapper.markSessionCompleted(paymentId);
+        paymentMapper.markPinAuthUsed(userId);
+
+        return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
     }
 
     /**

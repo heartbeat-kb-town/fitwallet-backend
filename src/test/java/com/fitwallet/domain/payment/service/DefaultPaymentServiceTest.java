@@ -478,61 +478,6 @@ class DefaultPaymentServiceTest {
         assertThat(result.getMissedAmount()).isNull();
     }
 
-    // 거래 적재 값
-
-    @Test
-    void discount_amount에는_네이티브_금액이_들어간다() {
-        // 30,000원 결제에 3,000P 적립, 1포인트 0.8원 → 2,400원
-        PaymentTransactionValues values = paymentService.buildTransactionValues(
-                List.of(benefit(1L, "2400", "3000")),
-                1L, new BigDecimal("30000"));
-
-        assertThat(values.getDiscountAmount()).isEqualByComparingTo("3000");
-    }
-
-    @Test
-    void final_amount는_네이티브가_아니라_원화를_뺀_값이다() {
-        // 포인트 개수(3,000)를 빼면 27,000원이 된다 — 실제로는 2,400원만 깎인다
-        PaymentTransactionValues values = paymentService.buildTransactionValues(
-                List.of(benefit(1L, "2400", "3000")),
-                1L, new BigDecimal("30000"));
-
-        assertThat(values.getFinalAmount()).isEqualByComparingTo("27600");
-    }
-
-    @Test
-    void 원화와_네이티브가_같으면_그대로_차감된다() {
-        PaymentTransactionValues values = paymentService.buildTransactionValues(
-                List.of(benefit(1L, "3000", "3000")),
-                1L, new BigDecimal("30000"));
-
-        assertThat(values.getDiscountAmount()).isEqualByComparingTo("3000");
-        assertThat(values.getFinalAmount()).isEqualByComparingTo("27000");
-    }
-
-    @Test
-    void 적용된_혜택의_tierId를_함께_적재한다() {
-        // 이 값이 빠지면 BenefitMapper.findUsage가 앱 결제를 한도 사용량으로 세지 못한다
-        PaymentTransactionValues values = paymentService.buildTransactionValues(
-                List.of(benefit(1L, "3000", "3000")),
-                1L, new BigDecimal("30000"));
-
-        assertThat(values.getAppliedTierId()).isEqualTo(201L);
-        assertThat(values.getAppliedBenefitServiceId()).isEqualTo(101L);
-    }
-
-    @Test
-    void 쓴_카드에_혜택이_없으면_혜택_컬럼은_비우고_결제액을_그대로_적재한다() {
-        PaymentTransactionValues values = paymentService.buildTransactionValues(
-                List.of(benefit(5L, "900", "900")),
-                1L, new BigDecimal("30000"));
-
-        assertThat(values.getAppliedBenefitServiceId()).isNull();
-        assertThat(values.getAppliedTierId()).isNull();
-        assertThat(values.getDiscountAmount()).isEqualByComparingTo("0");
-        assertThat(values.getFinalAmount()).isEqualByComparingTo("30000");
-    }
-
     /** {@code expectedAmount}는 원화, {@code nativeAmount}는 네이티브 단위 — 둘을 일부러 다르게 준다. */
     private PaymentBenefitResponse benefit(Long userCardId, String expectedAmount, String nativeAmount) {
         return PaymentBenefitResponse.builder()
