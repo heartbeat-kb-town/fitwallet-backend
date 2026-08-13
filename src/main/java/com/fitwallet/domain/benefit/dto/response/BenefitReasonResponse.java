@@ -18,6 +18,7 @@ public class BenefitReasonResponse {
     @ApiModelProperty(value = """
             사유 코드.
             - `PREV_SPEND_NOT_MET`: 전월실적이 어떤 구간에도 들지 못했다(status=CONDITION_NOT_MET)
+            - `MIN_TX_AMOUNT_NOT_MET`: 이번 결제 금액이 건당 최소 이용금액에 못 미친다. `amount`를 보냈을 때만 나온다(status=CONDITION_NOT_MET)
             - `LIMIT_EXHAUSTED`: 조건은 만족했으나 할인·적립 한도가 소진됐다(status=CONDITION_NOT_MET)
             - `NO_BENEFIT_FOR_STORE`: 이 가맹점에 걸리는 혜택이 없다(status=NO_BENEFIT)""",
             example = "PREV_SPEND_NOT_MET")

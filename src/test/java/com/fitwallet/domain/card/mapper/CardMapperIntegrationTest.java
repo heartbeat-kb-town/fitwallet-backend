@@ -71,7 +71,17 @@ class CardMapperIntegrationTest {
             assertThat(card.getCardName()).isNotBlank();
             assertThat(card.getCardProductId()).isNotNull();
             assertThat(card.getCardType()).isNotNull();
+            assertThat(card.getIssuerName()).isNotBlank();
         });
+
+        // card_image_url은 nullable이라 allSatisfy로 묶을 수 없다. 여기서 보는 것은
+        // "매퍼 XML이 이 컬럼을 SELECT하고 매핑하는가" 하나뿐이다 — resultType 매핑은
+        // SQL이 안 뽑은 컬럼을 조용히 버리므로(AGENTS.md §6) 이 단언이 그걸 잡는다.
+        //
+        // 반대로 "이미지가 null인 카드가 있다"는 단언은 두지 않는다. 어느 카드에 이미지를
+        // 넣을지는 제품 결정이라 시드가 바뀌면 함께 바뀌고, 실제로 #119가 신한카드 20종을
+        // 채우면서 그 단언이 깨져 develop이 빨개졌다(#129). 매퍼 테스트는 매퍼만 본다.
+        assertThat(cards).filteredOn(c -> c.getCardImageUrl() != null).isNotEmpty();
     }
 
     @Test
@@ -250,6 +260,38 @@ class CardMapperIntegrationTest {
         Long userCardId = ((Number) keyHolder.get("userCardId")).longValue();
         assertThat(userCardId).isNotNull();
         return userCardId;
+    }
+
+    @Test
+    void 보유_카드_ID만_삭제된_카드_없이_조회한다() {
+        assertThat(cardMapper.findUserCardIds(SEED_USER_ID))
+                .containsExactlyInAnyOrder(1L, 2L, 3L, 4L, 5L);
+    }
+
+    @Test
+    void 소프트_삭제된_카드는_보유_카드_ID_조회에서_제외된다() {
+        jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
+
+        assertThat(cardMapper.findUserCardIds(SEED_USER_ID))
+                .containsExactlyInAnyOrder(2L, 3L, 4L, 5L);
+    }
+
+    @Test
+    void 표시순서를_변경하면_리스트_순서대로_1부터_채워지고_영향받은_행수를_반환한다() {
+        int updatedRows = cardMapper.updateCardsDisplayOrder(SEED_USER_ID, List.of(3L, 1L, 5L, 2L, 4L));
+
+        assertThat(updatedRows).isEqualTo(5);
+        assertThat(displayOrderOf(3L)).isEqualTo(1);
+        assertThat(displayOrderOf(1L)).isEqualTo(2);
+        assertThat(displayOrderOf(5L)).isEqualTo(3);
+        assertThat(displayOrderOf(2L)).isEqualTo(4);
+        assertThat(displayOrderOf(4L)).isEqualTo(5);
+    }
+
+    private Integer displayOrderOf(Long userCardId) {
+        return jdbcTemplate.queryForObject(
+                "SELECT display_order FROM user_card WHERE user_card_id = ?",
+                Integer.class, userCardId);
     }
 
     private MyDataCard myDataCard(Long cardProductId, String first4, String last4,

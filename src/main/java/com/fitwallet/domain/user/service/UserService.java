@@ -1,9 +1,17 @@
 package com.fitwallet.domain.user.service;
 
+import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
+import com.fitwallet.domain.user.dto.request.PaymentPinVerifyRequest;
+import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
+import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
+import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
+
+import java.util.List;
 
 /** 사용자 회원가입과 로그인을 처리하는 서비스 계약. */
 public interface UserService {
@@ -13,6 +21,27 @@ public interface UserService {
     /** 자격 증명을 검증하고 Access Token과 Refresh Token을 발급한다. */
     UserLoginTokenResponse login(UserLoginRequest request);
 
+    /** 로그인 사용자가 최근 1개월간 가장 자주 결제한 장소를 최대 3개 조회한다. */
+    List<FrequentPlaceResponse> findFrequentPlaces(Long userId);
+
     /** Refresh Token을 검증하고 새 Access Token을 발급한다. */
     TokenReissueResponse reissueAccessToken(String refreshToken);
+
+    /** 로그인 사용자의 결제 PIN을 최초 등록한다. 이미 등록돼 있으면 예외를 던진다. */
+    void registerPaymentPin(Long userId, PinRegisterRequest request);
+
+    /** 로그인 사용자의 위치 정보 동의 여부를 갱신한다. */
+    void updateLocationAgreement(Long userId, LocationAgreeRequest request);
+
+    /** 로그인 사용자의 저장된 Refresh Token을 삭제해 로그아웃 처리한다. */
+    void logout(Long userId);
+
+    /** 사용자의 결제 PIN을 변경한다. */
+    void updatePaymentPin(Long userId, PinUpdateRequest request);
+
+    /** 마이페이지 PIN 변경 1단계: 현재 결제 PIN만 확인하고 상태는 바꾸지 않는다. */
+    void verifyPaymentPin(Long userId, PaymentPinVerifyRequest request);
+
+    /** 마이페이지 표시용 사용자 정보를 조회한다. 없으면 예외를 던진다. */
+    UserInfoResponse findUserInfo(Long userId);
 }

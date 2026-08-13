@@ -1,5 +1,25 @@
 -- =========================================================
--- fitwallet 스키마 DDL (확정 ERD v25)
+-- V1 — 기준 스키마 (baseline)
+--
+-- 이 저장소의 스키마 전체를 한 파일로 담은 기준점이다. 새로 만드는 DB는 이 파일부터
+-- 순서대로 적용된다. 운영처럼 이미 데이터가 든 DB는 flyway.baseline-version 까지를
+-- "이미 적용됨"으로 간주하고 그 뒤 파일만 적용한다.
+--
+-- ⚠️ 이 파일은 갱신하지 않는다. 스키마를 바꿀 때는 V{다음번호} 파일을 새로 만든다.
+--    누적된 최신 모양의 설명은 docs/erd.md 를 본다.
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS health_check (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    message VARCHAR(100) NOT NULL,
+    checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO health_check (message) VALUES ('fitwallet-backend DB connection OK');
+
+
+-- =========================================================
+-- fitwallet 스키마 DDL (확정 ERD v27)
 -- MySQL 8.x / InnoDB / utf8mb4
 --
 -- docker-entrypoint-initdb.d 스크립트. 컨테이너 최초 기동(빈 볼륨) 시
@@ -214,6 +234,11 @@ CREATE TABLE benefit_service (
     value_type            VARCHAR(10) NOT NULL,
     value_number          DECIMAL(15,2) NOT NULL,
     scope_type            VARCHAR(20) NOT NULL,
+    -- ⚠️ 이름이 "건당 결제금액"으로 읽히지만 실제로는 **전월실적 구간의 하한**이다.
+    -- 값이 10만~150만원이고 매퍼가 prevMonthSpend와 비교한다(BenefitMapper.findCandidates).
+    -- 아래 min_tx_amount(건당)와 이름이 비슷하니 헷갈리지 말 것. 같은 의미를 benefit_tier는
+    -- min_prev_month_spend로 부른다 — v27에서 이름을 맞추는 것을 검토했으나, 개명이
+    -- benefit_tier와 컬럼명 충돌을 만들어 조회 매퍼에 AS 별칭을 강제하므로 보류했다.
     -- v9: "조건 없음"을 NULL 대신 0으로 표현(NULL은 <= 비교에서 UNKNOWN이 되어
     -- "조건 없음" 행이 조회 쿼리에서 조용히 누락되는 문제가 있었음).
     min_payment_amount    DECIMAL(15,2) NOT NULL DEFAULT 0,
@@ -222,6 +247,23 @@ CREATE TABLE benefit_service (
     -- 뽑히게 한다(rate group을 몰라도 구간 선택이 됨). NULL=상한 없음(최상위
     -- 구간, 실적 문턱만 있는 단일 혜택, 실적 무관 혜택 전부 NULL).
     max_payment_amount    DECIMAL(15,2) NULL,
+    -- v27: 건당(1회 결제) 최소 이용금액. 이 금액 미만이면 혜택이 아예 발생하지 않는다.
+    -- 3사 약관 실측에서 전부 쓰고 있었다 — KB "건당 1만원 이상 이용 시 적립",
+    -- 신한 The More "건당 5,000원 이상 사용시 적용", 현대 ZERO Up "1건당 10만원 이상
+    -- 결제건에 대해서만".
+    --
+    -- ⚠️ 위 min_payment_amount(전월 누적)와는 완전히 다른 축이다. 이름은 비슷하지만
+    -- 이쪽만 "이번 결제 1건"의 금액을 본다.
+    --
+    -- 조건 없음을 NULL이 아닌 0으로 두는 것은 v9와 같은 이유다.
+    min_tx_amount         DECIMAL(15,2) NOT NULL DEFAULT 0,
+    -- 건당 혜택 상한. 이름은 _amount 지만 단위가 항상 원화는 아니다 — ACCUMULATE 행에서는
+    -- 포인트 개수를 담는다(service_id 72·73 신한 Pick E 체크가 1000 마이신한포인트).
+    -- 단위는 행 자신의 benefit_type으로 해석한다(ACCUMULATE=포인트, CASHBACK=원).
+    -- value_number와 같은 규칙이다.
+    --
+    -- 건당 한도의 정본은 이 컬럼이다. benefit_limit에도 limit_period='PER_TRANSACTION'으로
+    -- 같은 개념을 표현할 수 있지만 그쪽은 쓰지 않는다(benefit_limit 정의의 주석 참고).
     per_tx_limit_amount   DECIMAL(15,2) NULL,
     -- v10: monthly_limit/monthly_count_limit 제거. 165건 전부 NULL로, 월/일
     -- 한도는 이미 benefit_tier+benefit_limit이 전담하고 있어 한 번도 안 쓰인
@@ -303,6 +345,17 @@ CREATE TABLE benefit_limit (
     -- 단위 컬럼이 아예 없었음).
     CONSTRAINT ck_benefit_limit_limit_basis
         CHECK (limit_basis IN ('COUNT', 'AMOUNT', 'POINT')),
+    -- v27: PER_TRANSACTION 은 값 집합에 남아 있지만 쓰지 않는다(현재 0행).
+    -- 건당 한도의 정본은 benefit_service.per_tx_limit_amount 다. 새 행을 이쪽으로
+    -- 만들지 말 것.
+    --   왜 정본이 benefit_service 인가: 이 테이블은 소진형 한도라 모든 행이 기간을
+    --   갖고, 판정이 과거 거래를 집계해 잔량을 구하는 방식이다(findUsage). 건당
+    --   한도는 기간도 없고 소진되지도 않아 집계할 대상이 없다 — 그래서 판정 코드가
+    --   PER_TRANSACTION 을 건너뛴다(DefaultBenefitService). 게다가 benefit_limit 은
+    --   benefit_tier 를 통해서만 붙는데 benefit_tier 는 정의상 전월실적 구간이라,
+    --   실적과 무관한 건당 한도에도 tier 행을 억지로 만들어야 한다.
+    --   값 집합에서 빼지 않은 것은 0행이라 지금 해가 없고, 제약 변경이 이 작업의
+    --   목적(건당 최소 결제금액 표현)과 무관하기 때문이다.
     CONSTRAINT ck_benefit_limit_limit_period
         CHECK (limit_period IN ('PER_TRANSACTION', 'DAY', 'MONTH', 'YEAR')),
     -- 같은 tier에 같은 종류(기준+주기)의 한도가 중복/모순되게 들어가는 것을 방지
@@ -433,13 +486,16 @@ CREATE TABLE payment_session (
     -- v23: 세션 상태: PENDING -> SCANNED -> PROCESSING -> COMPLETED, 그 외 EXPIRED/FAILED.
     CONSTRAINT ck_payment_session_status
         CHECK (status IN ('PENDING','SCANNED','PROCESSING','COMPLETED','EXPIRED','FAILED')),
+    -- v26: MOCK_RANDOM_DECLINE 추가. 결제 결과 조회 Mock이 무작위로 승인을 거절시킬 때
+    -- 쓰는 임시 값이다. 실제 PG 연동 시 진짜 거절 사유 코드로 대체될 예정.
     CONSTRAINT ck_payment_session_fail_reason
         CHECK (fail_reason IS NULL OR fail_reason IN (
-            'PIN_MISMATCH',      -- 결제 PIN 불일치
-            'PIN_LOCKED',        -- PIN 연속 실패로 잠금 (users.pin_fail_count)
-            'CANCELED_BY_USER',  -- 사용자 직접 취소
-            'CARD_UNAVAILABLE',  -- 카드 삭제/사용 불가
-            'SYSTEM_ERROR'       -- 그 외 산발 오류
+            'PIN_MISMATCH',        -- 결제 PIN 불일치
+            'PIN_LOCKED',          -- PIN 연속 실패로 잠금 (users.pin_fail_count)
+            'CANCELED_BY_USER',    -- 사용자 직접 취소
+            'CARD_UNAVAILABLE',    -- 카드 삭제/사용 불가
+            'SYSTEM_ERROR',        -- 그 외 산발 오류
+            'MOCK_RANDOM_DECLINE'  -- v26: 결제 결과 Mock의 무작위 승인 거절 (임시)
         ))
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -459,7 +515,9 @@ CREATE TABLE payment_transaction (
     payment_session_id        BIGINT NULL,
     amount                    DECIMAL(15,2) NOT NULL,
     discount_amount           DECIMAL(15,2) NOT NULL DEFAULT 0,
-    -- v22: 최종금액(= amount - discount_amount). 할인 적용 후 실제 결제 금액.
+    -- v22: 최종금액. 혜택 적용 후 실제 결제 금액이며 단위는 원화다.
+    -- ⚠️ discount_amount 는 네이티브 단위라(아래 주석 참고) amount - discount_amount 라는
+    -- 등식이 성립하지 않는다. 적립 건은 포인트 개수를 원화로 환산한 뒤 뺀 값이다.
     final_amount              DECIMAL(15,2) NOT NULL,
     -- 실제 결제(승인) 발생 시각(비즈니스 시각). created_at(레코드 생성)과 분리.
     paid_at                   DATETIME NOT NULL,
@@ -467,14 +525,23 @@ CREATE TABLE payment_transaction (
     is_eligible               TINYINT(1) NOT NULL DEFAULT 1,
     -- v18: 적용 혜택 / 놓친 혜택을 인라인. 현행 정책상 결제:적용혜택은 "건당 최선 1개"라
     -- 1:1, 놓친 혜택도 "최선 대안 1개"만 → 별도 테이블(benefit_application/missed_benefit)
-    -- 대신 여기에 둔다. discount_amount 는 적용된 혜택 하나의 혜택값(할인+적립 원환산).
+    -- 대신 여기에 둔다. discount_amount 는 적용된 혜택 하나의 혜택값이며 단위는 네이티브다 —
+    -- applied_benefit_service_id 의 benefit_type 으로 해석한다(CASHBACK=원, ACCUMULATE=포인트
+    -- 개수). 어떤 포인트인지는 benefit_service.point_currency_id 로 판별하고, 원화가 필요한
+    -- 집계는 point_currency.krw_per_point 를 곱한다.
     -- (진짜 혜택 중첩/다중 대안이 필요해지면 benefit_service에 중첩 규칙을 추가하고
     --  적용내역을 별도 테이블로 분리하는 세트 변경이 필요.)
+    --
+    -- ⚠️ 단위가 컬럼마다 다르다. discount_amount 만 네이티브고 alternative_discount_amount /
+    -- missed_amount 는 원화다. 뒤 둘은 better_user_card_id 만 있고 better_benefit_service_id 가
+    -- 없어 읽는 쪽이 통화를 판별할 방법이 없기 때문이다.
     applied_benefit_service_id   BIGINT NULL,        -- 적용된 혜택(attribution). 혜택 0이면 NULL
     applied_tier_id              BIGINT NULL,        -- 적용 혜택의 한도 그룹(한도 소진 집계 키)
     better_user_card_id          BIGINT NULL,        -- 놓친 혜택: 더 유리했던 보유 카드. 없으면 NULL
-    alternative_discount_amount  DECIMAL(15,2) NULL, -- 그 카드였다면 받았을 혜택값
-    missed_amount                DECIMAL(15,2) NULL, -- 놓친 금액(= alternative - discount_amount)
+    alternative_discount_amount  DECIMAL(15,2) NULL, -- 그 카드였다면 받았을 혜택값(원화)
+    -- 놓친 금액(원화). discount_amount 와 축이 달라 alternative - discount_amount 라는 등식이
+    -- 성립하지 않는다 — 두 값 모두 원화로 환산한 뒤 뺀 결과다.
+    missed_amount                DECIMAL(15,2) NULL,
     created_at                DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     -- v25: 세션 1건은 거래 최대 1건으로 확정된다(1:1). NULL은 중복 허용되므로 앱을

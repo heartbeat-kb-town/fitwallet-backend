@@ -9,11 +9,15 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum CardSuccessCode implements SuccessCode {
 
+    CARD_EVENTS_FOUND(HttpStatus.OK, "카드별 진행 중 이벤트 조회에 성공했습니다."),
+
     USER_CARDS_FOUND(HttpStatus.OK, "보유 카드 목록을 조회했습니다."),
     CARD_SUMMARY_FOUND(HttpStatus.OK, "내 카드 요약 조회에 성공했습니다."),
+    CARD_MONTHLY_BENEFIT_FOUND(HttpStatus.OK, "카드 월간 혜택 현황 조회에 성공했습니다."),
     CARD_TRANSACTIONS_FOUND(HttpStatus.OK, "카드별 결제 내역 조회에 성공했습니다."),
     CARD_USAGE_FOUND(HttpStatus.OK, "월별 이용 실적 조회에 성공했습니다."),
     CARD_REGISTERED(HttpStatus.CREATED, "카드를 등록했습니다."),
+    CARD_DISPLAY_ORDER_UPDATED(HttpStatus.OK, "카드 표시 순서를 수정했습니다."),
     MYDATA_LINKED(HttpStatus.OK, "마이데이터 연동이 완료되었습니다.");
 
     private final HttpStatus status;

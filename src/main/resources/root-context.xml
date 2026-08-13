@@ -32,7 +32,17 @@
         <property name="connectionTimeout" value="${jdbc.pool.connectionTimeout}"/>
     </bean>
 
-    <bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean">
+    <!--
+        스키마 마이그레이션. 반드시 MyBatis보다 먼저 끝나야 하므로 sqlSessionFactory가
+        depends-on으로 이 빈을 기다린다. 실패하면 컨텍스트 기동이 실패한다 (의도된 동작).
+    -->
+    <bean id="flywayMigrator" class="com.fitwallet.global.config.FlywayMigrator" init-method="migrate">
+        <property name="dataSource" ref="dataSource"/>
+        <property name="locations" value="${flyway.locations}"/>
+        <property name="baselineVersion" value="${flyway.baseline-version}"/>
+    </bean>
+
+    <bean id="sqlSessionFactory" class="org.mybatis.spring.SqlSessionFactoryBean" depends-on="flywayMigrator">
         <property name="dataSource" ref="dataSource"/>
         <property name="configLocation" value="classpath:mybatis-config.xml"/>
         <property name="mapperLocations" value="classpath:mapper/**/*.xml"/>

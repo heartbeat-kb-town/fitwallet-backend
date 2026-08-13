@@ -1,12 +1,12 @@
 package com.fitwallet.domain.payment.controller;
 
+import com.fitwallet.domain.payment.dto.PaymentApproveResult;
 import com.fitwallet.domain.payment.dto.PaymentSessionStatus;
 import com.fitwallet.domain.payment.dto.PaymentSuccessCode;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
 import com.fitwallet.domain.payment.dto.request.QrGenerateRequest;
-import com.fitwallet.domain.payment.dto.response.PinVerifyResponse;
-import com.fitwallet.domain.payment.dto.response.QrGenerateResponse;
-import com.fitwallet.domain.payment.dto.response.QrStatusResponse;
+import com.fitwallet.domain.payment.dto.request.StoreQrScanRequest;
+import com.fitwallet.domain.payment.dto.response.*;
 import com.fitwallet.domain.payment.service.PaymentService;
 import com.fitwallet.global.common.annotation.LoginUserId;
 import com.fitwallet.global.common.dto.ApiResponse;
@@ -43,6 +43,39 @@ public class PaymentController {
         QrStatusResponse response = paymentService.getQrStatus(userId, qrToken);
         PaymentSuccessCode successCode = response.getStatus() == PaymentSessionStatus.SCANNED ?
                 PaymentSuccessCode.QR_STATUS_SCANNED : PaymentSuccessCode.QR_STATUS_CREATED;
+        return ApiResponse.of(successCode, response);
+    }
+
+    @GetMapping("/payment/{paymentId}/result")
+    public ResponseEntity<ApiResponse<PaymentResultResponse>> getPaymentResult(@LoginUserId Long userId,
+                                                                               @PathVariable String paymentId){
+        PaymentResultResponse response = paymentService.getPaymentResult(userId, paymentId);
+        PaymentSuccessCode successCode = switch(response.getStatus()){
+            case COMPLETED -> PaymentSuccessCode.PAYMENT_COMPLETED;
+            case FAILED -> PaymentSuccessCode.PAYMENT_FAILED;
+            default -> PaymentSuccessCode.PAYMENT_PROCESSING;
+        };
+        return ApiResponse.of(successCode, response);
+    }
+
+    @PostMapping("/payment/qr/scan")
+    public ResponseEntity<ApiResponse<StoreQrScanResponse>> scanStoreQr(@LoginUserId Long userId,
+                                                                        @Valid @RequestBody StoreQrScanRequest request){
+        return ApiResponse.of(PaymentSuccessCode.STORE_QR_SCANNED, paymentService.scanStoreQr(userId, request));
+    }
+
+    @PostMapping("/payment/{paymentId}/approve")
+    public ResponseEntity<ApiResponse<PaymentResultResponse>> approvePayment(@LoginUserId Long userId,
+                                                                            @PathVariable String paymentId){
+        PaymentApproveResult result = paymentService.approvePayment(userId, paymentId);
+        PaymentResultResponse response = result.getResponse();
+
+        PaymentSuccessCode successCode = result.isAlreadyProcessed()
+                ? PaymentSuccessCode.PAYMENT_ALREADY_PROCESSED
+                : response.getStatus() == PaymentSessionStatus.COMPLETED
+                    ? PaymentSuccessCode.PAYMENT_COMPLETED
+                    : PaymentSuccessCode.PAYMENT_FAILED;
+
         return ApiResponse.of(successCode, response);
     }
 }

@@ -1,9 +1,13 @@
 package com.fitwallet.domain.user.mapper;
 
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
+import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
 
 /**
  * 사용자 도메인의 데이터 접근을 담당한다.
@@ -38,9 +42,35 @@ public interface UserMapper {
     void saveOrUpdateRefreshToken(@Param("userId") Long userId, @Param("tokenHash") String tokenHash);
 
     /**
+     * 최근 1개월 결제내역을 가맹점 기준으로 집계해, 결제 건수 내림차순(동률이면 최근 결제일
+     * 내림차순)으로 최대 3개만 조회한다. 결제내역이 없으면 빈 리스트를 반환한다.
+     */
+    List<FrequentPlaceResponse> findFrequentPlaces(@Param("userId") Long userId);
+
+    /**
      * 유저에게 저장된 리프레시 토큰 해시를 조회한다.
      * 저장된 토큰이 없으면 {@code null}을 반환한다.
      */
     String findRefreshTokenHashByUserId(@Param("userId") Long userId);
 
+    /**
+     * 결제 PIN을 최초 등록한다. PIN은 서비스에서 암호화한 값을 전달한다.
+     * {@code payment_pin_hash IS NULL}인 경우에만 갱신되므로, UPDATE 결과가 0이면 이미 등록된 것이다.
+     */
+    int registerPaymentPin(@Param("userId") Long userId, @Param("pinHash") String pinHash);
+
+    /** 위치 정보 동의 여부를 갱신한다. */
+    void updateLocationAgreement(@Param("userId") Long userId, @Param("agreed") boolean agreed);
+
+    /** 로그아웃 시 저장된 리프레시 토큰을 삭제해 이후 재발급을 차단한다. */
+    void deleteRefreshToken(@Param("userId") Long userId);
+
+    /** 결제 PIN 해시를 조회한다. 등록된 적 없으면 null. */
+    String findPaymentPinHash(@Param("userId") Long userId);
+
+    /** 결제 PIN을 변경한다. */
+    void updatePaymentPin(@Param("userId") Long userId, @Param("newPinHash") String newPinHash);
+
+    /** 마이페이지 표시용 사용자 정보를 조회한다. 없으면 null. */
+    UserInfoResponse findUserInfo(@Param("userId") Long userId);
 }

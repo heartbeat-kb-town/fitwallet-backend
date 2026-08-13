@@ -4,9 +4,16 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.fitwallet.domain.report.mapper.BenefitReportMapper">
     <select id="getTotalReceivedBenefit" resultType="java.math.BigDecimal">
-        SELECT COALESCE(SUM(pt.discount_amount), 0)
+        SELECT COALESCE(SUM(
+        CASE WHEN bs.point_currency_id IS NOT NULL
+        THEN pt.discount_amount * pc.krw_per_point
+        ELSE pt.discount_amount
+        END
+        ), 0)
         FROM payment_transaction pt
         JOIN user_card uc ON pt.user_card_id = uc.user_card_id
+        LEFT JOIN benefit_service bs ON pt.applied_benefit_service_id = bs.service_id
+        LEFT JOIN point_currency pc ON bs.point_currency_id = pc.point_currency_id
         WHERE uc.user_id = #{userId}
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
     </select>
@@ -23,12 +30,19 @@
         SELECT
         c.category_id ,
         c.category_name ,
-        COALESCE(SUM(pt.discount_amount), 0) AS benefitAmount,
+        COALESCE(SUM(
+        CASE WHEN bs.point_currency_id IS NOT NULL
+        THEN pt.discount_amount * pc.krw_per_point
+        ELSE pt.discount_amount
+        END
+        ), 0) AS benefitAmount,
         COALESCE(SUM(pt.amount), 0)           AS spendAmount
         FROM payment_transaction pt
         JOIN user_card uc ON pt.user_card_id = uc.user_card_id
         JOIN store s ON pt.store_id = s.store_id
         JOIN category c ON s.category_id = c.category_id
+        LEFT JOIN benefit_service bs ON pt.applied_benefit_service_id = bs.service_id
+        LEFT JOIN point_currency pc ON bs.point_currency_id = pc.point_currency_id
         WHERE uc.user_id = #{userId}
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
         GROUP BY c.category_id, c.category_name
@@ -54,22 +68,51 @@
     </select>
 
     <!-- 2) 그 카테고리에 혜택 있는, 아직 보유 안 한 카드 후보 조회 -->
+    <!-- benefit_tier/benefit_limit은 서비스당 여러 행(다중 실적구간·다중 한도)이 있어
+         조인하면 서비스 하나가 여러 행으로 불어난다. 서비스 루프가 행마다 예상 혜택을
+         더하므로 그대로 두면 같은 혜택이 중복 합산된다. 그래서 각각 tier_id/limit_id를
+         상관 서브쿼리로 딱 하나만 골라 서비스당 정확히 1행이 되게 한다.
+         - tier: 진입(최저 실적) 구간을 고른다. plan_group 소속 서비스는 tier가
+           service_id가 아니라 plan_group_id로 달려 있으므로 둘 다 본다(안 그러면
+           min_prev_month_spend가 NULL이 되어 서비스에서 NPE가 난다).
+         - limit: 월 한도 중 금액성(AMOUNT/POINT)만. COUNT는 건수 한도라 원화 캡이 아니다.
+           없으면 NULL(한도 없음)로 남는다. -->
     <select id="getRecommendedCards" resultType="com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse">
-        SELECT DISTINCT
+        SELECT
         cp.card_product_id,
         cp.card_name,
         cp.card_image_url,
         c.category_id,
         c.category_name,
+        bs.value_type,
         bs.value_number AS discountRate,
+        bs.point_currency_id,
+        pc.krw_per_point,
         bt.min_prev_month_spend,
-        bl.limit_value
+        bl.limit_value,
+        bl.limit_basis
         FROM benefit_service bs
         JOIN service_category sc ON bs.service_id = sc.service_id
         JOIN category c ON sc.category_id = c.category_id
         JOIN card_product cp ON bs.card_product_id = cp.card_product_id
-        LEFT JOIN benefit_tier bt ON bt.service_id = bs.service_id
-        LEFT JOIN benefit_limit bl ON bl.tier_id = bt.tier_id
+        LEFT JOIN point_currency pc ON bs.point_currency_id = pc.point_currency_id
+        LEFT JOIN benefit_tier bt ON bt.tier_id = (
+            SELECT bt2.tier_id
+            FROM benefit_tier bt2
+            WHERE bt2.service_id = bs.service_id
+            OR bt2.plan_group_id = bs.plan_group_id
+            ORDER BY bt2.min_prev_month_spend ASC, bt2.tier_id ASC
+            LIMIT 1
+        )
+        LEFT JOIN benefit_limit bl ON bl.limit_id = (
+            SELECT bl2.limit_id
+            FROM benefit_limit bl2
+            WHERE bl2.tier_id = bt.tier_id
+            AND bl2.limit_period = 'MONTH'
+            AND bl2.limit_basis &lt;&gt; 'COUNT'
+            ORDER BY bl2.limit_id ASC
+            LIMIT 1
+        )
         WHERE c.category_id IN
         <foreach collection="categoryIds" item="categoryId" open="(" separator="," close=")">
             #{categoryId}

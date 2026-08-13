@@ -1,8 +1,14 @@
 package com.fitwallet.domain.user.service;
 
+import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
+import com.fitwallet.domain.user.dto.request.PaymentPinVerifyRequest;
+import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
+import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
+import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.exception.UserErrorCode;
@@ -22,6 +28,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -165,6 +172,23 @@ class DefaultUserServiceTest {
     }
 
     @Test
+    void 자주찾는장소_조회는_매퍼_집계결과를_그대로_반환한다() {
+        List<FrequentPlaceResponse> places = List.of(
+                FrequentPlaceResponse.builder()
+                        .storeId(1L)
+                        .storeName("스타벅스 강남점")
+                        .address("서울 강남구")
+                        .categoryName("카페/디저트")
+                        .build()
+        );
+        given(userMapper.findFrequentPlaces(1L)).willReturn(places);
+
+        List<FrequentPlaceResponse> result = userService.findFrequentPlaces(1L);
+
+        assertThat(result).isEqualTo(places);
+    }
+
+    @Test
     void 재발급_성공시_새_Access_Token을_반환한다() throws NoSuchAlgorithmException {
         String refreshToken = "refresh-token";
         String tokenHash = HexFormat.of().formatHex(
@@ -205,6 +229,178 @@ class DefaultUserServiceTest {
                 .isInstanceOf(BusinessException.class)
                 .extracting(e -> ((BusinessException) e).getErrorCode())
                 .isEqualTo(CommonErrorCode.UNAUTHORIZED);
+    }
+
+    @Test
+    void PIN과_PIN확인이_다르면_PIN_CONFIRM_MISMATCH_예외를_던진다() {
+        PinRegisterRequest request = pinRegisterRequest("123456", "654321");
+
+        assertThatThrownBy(() -> userService.registerPaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.PIN_CONFIRM_MISMATCH);
+
+        then(userMapper).shouldHaveNoInteractions();
+        then(passwordEncoder).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void PIN_등록시_암호화해_저장한다() {
+        PinRegisterRequest request = pinRegisterRequest("123456", "123456");
+        given(passwordEncoder.encode("123456")).willReturn("encoded-pin");
+        given(userMapper.registerPaymentPin(1L, "encoded-pin")).willReturn(1);
+
+        userService.registerPaymentPin(1L, request);
+
+        then(passwordEncoder).should().encode("123456");
+        then(userMapper).should().registerPaymentPin(1L, "encoded-pin");
+    }
+
+    @Test
+    void 이미_PIN이_등록된_경우_PAYMENT_PIN_ALREADY_REGISTERED_예외를_던진다() {
+        PinRegisterRequest request = pinRegisterRequest("123456", "123456");
+        given(passwordEncoder.encode("123456")).willReturn("encoded-pin");
+        given(userMapper.registerPaymentPin(1L, "encoded-pin")).willReturn(0);
+
+        assertThatThrownBy(() -> userService.registerPaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.PAYMENT_PIN_ALREADY_REGISTERED);
+    }
+
+    @Test
+    void 위치_정보_동의여부를_저장한다() {
+        LocationAgreeRequest request = locationAgreeRequest(true);
+
+        userService.updateLocationAgreement(1L, request);
+
+        then(userMapper).should().updateLocationAgreement(1L, true);
+    }
+
+    @Test
+    void 로그아웃시_저장된_리프레시_토큰을_삭제한다() {
+        userService.logout(1L);
+
+        then(userMapper).should().deleteRefreshToken(1L);
+    }
+
+    @Test
+    void 결제_PIN_변경시_새_PIN을_암호화해_저장한다() {
+        PinUpdateRequest request = pinUpdateRequest("111111", "222222", "222222");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("111111", "stored-hash")).willReturn(true);
+        given(passwordEncoder.encode("222222")).willReturn("encoded-new-pin");
+
+        userService.updatePaymentPin(1L, request);
+
+        then(userMapper).should().updatePaymentPin(1L, "encoded-new-pin");
+    }
+
+    @Test
+    void 새_PIN과_새_PIN확인이_다르면_NEW_PAYMENT_PIN_CONFIRM_MISMATCH_예외를_던진다() {
+        PinUpdateRequest request = pinUpdateRequest("111111", "222222", "333333");
+
+        assertThatThrownBy(() -> userService.updatePaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.NEW_PAYMENT_PIN_CONFIRM_MISMATCH);
+
+        then(userMapper).shouldHaveNoInteractions();
+        then(passwordEncoder).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void 현재_PIN이_저장된_해시와_다르면_INVALID_CURRENT_PAYMENT_PIN_예외를_던진다() {
+        PinUpdateRequest request = pinUpdateRequest("999999", "222222", "222222");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("999999", "stored-hash")).willReturn(false);
+
+        assertThatThrownBy(() -> userService.updatePaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.INVALID_CURRENT_PAYMENT_PIN);
+
+        then(userMapper).should(never())
+                .updatePaymentPin(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void 현재_PIN_확인시_저장된_해시와_일치하면_예외없이_통과한다() {
+        PaymentPinVerifyRequest request = paymentPinVerifyRequest("111111");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("111111", "stored-hash")).willReturn(true);
+
+        userService.verifyPaymentPin(1L, request);
+
+        then(userMapper).should(never())
+                .updatePaymentPin(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void 현재_PIN_확인시_저장된_해시와_다르면_INVALID_CURRENT_PAYMENT_PIN_예외를_던진다() {
+        PaymentPinVerifyRequest request = paymentPinVerifyRequest("999999");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("999999", "stored-hash")).willReturn(false);
+
+        assertThatThrownBy(() -> userService.verifyPaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.INVALID_CURRENT_PAYMENT_PIN);
+    }
+
+    @Test
+    void 마이페이지_조회는_매퍼_결과를_그대로_반환한다() {
+        UserInfoResponse userInfo = UserInfoResponse.builder().name("김국민").build();
+        given(userMapper.findUserInfo(1L)).willReturn(userInfo);
+
+        UserInfoResponse result = userService.findUserInfo(1L);
+
+        assertThat(result.getName()).isEqualTo("김국민");
+    }
+
+    @Test
+    void 존재하지_않는_사용자를_조회하면_USER_NOT_FOUND_예외를_던진다() {
+        given(userMapper.findUserInfo(999L)).willReturn(null);
+
+        assertThatThrownBy(() -> userService.findUserInfo(999L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
+    }
+
+    private PinUpdateRequest pinUpdateRequest(String currentPin, String newPin, String newPinConfirm) {
+        PinUpdateRequest request = new PinUpdateRequest();
+
+        ReflectionTestUtils.setField(request, "currentPin", currentPin);
+        ReflectionTestUtils.setField(request, "newPin", newPin);
+        ReflectionTestUtils.setField(request, "newPinConfirm", newPinConfirm);
+
+        return request;
+    }
+
+    private PaymentPinVerifyRequest paymentPinVerifyRequest(String currentPin) {
+        PaymentPinVerifyRequest request = new PaymentPinVerifyRequest();
+
+        ReflectionTestUtils.setField(request, "currentPin", currentPin);
+
+        return request;
+    }
+
+    private LocationAgreeRequest locationAgreeRequest(boolean agreed) {
+        LocationAgreeRequest request = new LocationAgreeRequest();
+
+        ReflectionTestUtils.setField(request, "agreed", agreed);
+
+        return request;
+    }
+
+    private PinRegisterRequest pinRegisterRequest(String pin, String pinConfirm) {
+        PinRegisterRequest request = new PinRegisterRequest();
+
+        ReflectionTestUtils.setField(request, "pin", pin);
+        ReflectionTestUtils.setField(request, "pinConfirm", pinConfirm);
+
+        return request;
     }
 
     private UserLoginRequest loginRequest(String loginId, String password) {

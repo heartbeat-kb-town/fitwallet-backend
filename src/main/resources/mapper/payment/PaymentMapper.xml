@@ -71,4 +71,87 @@
         WHERE session_token = #{qrToken}
     </update>
 
+    <select id="findSessionByPaymentId" resultType="com.fitwallet.domain.payment.dto.PaymentResultSessionInfo">
+        SELECT ps.payment_session_id, ps.status, ps.store_id, ps.amount, ps.user_card_id, ps.updated_at, ps.expires_at, ps.fail_reason
+        FROM payment_session ps
+        JOIN user_card uc ON uc.user_card_id = ps.user_card_id
+        WHERE ps.payment_id = #{paymentId}
+        AND uc.user_id = #{userId}
+        AND uc.is_deleted = 0
+    </select>
+
+    <update id="markSessionProcessing">
+        UPDATE payment_session
+        SET status = 'PROCESSING',
+        store_id = #{storeId},
+        amount = #{amount}
+        WHERE payment_id = #{paymentId}
+    </update>
+
+    <update id="markSessionFailed">
+        UPDATE payment_session
+        SET status = 'FAILED',
+        fail_reason = 'MOCK_RANDOM_DECLINE'
+        WHERE payment_id = #{paymentId}
+    </update>
+
+    <update id="markSessionCompleted">
+        UPDATE payment_session
+        SET status = 'COMPLETED'
+        WHERE payment_id = #{paymentId}
+    </update>
+
+    <!--
+        applied_tier_id를 빼면 BenefitMapper.findUsage(WHERE applied_tier_id = ?)가 이 결제를
+        집계하지 못해 앱 결제로는 한도 잔여가 영영 줄지 않는다.
+    -->
+    <insert id="insertPaymentTransaction">
+        INSERT INTO payment_transaction (user_card_id, store_id, payment_session_id, amount,
+        discount_amount, final_amount, paid_at,
+        is_used_app, applied_benefit_service_id, applied_tier_id,
+        better_user_card_id, alternative_discount_amount, missed_amount)
+        VALUES (#{userCardId}, #{storeId}, #{paymentSessionId}, #{amount},
+        #{discountAmount}, #{finalAmount}, #{paidAt},
+        1, #{appliedBenefitServiceId}, #{appliedTierId},
+        #{betterUserCardId}, #{alternativeDiscountAmount}, #{missedAmount})
+    </insert>
+
+    <!--
+        expectedBenefitAmount는 원화 필드다. discount_amount는 네이티브 단위(ACCUMULATE면 포인트
+        개수)라 그대로 내보내면 적립 건에서 포인트 개수가 원화로 화면에 나간다 — krw_per_point로 환산한다.
+        혜택 없이 끝난 결제는 applied_benefit_service_id가 NULL이라 LEFT JOIN이어야 한다.
+    -->
+    <select id="findPaymentResultBySessionId" resultType="com.fitwallet.domain.payment.dto.response.PaymentResultResponse">
+        SELECT ps.payment_id,
+            ps.status,
+            pt.payment_transaction_id,
+            s.store_name,
+            cp.card_name AS payment_method,
+            pt.amount,
+            CASE WHEN bs.point_currency_id IS NOT NULL
+                 THEN pt.discount_amount * pc.krw_per_point
+                 ELSE pt.discount_amount
+            END AS expected_benefit_amount,
+            pt.paid_at
+        FROM payment_session ps
+        JOIN payment_transaction pt ON pt.payment_session_id = ps.payment_session_id
+        JOIN store s ON s.store_id = pt.store_id
+        JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+        JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+        LEFT JOIN benefit_service bs ON bs.service_id = pt.applied_benefit_service_id
+        LEFT JOIN point_currency pc ON pc.point_currency_id = bs.point_currency_id
+        WHERE ps.payment_session_id = #{paymentSessionId}
+    </select>
+
+    <select id="findStoreByQrToken" resultType="com.fitwallet.domain.payment.dto.StoreInfo">
+        SELECT store_id, store_name
+        FROM store
+        WHERE store_qr_token = #{storeQrToken}
+    </select>
+
+    <insert id="insertScannedPaymentSession">
+        INSERT INTO payment_session (user_card_id, session_token, payment_id, store_id, amount, status, expires_at)
+        VALUES (#{userCardId}, #{sessionToken}, #{paymentId}, #{storeId}, #{amount}, 'SCANNED', #{expiresAt})
+    </insert>
+
 </mapper>

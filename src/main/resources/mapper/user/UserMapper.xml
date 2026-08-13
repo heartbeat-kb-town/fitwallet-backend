@@ -54,10 +54,73 @@
             token_hash = #{tokenHash}
     </insert>
 
+    <!--
+        INTERVAL 1 MONTH는 고정 정책값이라 #{} 바인딩하지 않는다(StoreMapper.findPopularKeywords와 동일).
+        category는 store.category_id가 NOT NULL FK라 INNER JOIN으로 충분하다.
+        결제 건수는 정렬에만 쓰고 응답엔 안 내려서 SELECT엔 없다.
+    -->
+    <select id="findFrequentPlaces"
+            resultType="com.fitwallet.domain.user.dto.response.FrequentPlaceResponse">
+        SELECT s.store_id,
+               s.store_name,
+               s.address,
+               c.category_name
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+                 JOIN store s ON s.store_id = pt.store_id
+                 JOIN category c ON c.category_id = s.category_id
+        WHERE uc.user_id = #{userId}
+          AND uc.is_deleted = 0
+          AND pt.paid_at >= (NOW() - INTERVAL 1 MONTH)
+        GROUP BY s.store_id, s.store_name, s.address, c.category_name
+        ORDER BY COUNT(*) DESC, MAX(pt.paid_at) DESC
+        LIMIT 3
+    </select>
+
     <!-- 재발급 시 쿠키로 받은 토큰을 해시해 이 값과 대조한다. 없으면 null. -->
     <select id="findRefreshTokenHashByUserId" resultType="string">
         SELECT token_hash
         FROM refresh_token
+        WHERE user_id = #{userId}
+    </select>
+
+    <!-- payment_pin_hash가 비어있을 때만 갱신되는 조건부 UPDATE라, UPDATE 결과가 0이면 이미 등록된 것이다. -->
+    <update id="registerPaymentPin">
+        UPDATE users
+        SET payment_pin_hash = #{pinHash}
+        WHERE user_id = #{userId}
+          AND payment_pin_hash IS NULL
+    </update>
+
+    <update id="updateLocationAgreement">
+        UPDATE users
+        SET is_location_agreed = #{agreed}
+        WHERE user_id = #{userId}
+    </update>
+
+    <!-- 로그아웃 시 삭제해 저장된 토큰이 없으면(재발급 시 findRefreshTokenHashByUserId가 null) 재발급을 차단한다. -->
+    <delete id="deleteRefreshToken">
+        DELETE FROM refresh_token
+        WHERE user_id = #{userId}
+    </delete>
+
+    <!-- 현재 PIN 검증은 SQL로 못 한다(BCrypt 해시는 매번 값이 달라 비교 불가) — 서비스가 조회해 대조한다. -->
+    <select id="findPaymentPinHash" resultType="string">
+        SELECT payment_pin_hash
+        FROM users
+        WHERE user_id = #{userId}
+    </select>
+
+    <update id="updatePaymentPin">
+        UPDATE users
+        SET payment_pin_hash = #{newPinHash}
+        WHERE user_id = #{userId}
+    </update>
+
+    <!-- 마이페이지는 현재 이름만 표시한다. 없는 사용자면 결과가 없어 null. -->
+    <select id="findUserInfo" resultType="com.fitwallet.domain.user.dto.response.UserInfoResponse">
+        SELECT name
+        FROM users
         WHERE user_id = #{userId}
     </select>
 

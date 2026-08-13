@@ -2,6 +2,10 @@ package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.CardListSortType;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitBrandTarget;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitCategoryTarget;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitRule;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitTargetUsage;
 import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
 import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
@@ -12,6 +16,7 @@ import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardRecentTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardUsagePeriodCondition;
+import com.fitwallet.domain.card.dto.response.CardEventItemResponse;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryTransactionResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
@@ -19,6 +24,7 @@ import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
 import java.math.BigDecimal;
+import java.time.LocalDate;
 import java.util.List;
 import java.util.Map;
 
@@ -36,6 +42,11 @@ public interface CardMapper {
     /** 로그인 사용자가 보유한 카드의 내 카드 탭 요약용 내부 정보를 조회한다. */
     CardSummaryCardInfo findSummaryCardInfo(@Param("userId") Long userId,
                                             @Param("cardId") Long cardId);
+
+    /** 로그인 사용자의 보유 카드에 적용되는 현재 진행 중 이벤트를 정렬된 순서로 조회한다. */
+    List<CardEventItemResponse> findCardEventItems(@Param("userId") Long userId,
+                                                   @Param("cardId") Long cardId,
+                                                   @Param("today") LocalDate today);
 
     /** KST 기준 오늘과 어제의 결제 내역을 최신순으로 조회한다. */
     List<CardSummaryTransactionResponse> findRecentTransactions(
@@ -77,6 +88,24 @@ public interface CardMapper {
     /** 카드상품에 속한 혜택과 조건부로 연결된 원본 실적 구간을 조회한다. */
     List<CardUsageBenefitRule> findUsageBenefitRules(
             @Param("cardProductId") Long cardProductId);
+
+    /** 카드 상품의 월 한도와 해당 한도를 적용받는 혜택 서비스를 평면 행으로 조회한다. */
+    List<CardMonthlyBenefitRule> findMonthlyBenefitRules(
+            @Param("cardProductId") Long cardProductId);
+
+    /** 카드 상품의 업종 범위 혜택과 대상 카테고리를 일괄 조회한다. */
+    List<CardMonthlyBenefitCategoryTarget> findMonthlyBenefitCategoryTargets(
+            @Param("cardProductId") Long cardProductId);
+
+    /** 카드 상품의 브랜드 범위 혜택과 대상 브랜드를 일괄 조회한다. */
+    List<CardMonthlyBenefitBrandTarget> findMonthlyBenefitBrandTargets(
+            @Param("cardProductId") Long cardProductId);
+
+    /** 조회 기간에 실제 적용된 혜택 거래를 서비스·카테고리·브랜드 조합으로 집계한다. */
+    List<CardMonthlyBenefitTargetUsage> findMonthlyBenefitTargetUsages(
+            @Param("userId") Long userId,
+            @Param("cardId") Long cardId,
+            @Param("condition") CardUsagePeriodCondition condition);
 
     /** 사용자의 카드 목록을 요청한 기준으로 조회한다. 삭제된 카드는 제외된다. */
     List<CardListResponse> findByUserId(@Param("userId") Long userId,
@@ -125,4 +154,14 @@ public interface CardMapper {
     /** 마이데이터로 받아온 거래내역을 한 카드에 일괄 저장한다. */
     void insertMyDataTransactions(@Param("userCardId") Long userCardId,
                                   @Param("transactions") List<MyDataTransaction> transactions);
+
+    /** 살아 있는 보유 카드의 ID만 조회한다. 순서 변경 요청이 보유 카드 전체와 일치하는지 검증할 때 쓴다. */
+    List<Long> findUserCardIds(@Param("userId") Long userId);
+
+    /**
+     * 표시 순서를 일괄 갱신한다. 리스트의 인덱스(0-based)가 곧 새 {@code display_order}(1-based)다.
+     * 반환값은 영향받은 행 수 — 보통 {@code userCardIds} 크기와 같다.
+     */
+    int updateCardsDisplayOrder(@Param("userId") Long userId,
+                                @Param("userCardIds") List<Long> userCardIds);
 }

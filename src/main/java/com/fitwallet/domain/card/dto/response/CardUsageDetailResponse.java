@@ -49,8 +49,8 @@ public class CardUsageDetailResponse {
             example = "174100.00")
     private BigDecimal amountUntilNextTier;
 
-    @ApiModelProperty(value = "현재 구간 시작점부터 다음 구간까지의 진행률. 소수점 첫째 자리",
-            example = "13.0")
+    @ApiModelProperty(value = "전체 통합 구간 바에서 현재 실적이 위치하는 진행률. 소수점 첫째 자리",
+            example = "53.3")
     private BigDecimal tierProgressRate;
 
     @ApiModelProperty(value = "카드 상품 단위로 통합한 실적 구간 목록")

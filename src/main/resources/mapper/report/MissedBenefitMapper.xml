@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.fitwallet.domain.report.mapper.MissedBenefitMapper">
+
+    <!-- 놓친 혜택 요약. 두 손실을 is_used_app 으로 나눠 각각 합산한다.
+         missed_amount/better_user_card_id 는 "더 좋은 카드가 있었던 건"에만 채워져 있고,
+         저장 시점(마이데이터 임포트)에 이미 원화로 환산돼 있다는 전제로 그대로 합산한다.
+         total 은 서비스에서 두 값을 더한다. -->
+    <select id="getMissedSummary" resultType="com.fitwallet.domain.report.dto.response.MissedSummaryResponse">
+        SELECT
+        COALESCE(SUM(CASE WHEN pt.is_used_app = 0 THEN pt.missed_amount ELSE 0 END), 0) AS appUnusedAmount,
+        COALESCE(SUM(CASE WHEN pt.is_used_app = 1 THEN pt.missed_amount ELSE 0 END), 0) AS cardMismatchAmount
+        FROM payment_transaction pt
+        JOIN user_card uc ON pt.user_card_id = uc.user_card_id
+        WHERE uc.user_id = #{userId}
+        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
+        AND pt.better_user_card_id IS NOT NULL
+    </select>
+
+    <!-- 선택 탭(is_used_app)의 놓친 거래 상세.
+         usedCard = 실제 결제한 카드, altCard = 더 유리했던 카드(better_user_card_id).
+         discountRate 는 대안 카드의 실효 할인율(alternative_discount_amount / amount)로 역산한다.
+         diffAmount 는 놓친 금액(missed_amount). -->
+    <select id="getMissedTransactions" resultType="com.fitwallet.domain.report.dto.response.MissedTransactionRawResponse">
+        SELECT
+        c.category_id,
+        c.category_name,
+        pt.paid_at AS approvedAt,
+        br.brand_name AS storeName,
+        usedCard.card_name AS usedCardName,
+        pt.amount AS paidAmount,
+        altCard.card_name AS alternativeCardName,
+        ROUND(pt.alternative_discount_amount / pt.amount * 100, 0) AS discountRate,
+        pt.missed_amount AS diffAmount
+        FROM payment_transaction pt
+        JOIN user_card uc ON pt.user_card_id = uc.user_card_id
+        JOIN card_product usedCard ON uc.card_product_id = usedCard.card_product_id
+        JOIN user_card altUc ON pt.better_user_card_id = altUc.user_card_id
+        JOIN card_product altCard ON altUc.card_product_id = altCard.card_product_id
+        JOIN store s ON pt.store_id = s.store_id
+        JOIN category c ON s.category_id = c.category_id
+        LEFT JOIN brand br ON s.brand_id = br.brand_id
+        WHERE uc.user_id = #{userId}
+        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
+        AND pt.is_used_app = #{isUsedApp}
+        AND pt.better_user_card_id IS NOT NULL
+        ORDER BY c.category_id, pt.paid_at DESC
+    </select>
+
+</mapper>

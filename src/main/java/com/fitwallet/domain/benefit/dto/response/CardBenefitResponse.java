@@ -10,13 +10,14 @@ import lombok.NoArgsConstructor;
 
 /**
  * 카드 한 장의 예상 혜택 판정 결과. {@code status=AVAILABLE}이면 {@code reason}은 null이고,
- * {@code status}가 {@code NO_BENEFIT}이거나 사유가 {@code PREV_SPEND_NOT_MET}이면 {@code benefit}은 null이다.
+ * {@code status}가 {@code NO_BENEFIT}이거나 사유가 {@code PREV_SPEND_NOT_MET}·{@code MIN_TX_AMOUNT_NOT_MET}이면
+ * {@code benefit}은 null이다.
  */
 @ApiModel(description = "카드 한 장의 예상 혜택 판정 결과")
 @Getter
 @NoArgsConstructor
 @AllArgsConstructor
-@Builder
+@Builder(toBuilder = true)
 public class CardBenefitResponse {
 
     @ApiModelProperty(value = "보유 카드 ID(카드 상품 ID가 아니다). 결제 요청에 그대로 쓴다", example = "1")
@@ -44,6 +45,15 @@ public class CardBenefitResponse {
     private BenefitReasonResponse reason;
 
     @ApiModelProperty(value = """
-            적용될(또는 한도가 소진된) 혜택. status가 NO_BENEFIT이거나 사유가 PREV_SPEND_NOT_MET이면 null""")
+            적용될(또는 한도가 소진된) 혜택. status가 NO_BENEFIT이거나
+            사유가 PREV_SPEND_NOT_MET·MIN_TX_AMOUNT_NOT_MET이면 null""")
     private BenefitDetailResponse benefit;
+
+    @ApiModelProperty(value = """
+            기대혜택액 기준 순위. 1위가 이 결제에 가장 이득인 카드다. "1위" 배지는 이 값으로 그린다.
+            - **`amount`를 보냈을 때만 채워진다.** 미전달이면 모든 카드가 null이다
+            - `status`가 `AVAILABLE`인 카드에만 붙는다. 나머지는 null
+            - **동점은 같은 순위를 주고 다음 순위를 건너뛴다** — `1, 1, 3`""",
+            example = "1")
+    private Integer rank;
 }

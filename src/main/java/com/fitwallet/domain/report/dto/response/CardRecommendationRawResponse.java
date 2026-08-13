@@ -22,7 +22,11 @@ public class CardRecommendationRawResponse {
     private String cardImageUrl;
     private Long categoryId;
     private String categoryName;
+    private String valueType;      // "RATE" | "FIXED"
     private BigDecimal discountRate;
+    private Long pointCurrencyId;  // null이면 원화(캐시백), 있으면 포인트 적립
+    private BigDecimal krwPerPoint;
     private BigDecimal minPrevMonthSpend;
     private BigDecimal limitValue;
+    private String limitBasis;     // "AMOUNT" | "POINT" | "COUNT"
 }

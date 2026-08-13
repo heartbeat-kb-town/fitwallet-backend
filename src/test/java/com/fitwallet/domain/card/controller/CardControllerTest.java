@@ -5,10 +5,20 @@ import com.fitwallet.domain.card.dto.CardListSortType;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
 import com.fitwallet.domain.card.dto.CardUsageTierType;
+import com.fitwallet.domain.card.dto.request.CardDisplayOrderUpdateRequest;
 import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
+import com.fitwallet.domain.card.dto.CardEventTargetType;
+import com.fitwallet.domain.card.dto.response.CardEventCardResponse;
+import com.fitwallet.domain.card.dto.response.CardEventItemResponse;
+import com.fitwallet.domain.card.dto.response.CardEventResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionCursorResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitCardResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitPerformanceResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitSummaryResponse;
+import com.fitwallet.domain.card.dto.response.CardUsageTierSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryAmountResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryCardResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
@@ -24,14 +34,19 @@ import com.fitwallet.global.config.JwtProvider;
 import com.fitwallet.global.config.LoginUserIdArgumentResolver;
 import com.fitwallet.global.exception.BusinessException;
 import com.fitwallet.global.exception.GlobalExceptionHandler;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.SerializationFeature;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.setup.MockMvcBuilders;
+import org.springframework.http.converter.json.MappingJackson2HttpMessageConverter;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
@@ -42,7 +57,9 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
+import static org.mockito.BDDMockito.willThrow;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -60,10 +77,14 @@ class CardControllerTest {
 
     @BeforeEach
     void setUp() {
+        ObjectMapper objectMapper = new ObjectMapper()
+                .registerModule(new JavaTimeModule())
+                .disable(SerializationFeature.WRITE_DATES_AS_TIMESTAMPS);
         mockMvc = MockMvcBuilders.standaloneSetup(new CardController(cardService))
                 .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
                 .addInterceptors(new AuthInterceptor(jwtProvider))
                 .setControllerAdvice(new GlobalExceptionHandler())
+                .setMessageConverters(new MappingJackson2HttpMessageConverter(objectMapper))
                 .build();
     }
 
@@ -83,6 +104,60 @@ class CardControllerTest {
                 .andExpect(jsonPath("$.data.yearMonth").value("2026-07"))
                 .andExpect(jsonPath("$.data.paymentSummary.summaryType")
                         .value("MONTHLY_PAYMENT_AMOUNT"));
+    }
+
+    @Test
+    void 카드별_월간혜택_조회는_공통응답과_기준일을_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(cardService.getCardMonthlyBenefit(1L, 2L)).willReturn(
+                CardMonthlyBenefitResponse.builder()
+                        .card(CardMonthlyBenefitCardResponse.builder()
+                                .userCardId(2L)
+                                .cardName("신한카드 All Pass")
+                                .issuerName("신한카드")
+                                .cardType(CardType.CREDIT)
+                                .build())
+                        .yearMonth("2026-07")
+                        .asOfDate(LocalDate.of(2026, 7, 23))
+                        .monthlySummary(CardMonthlyBenefitSummaryResponse.builder()
+                                .potentialBenefitAmount(new BigDecimal("4000"))
+                                .receivedBenefitAmount(new BigDecimal("1000"))
+                                .totalBenefitLimit(new BigDecimal("5000"))
+                                .potentialBenefitRate(new BigDecimal("80.0"))
+                                .receivedBenefitDetailAvailable(true)
+                                .build())
+                        .performance(CardMonthlyBenefitPerformanceResponse.builder()
+                                .performanceMonth("2026-06")
+                                .status(CardUsagePerformanceStatus.ACHIEVED)
+                                .currentTier(CardUsageTierSummaryResponse.builder()
+                                        .tierOrder(1)
+                                        .tierName("1구간")
+                                        .minimumAmount(new BigDecimal("300000"))
+                                        .build())
+                                .message("전월 실적 조건이 적용 중이에요.")
+                                .build())
+                        .categoryBenefits(List.of())
+                        .brandBenefits(List.of())
+                        .build());
+
+        mockMvc.perform(get("/api/card/2/benefit")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("CARD_MONTHLY_BENEFIT_FOUND"))
+                .andExpect(jsonPath("$.message")
+                        .value("카드 월간 혜택 현황 조회에 성공했습니다."))
+                .andExpect(jsonPath("$.data.card.userCardId").value(2))
+                .andExpect(jsonPath("$.data.yearMonth").value("2026-07"))
+                .andExpect(jsonPath("$.data.asOfDate").value("2026-07-23"))
+                .andExpect(jsonPath("$.data.monthlySummary.potentialBenefitAmount").value(4000))
+                .andExpect(jsonPath("$.data.monthlySummary.potentialBenefitRate").value(80.0))
+                .andExpect(jsonPath("$.data.performance.status").value("ACHIEVED"))
+                .andExpect(jsonPath("$.data.performance.currentTier.tierName").value("1구간"))
+                .andExpect(jsonPath("$.data.categoryBenefits").isArray())
+                .andExpect(jsonPath("$.data.brandBenefits").isArray());
+
+        then(cardService).should().getCardMonthlyBenefit(1L, 2L);
     }
 
     @Test
@@ -132,6 +207,98 @@ class CardControllerTest {
                         .header("Authorization", "Bearer access-token"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.code").value("CARD_NOT_FOUND"));
+    }
+
+    @Test
+    void 카드별_이벤트_조회는_응답_계약과_CARD_EVENTS_FOUND를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(cardService.findCardEvents(1L, 2L)).willReturn(
+                CardEventResponse.builder()
+                        .card(CardEventCardResponse.builder()
+                                .cardId(2L)
+                                .cardProductId(47L)
+                                .cardName("KB국민 청춘대로 톡톡카드")
+                                .issuerName("KB국민카드")
+                                .build())
+                        .eventCount(1)
+                        .events(List.of(CardEventItemResponse.builder()
+                                .eventId(3L)
+                                .targetType(CardEventTargetType.CARD_PRODUCT)
+                                .summary("CGV 모바일 예매 시 1인 5,000원 할인(월 2회)")
+                                .startsAt(LocalDate.of(2026, 7, 1))
+                                .endsAt(LocalDate.of(2026, 7, 31))
+                                .daysRemaining(7L)
+                                .detailUrl("https://card.kbcard.com/event/3")
+                                .detailAvailable(true)
+                                .build()))
+                        .build());
+
+        mockMvc.perform(get("/api/card/2/event")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("CARD_EVENTS_FOUND"))
+                .andExpect(jsonPath("$.message")
+                        .value("카드별 진행 중 이벤트 조회에 성공했습니다."))
+                .andExpect(jsonPath("$.data.card.cardId").value(2))
+                .andExpect(jsonPath("$.data.card.cardProductId").value(47))
+                .andExpect(jsonPath("$.data.eventCount").value(1))
+                .andExpect(jsonPath("$.data.events[0].eventId").value(3))
+                .andExpect(jsonPath("$.data.events[0].targetType").value("CARD_PRODUCT"))
+                .andExpect(jsonPath("$.data.events[0].startsAt").value("2026-07-01"))
+                .andExpect(jsonPath("$.data.events[0].daysRemaining").value(7))
+                .andExpect(jsonPath("$.data.events[0].detailAvailable").value(true));
+
+        then(cardService).should().findCardEvents(1L, 2L);
+    }
+
+    @Test
+    void 카드별_이벤트가_없어도_빈_배열을_포함한_성공응답을_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(cardService.findCardEvents(1L, 2L)).willReturn(
+                CardEventResponse.builder()
+                        .card(CardEventCardResponse.builder().cardId(2L).build())
+                        .eventCount(0)
+                        .events(List.of())
+                        .build());
+
+        mockMvc.perform(get("/api/card/2/event")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.code").value("CARD_EVENTS_FOUND"))
+                .andExpect(jsonPath("$.data.eventCount").value(0))
+                .andExpect(jsonPath("$.data.events").isArray())
+                .andExpect(jsonPath("$.data.events").isEmpty());
+    }
+
+    @Test
+    void 카드별_이벤트_조회에서_카드를_찾지_못하면_404와_CARD_NOT_FOUND를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(cardService.findCardEvents(1L, 999L))
+                .willThrow(new BusinessException(CardErrorCode.CARD_NOT_FOUND));
+
+        mockMvc.perform(get("/api/card/999/event")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("CARD_NOT_FOUND"))
+                .andExpect(jsonPath("$.message")
+                        .value("요청한 카드를 찾을 수 없습니다."));
+    }
+
+    @Test
+    void 카드별_이벤트_데이터가_잘못되면_500과_INVALID_CARD_EVENT_DATA를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(cardService.findCardEvents(1L, 2L))
+                .willThrow(new BusinessException(CardErrorCode.INVALID_CARD_EVENT_DATA));
+
+        mockMvc.perform(get("/api/card/2/event")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INVALID_CARD_EVENT_DATA"))
+                .andExpect(jsonPath("$.message")
+                        .value("카드 이벤트 데이터가 올바르지 않습니다."));
     }
 
     @Test
@@ -220,6 +387,40 @@ class CardControllerTest {
 
         then(cardService).should().getCardUsage(eq(1L), eq(5L), captor.capture());
         assertThat(captor.getValue().getYearMonth()).isEqualTo("2026-06");
+    }
+
+    @Test
+    void 카드_순서_변경은_요청_바디를_서비스에_전달하고_200과_CARD_DISPLAY_ORDER_UPDATED를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+
+        mockMvc.perform(patch("/api/user-cards/display-order")
+                        .header("Authorization", "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"userCardIds\":[3,1,2]}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("CARD_DISPLAY_ORDER_UPDATED"))
+                .andExpect(jsonPath("$.message").value("카드 표시 순서를 수정했습니다."));
+
+        ArgumentCaptor<CardDisplayOrderUpdateRequest> captor =
+                ArgumentCaptor.forClass(CardDisplayOrderUpdateRequest.class);
+        then(cardService).should().updateCardsDisplayOrder(eq(1L), captor.capture());
+        assertThat(captor.getValue().getUserCardIds()).containsExactly(3L, 1L, 2L);
+    }
+
+    @Test
+    void 카드_순서_변경시_userCardIds가_없으면_400과_INVALID_INPUT_VALUE를_반환한다() throws Exception {
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+
+        mockMvc.perform(patch("/api/user-cards/display-order")
+                        .header("Authorization", "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.success").value(false))
+                .andExpect(jsonPath("$.code").value("INVALID_INPUT_VALUE"));
+
+        then(cardService).shouldHaveNoInteractions();
     }
 
     private CardTransactionDetailResponse transactionResponse() {

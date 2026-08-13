@@ -1,11 +1,11 @@
 # DB 스키마 설명서
 
-> 팀 공유용 스키마 가이드. 실행 정본은 [`docker/mysql/init/002-schema.sql`](../docker/mysql/init/002-schema.sql)이며, 이 문서는 그 구조를 표로 정리한 것입니다.
-> 예시 데이터는 [`docker/mysql/init/003-seed.sql`](../docker/mysql/init/003-seed.sql)에 있고, 두 파일 모두 컨테이너 최초 기동 시 자동 적용됩니다.
+> 팀 공유용 스키마 가이드. 실행 정본은 [`src/main/resources/db/migration/`](../src/main/resources/db/migration)의 마이그레이션 파일들이며(기준 스키마는 [`V1__baseline_schema.sql`](../src/main/resources/db/migration/V1__baseline_schema.sql)), 이 문서는 그 누적 결과를 표로 정리한 것입니다.
+> 참조 데이터는 [`V2__reference_data.sql`](../src/main/resources/db/migration/V2__reference_data.sql), 데모 데이터(회원·결제내역)는 [`db/seed-local/`](../src/main/resources/db/seed-local)에 있습니다. 전부 앱 기동 시 Flyway가 적용합니다 ([AGENTS.md](../AGENTS.md) §11).
 >
 > - **엔진/문자셋**: InnoDB / `utf8mb4` (테이블 콜레이션 `utf8mb4_0900_ai_ci`, MySQL 8.0+)
 > - **테이블 수**: 19개
-> - **타임존**: 컨테이너 MySQL은 KST(`+09:00`)로 고정돼 있습니다 ([AGENTS.md](../AGENTS.md) §11). `DATETIME`에 담긴 값은 전부 KST 벽시계입니다
+> - **타임존**: 컨테이너 MySQL은 KST(`+09:00`)로 고정돼 있습니다 ([AGENTS.md](../AGENTS.md) §10). `DATETIME`에 담긴 값은 전부 KST 벽시계입니다
 
 ## 표 읽는 법
 
@@ -138,8 +138,9 @@ erDiagram
 | `value_type` | 값의 형태 | VARCHAR(10) | NO | — | CHECK `FIXED`(정액) / `RATE`(정률=%) |
 | `value_number` | 혜택 값 | DECIMAL(15,2) | NO | — | `RATE`면 %, `FIXED`면 원 또는 포인트 |
 | `scope_type` | 매칭 대상 구분 | VARCHAR(20) | NO | — | CHECK `BRAND` / `INDUSTRY`. 어느 매핑 테이블을 보는지 결정 |
-| `min_payment_amount` | **혜택값이 적용되는** 전월실적 하한 | DECIMAL(15,2) | NO | `0.00` | 이름은 `payment_amount`지만 **건당 결제액이 아니라 전월실적**입니다. **"조건 없음"을 NULL이 아니라 0으로 씁니다** — NULL은 `<=` 비교에서 UNKNOWN이 되어 조건 없는 행이 조회에서 조용히 빠집니다 (v9) |
+| `min_payment_amount` | **혜택값이 적용되는** 전월실적 하한 | DECIMAL(15,2) | NO | `0.00` | ⚠️ 이름은 `payment_amount`지만 **건당 결제액이 아니라 전월실적**입니다. 아래 `min_tx_amount`(건당)와 헷갈리지 마세요. **"조건 없음"을 NULL이 아니라 0으로 씁니다** — NULL은 `<=` 비교에서 UNKNOWN이 되어 조건 없는 행이 조회에서 조용히 빠집니다 (v9) |
 | `max_payment_amount` | **혜택값이 적용되는** 전월실적 상한 | DECIMAL(15,2) | **YES** | — | exclusive. 구간을 반열린 `[min, max)`로 표현해 실적 P에 대해 `min<=P<max`로 정확히 한 구간이 뽑힙니다. NULL=상한 없음. CHECK `max > min` |
+| `min_tx_amount` | 건당 최소 이용금액 | DECIMAL(15,2) | NO | `0.00` | **v27 신규.** 1회 결제가 이 금액 미만이면 혜택이 **아예 발생하지 않습니다**. 위 `min_payment_amount`(전월 누적)와 이름이 비슷하지만 축이 다릅니다 — 이쪽만 "이번 결제 1건"을 봅니다. 3사 약관에 실재합니다(KB "건당 1만원 이상 이용 시 적립", 신한 The More "건당 5,000원 이상 사용시 적용", 현대 ZERO Up "1건당 10만원 이상 결제건에 대해서만"). 조건 없음을 0으로 두는 것은 v9와 같은 이유 |
 | `per_tx_limit_amount` | 건당 혜택 캡 | DECIMAL(15,2) | **YES** | — | 건당 최대 혜택액. NULL=캡 없음 |
 | `point_currency_id` (FK) | 적립 포인트 화폐 | BIGINT | **YES** | — | → `point_currency`. CHECK로 `ACCUMULATE`면 **필수**, `CASHBACK`이면 **반드시 NULL** (`ck_benefit_service_point_currency_required`) |
 | `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
@@ -478,20 +479,36 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 | `user_card_id` (FK) | 결제에 쓴 카드 | BIGINT | NO | — | → `user_card` |
 | `store_id` (FK) | 가맹점 | BIGINT | **YES** | — | → `store`. 가맹점을 특정 못한 거래는 NULL |
 | `payment_session_id` (FK) | 확정된 결제 세션 | BIGINT | **YES** | — | → `payment_session`. UNIQUE (`uk_pt_payment_session_id`). **앱을 거치지 않은 거래는 NULL** |
-| `amount` | 결제액 | DECIMAL(15,2) | NO | — | |
-| `discount_amount` | 적용된 혜택값 | DECIMAL(15,2) | NO | `0.00` | 할인 + 적립의 원화 환산 |
-| `final_amount` | 최종 결제 금액 | DECIMAL(15,2) | NO | — | = `amount` − `discount_amount` |
+| `amount` | 결제액 | DECIMAL(15,2) | NO | — | **원화** |
+| `discount_amount` | 적용된 혜택값 | DECIMAL(15,2) | NO | `0.00` | ⚠️ **네이티브 단위입니다** — `applied_benefit_service_id`의 `benefit_type`으로 해석합니다(`CASHBACK`=원, `ACCUMULATE`=포인트 **개수**). 어떤 포인트인지는 `benefit_service.point_currency_id`로 판별하고, 원화가 필요한 집계는 `point_currency.krw_per_point`를 곱합니다. 아래 인용 블록 참고 |
+| `final_amount` | 최종 결제 금액 | DECIMAL(15,2) | NO | — | **원화.** ⚠️ `amount` − `discount_amount`가 **아닙니다** — 혜택값을 원화로 환산한 뒤 뺀 값입니다 |
 | `paid_at` | 실제 승인 시각 | DATETIME | NO | — | **비즈니스 시각.** 레코드 생성 시각(`created_at`)과 분리 |
 | `is_used_app` | 앱 사용 여부 | TINYINT(1) | NO | `0` | 앱(QR)을 거친 결제인지. 앱을 거쳤으면 `payment_session_id`도 채워집니다 |
 | `is_eligible` | **전월실적 산정 대상 여부** | TINYINT(1) | NO | `1` | `0`이면 이 거래가 **전월실적 합계에서 빠집니다**(세금·공과금·상품권 등 카드사가 실적에서 제외하는 거래). ⚠️ **스키마 전체에서 기본값이 `1`인 유일한 컬럼** — 대부분의 거래는 실적에 포함되기 때문입니다 |
 | `applied_benefit_service_id` (FK) | 적용된 혜택 | BIGINT | **YES** | — | → `benefit_service`. 받은 혜택이 없으면 NULL |
 | `applied_tier_id` (FK) | 적용 혜택의 한도 구간 | BIGINT | **YES** | — | → `benefit_tier`. 한도 소진 집계 키 |
 | `better_user_card_id` (FK) | 놓친 혜택: 더 유리했던 카드 | BIGINT | **YES** | — | → `user_card`. 없으면 NULL |
-| `alternative_discount_amount` | 그 카드였다면 받았을 혜택값 | DECIMAL(15,2) | **YES** | — | |
-| `missed_amount` | 놓친 금액 | DECIMAL(15,2) | **YES** | — | = `alternative_discount_amount` − `discount_amount` |
+| `alternative_discount_amount` | 그 카드였다면 받았을 혜택값 | DECIMAL(15,2) | **YES** | — | **원화.** 짝이 되는 `better_benefit_service_id`가 없어 읽는 쪽이 통화를 판별할 방법이 없으므로 환산해서 넣습니다 |
+| `missed_amount` | 놓친 금액 | DECIMAL(15,2) | **YES** | — | **원화.** ⚠️ `alternative_discount_amount` − `discount_amount`가 **아닙니다** — `discount_amount`와 축이 달라, 두 값을 모두 원화로 환산한 뒤 뺀 결과입니다 |
 | `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
 | `updated_at` | 수정 시각 | DATETIME | NO | CURRENT_TIMESTAMP | `ON UPDATE CURRENT_TIMESTAMP` |
 
+> ⚠️ **금액 컬럼마다 단위가 다릅니다.** `discount_amount` **하나만** 네이티브(`CASHBACK`=원, `ACCUMULATE`=포인트 개수)이고 나머지 `amount`·`final_amount`·`alternative_discount_amount`·`missed_amount`는 전부 원화입니다.
+>
+> | 컬럼 | 단위 |
+> |---|---|
+> | `amount` | 원화 |
+> | `discount_amount` | **네이티브** (원 또는 포인트 개수) |
+> | `final_amount` | 원화 |
+> | `alternative_discount_amount` | 원화 |
+> | `missed_amount` | 원화 |
+>
+> 그래서 `final_amount = amount − discount_amount`도, `missed_amount = alternative_discount_amount − discount_amount`도 **성립하지 않습니다.** 두 뺄셈 모두 혜택값을 `point_currency.krw_per_point`로 원화 환산한 뒤에 계산한 결과입니다. 네이티브를 원화 필드로 내보내는 쿼리는 반드시 `krw_per_point`를 곱해야 합니다.
+>
+> `discount_amount`만 네이티브인 이유는 `applied_benefit_service_id`가 함께 있어 통화를 판별할 수 있기 때문입니다. `alternative_discount_amount`/`missed_amount`는 `better_user_card_id`만 있고 대응하는 `benefit_service`를 가리키지 않아 판별할 수단이 없어 원화로 고정했습니다.
+>
+> **`krw_per_point`가 현재 시드에서 전부 `1.0000`이라 두 계산 방식의 결과가 우연히 같습니다** — 단위를 잘못 쓴 코드는 지금 테스트로 잡히지 않습니다. 단위를 검증하는 테스트는 반드시 `1`이 아닌 `krw_per_point`를 씁니다.
+>
 > **`payment_session_id`는 UNIQUE입니다** — 세션 1건은 거래 최대 1건으로 확정됩니다(1:1). MySQL UNIQUE는 NULL을 중복 허용하므로 앱을 거치지 않은 거래 다수와 공존합니다. 이 UNIQUE 키가 `fk_pt_session`의 인덱스를 겸해 별도 인덱스를 두지 않았습니다.
 >
 > **혜택을 별도 테이블로 빼지 않은 이유**(v18): 현행 정책상 결제:적용혜택이 "건당 최선 1개"라 1:1이고, 놓친 혜택도 "최선 대안 1개"뿐입니다. 진짜 혜택 중첩이나 다중 대안이 필요해지면 `benefit_service`에 중첩 규칙을 추가하고 적용 내역을 별도 테이블로 분리하는 세트 변경이 필요합니다.
@@ -502,18 +519,18 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 
 DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBatis 기본 `EnumTypeHandler`가 `name()` 기준으로 자동 변환합니다. **커스텀 TypeHandler를 만들지 않습니다** ([AGENTS.md](../AGENTS.md) §6).
 
-| 테이블.컬럼 | 허용 값 | 제약 이름 |
-|---|---|---|
-| `card_product.card_type` | `CREDIT`, `DEBIT` | `ck_card_product_card_type` |
-| `benefit_service.benefit_type` | `ACCUMULATE`, `CASHBACK` | `ck_benefit_service_benefit_type` |
-| `benefit_service.value_type` | `FIXED`, `RATE` | `ck_benefit_service_value_type` |
-| `benefit_service.scope_type` | `BRAND`, `INDUSTRY` | `ck_benefit_service_scope_type` |
-| `benefit_limit.limit_basis` | `COUNT`, `AMOUNT`, `POINT` | `ck_benefit_limit_limit_basis` |
-| `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR` | `ck_benefit_limit_limit_period` |
-| `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED` | `ck_payment_session_status` |
-| `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR` (NULL 허용) | `ck_payment_session_fail_reason` |
+| 테이블.컬럼 | 허용 값                                                                                                                  | 제약 이름 |
+|---|-----------------------------------------------------------------------------------------------------------------------|---|
+| `card_product.card_type` | `CREDIT`, `DEBIT`                                                                                                     | `ck_card_product_card_type` |
+| `benefit_service.benefit_type` | `ACCUMULATE`, `CASHBACK`                                                                                              | `ck_benefit_service_benefit_type` |
+| `benefit_service.value_type` | `FIXED`, `RATE`                                                                                                       | `ck_benefit_service_value_type` |
+| `benefit_service.scope_type` | `BRAND`, `INDUSTRY`                                                                                                   | `ck_benefit_service_scope_type` |
+| `benefit_limit.limit_basis` | `COUNT`, `AMOUNT`, `POINT`                                                                                            | `ck_benefit_limit_limit_basis` |
+| `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR`                                                                             | `ck_benefit_limit_limit_period` |
+| `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED`                                                  | `ck_payment_session_status` |
+| `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR`, `MOCK_RANDOM_DECLINE` (NULL 허용) | `ck_payment_session_fail_reason` |
 
 값 집합이 아닌 CHECK 제약(XOR·범위)은 각 테이블의 "상세 설명" 열에 적어 뒀습니다 — `ck_benefit_tier_xor`, `ck_card_event_target_xor`, `ck_card_event_period`, `ck_benefit_service_max_payment_amount`, `ck_benefit_service_point_currency_required`.
 
 ---
-*스키마 변경 시 `docker/mysql/init/002-schema.sql`과 이 문서를 함께 갱신하세요.*
+*스키마를 바꿀 때는 `src/main/resources/db/migration/`에 `V{다음번호}__{설명}.sql`을 추가하고 이 문서를 함께 갱신하세요. `V1__baseline_schema.sql`은 고치지 않습니다.*

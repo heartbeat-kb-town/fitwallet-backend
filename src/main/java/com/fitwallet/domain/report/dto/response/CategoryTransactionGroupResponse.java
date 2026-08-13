@@ -16,7 +16,7 @@ public class CategoryTransactionGroupResponse {
     private Long categoryId;
     private String categoryName;
     private Integer usageCount;
-    private BigDecimal benefitAmount;
-    //여기에 카테고리별 거래내역 항목이 리스트로 들어감(이따 지우기)
+    private BigDecimal discountAmount;   // 이 카테고리 원화 혜택 합 (CASHBACK)
+    private BigDecimal pointAmount;      // 이 카테고리 포인트 합 (ACCUMULATE)
     private List<TransactionDetailResponse> transactions;
 }

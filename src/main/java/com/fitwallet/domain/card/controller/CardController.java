@@ -1,11 +1,14 @@
 package com.fitwallet.domain.card.controller;
 
 import com.fitwallet.domain.card.dto.CardSuccessCode;
-import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
+import com.fitwallet.domain.card.dto.request.CardDisplayOrderUpdateRequest;
 import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
+import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
+import com.fitwallet.domain.card.dto.response.CardEventResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
@@ -21,6 +24,7 @@ import org.springframework.web.bind.WebDataBinder;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.InitBinder;
 import org.springframework.web.bind.annotation.ModelAttribute;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -93,6 +97,38 @@ public class CardController {
 
         return ApiResponse.of(CardSuccessCode.CARD_SUMMARY_FOUND,
                 cardService.findCardSummary(userId, userCardId));
+    }
+
+    @GetMapping("/card/{cardId}/event")
+    public ResponseEntity<ApiResponse<CardEventResponse>> findCardEvents(
+            @LoginUserId Long userId,
+            @PathVariable("cardId") Long cardId) {
+
+        return ApiResponse.of(CardSuccessCode.CARD_EVENTS_FOUND,
+                cardService.findCardEvents(userId, cardId));
+    }
+
+    @ApiOperation(value = "카드별 월간 혜택 현황 조회", notes = """
+            로그인 사용자가 보유한 카드의 이번 달 잠재 혜택과 월 한도 사용 현황을 조회합니다.
+
+            - `cardId`는 카드 상품 ID가 아닌 보유 카드 ID(`user_card_id`)입니다.
+            - KST 기준 이번 달 1일 00:00:00부터 오늘 00:00:00 직전까지 집계합니다.
+            - `transactionCount`는 카테고리·브랜드 전체 거래가 아니라 현재 혜택 서비스가 실제 적용된 거래 건수입니다.
+            - 카테고리·브랜드 혜택은 한 번에 반환하며 소진된 혜택은 각 배열의 하단에 정렬합니다.
+            - 적용 가능한 월 한도 혜택이 없으면 빈 배열을 반환합니다.
+
+            | HTTP | code | message |
+            |---|---|---|
+            | 404 | CARD_NOT_FOUND | 요청한 카드를 찾을 수 없습니다. |
+            | 500 | INVALID_CARD_MONTHLY_BENEFIT_DATA | 카드 월간 혜택 데이터가 올바르지 않습니다. |
+            """)
+    @GetMapping("/card/{cardId}/benefit")
+    public ResponseEntity<ApiResponse<CardMonthlyBenefitResponse>> getCardMonthlyBenefit(
+            @LoginUserId Long userId,
+            @ApiParam(value = "보유 카드 ID(user_card_id)", required = true)
+            @PathVariable Long cardId) {
+        return ApiResponse.of(CardSuccessCode.CARD_MONTHLY_BENEFIT_FOUND,
+                cardService.getCardMonthlyBenefit(userId, cardId));
     }
 
     @ApiOperation(value = "카드별 세부 결제 내역 조회", notes = """
@@ -170,5 +206,15 @@ public class CardController {
     public ResponseEntity<ApiResponse<Void>> connectMyData(@LoginUserId Long userId) {
         cardService.connectMyData(userId);
         return ApiResponse.of(CardSuccessCode.MYDATA_LINKED, null);
+    }
+
+    @PatchMapping("/user-cards/display-order")
+    public ResponseEntity<ApiResponse<Void>> updateCardsDisplayOrder(
+            @LoginUserId Long userId,
+            @Valid @RequestBody CardDisplayOrderUpdateRequest request) {
+
+        cardService.updateCardsDisplayOrder(userId, request);
+
+        return ApiResponse.of(CardSuccessCode.CARD_DISPLAY_ORDER_UPDATED, null);
     }
 }

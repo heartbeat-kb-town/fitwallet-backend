@@ -28,6 +28,12 @@ public class CardListResponse {
     private Long cardProductId;
     private String cardName;
 
+    /** 카드사명. CardTransactionCardInfo/CardUsageCardInfo와 같은 이름을 쓴다. */
+    private String issuerName;
+
+    /** 카드 이미지 URL. 카드 상품에 이미지가 없으면 null. */
+    private String cardImageUrl;
+
     /**
      * 신용/체크 구분. 명세 예시에는 없지만 화면에서 구분 표시가 필요해 추가했다.
      * (명세 예시가 balance와 creditLimit을 동시에 채우고 있어 예시 자체가 개략적이다)

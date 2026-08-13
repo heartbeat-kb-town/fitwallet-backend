@@ -128,7 +128,10 @@ jobs:
       - name: Deploy to Elastic Beanstalk
         run: |
           set -euo pipefail
-          LABEL="gh-${{ github.run_number }}-${GITHUB_SHA:0:7}"
+          # 라벨에 run_attempt가 반드시 들어가야 한다. create-application-version이 성공한 뒤
+          # 뒷 단계에서 실패하면 그 라벨이 EB에 남는데, 재실행 때 라벨이 같으면 "이미 존재함"으로
+          # 거부돼 사람이 버전을 지우기 전까지 재배포가 막힌다.
+          LABEL="gh-${{ github.run_number }}.${{ github.run_attempt }}-${GITHUB_SHA:0:7}"
           WAR=$(ls dist/*.war)
           echo "LABEL=$LABEL" >> "$GITHUB_ENV"
           echo "버전 라벨 $LABEL / 번들 $WAR"

@@ -1,7 +1,6 @@
 package com.fitwallet.domain.card.service;
 
 import com.fitwallet.domain.benefit.dto.BenefitType;
-import com.fitwallet.domain.benefit.dto.ValueType;
 import com.fitwallet.domain.card.dto.CardUsageBenefitAllocation;
 import com.fitwallet.domain.card.dto.CardUsageBenefitDefinition;
 import com.fitwallet.domain.card.dto.CardUsageIntegratedTier;
@@ -9,21 +8,22 @@ import com.fitwallet.domain.card.dto.CardUsageTierBenefitGroup;
 import com.fitwallet.domain.card.dto.CardUsageTierStructure;
 import com.fitwallet.domain.card.dto.CardUsageTierType;
 import com.fitwallet.domain.card.dto.response.CardUsageBenefitResponse;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
-import java.text.DecimalFormat;
-import java.text.DecimalFormatSymbols;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 
 /** 통합 실적 구간별 적용 혜택을 판정하고 화면 표시용 혜택 값을 생성한다. */
 @Component
+@RequiredArgsConstructor
 public class CardUsageBenefitAllocator {
+
+    private final CardBenefitValueLabelFormatter benefitValueLabelFormatter;
 
     public CardUsageBenefitAllocation allocate(
             CardUsageTierStructure tierStructure,
@@ -77,36 +77,13 @@ public class CardUsageBenefitAllocator {
                 .benefitType(benefit.getBenefitType())
                 .valueType(benefit.getValueType())
                 .valueNumber(benefit.getValueNumber())
-                .valueLabel(createValueLabel(benefit))
+                .valueLabel(benefitValueLabelFormatter.formatValue(
+                        benefit.getBenefitName(),
+                        benefit.getBenefitType(),
+                        benefit.getValueType(),
+                        benefit.getValueNumber(),
+                        benefit.getPointCurrencyName()))
                 .build();
-    }
-
-    private String createValueLabel(CardUsageBenefitDefinition benefit) {
-        String label;
-        if (benefit.getValueType() == ValueType.RATE) {
-            label = formatPlain(benefit.getValueNumber()) + "%";
-        } else if (benefit.getBenefitType() == BenefitType.CASHBACK) {
-            label = formatThousands(benefit.getValueNumber()) + "원";
-        } else {
-            label = formatThousands(benefit.getValueNumber())
-                    + " " + benefit.getPointCurrencyName();
-        }
-
-        if (benefit.getValueType() == ValueType.FIXED
-                && benefit.getBenefitName().contains("주유")) {
-            return "리터당 " + label;
-        }
-        return label;
-    }
-
-    private String formatThousands(BigDecimal value) {
-        DecimalFormat format = new DecimalFormat(
-                "#,##0.##", DecimalFormatSymbols.getInstance(Locale.US));
-        return format.format(value);
-    }
-
-    private String formatPlain(BigDecimal value) {
-        return value.stripTrailingZeros().toPlainString();
     }
 
     private void validateBenefit(CardUsageBenefitDefinition benefit) {
