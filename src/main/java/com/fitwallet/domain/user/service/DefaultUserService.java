@@ -6,7 +6,6 @@ import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
-import com.fitwallet.domain.user.dto.response.CurrentPaymentPinMismatchResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
@@ -25,8 +24,6 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
 
 @Service
 @RequiredArgsConstructor
@@ -35,15 +32,6 @@ public class DefaultUserService implements UserService {
     private final UserMapper userMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtProvider jwtProvider;
-
-    /** 결제 도메인의 PIN 검증(DefaultPaymentService)과 같은 정책값 */
-    private static final int MAX_PIN_ATTEMPTS = 5;
-
-    /**
-     * 결제 PIN 변경 화면의 현재 PIN 검증 실패 횟수를 userId별로 메모리에만 들고 있는다.
-     * 실제 잠금이 아니라 참고용 카운트라 지금은 감수한다. 향후 실제 제한 정책이 생기면 DB로 옮길 예정이다.
-     */
-    private final Map<Long, Integer> paymentPinChangeFailCounts = new ConcurrentHashMap<>();
 
     /**
      * 일반 회원가입을 처리한다.
@@ -174,9 +162,6 @@ public class DefaultUserService implements UserService {
      * <p>
      * 새 PIN과 확인값의 일치 여부를 먼저 검증하고, 저장된 해시와 현재 PIN을 대조한다.
      * BCrypt 해시는 SQL로 직접 비교할 수 없어 조회 후 서비스에서 검증한다(로그인과 같은 패턴).
-     * <p>
-     * 현재 PIN이 틀리면 {@link #paymentPinChangeFailCounts}를 증가시키고 남은 시도 횟수를
-     * 응답에 실어 던진다.
      */
     @Override
     @Transactional
@@ -185,16 +170,9 @@ public class DefaultUserService implements UserService {
 
         String storedHash = userMapper.findPaymentPinHash(userId);
         if (!passwordEncoder.matches(request.getCurrentPin(), storedHash)) {
-            int failCount = paymentPinChangeFailCounts.compute(userId,
-                    (id, current) -> Math.min(current == null ? 1 : current + 1, MAX_PIN_ATTEMPTS));
-            int remainingVerificationAttempts = MAX_PIN_ATTEMPTS - failCount;
-            throw new BusinessException(UserErrorCode.INVALID_CURRENT_PAYMENT_PIN,
-                    CurrentPaymentPinMismatchResponse.builder()
-                            .remainingVerificationAttempts(remainingVerificationAttempts)
-                            .build());
+            throw new BusinessException(UserErrorCode.INVALID_CURRENT_PAYMENT_PIN);
         }
 
-        paymentPinChangeFailCounts.remove(userId);
         String newPinHash = passwordEncoder.encode(request.getNewPin());
         userMapper.updatePaymentPin(userId, newPinHash);
     }
