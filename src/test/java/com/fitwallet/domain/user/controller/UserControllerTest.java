@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.service.UserService;
 import com.fitwallet.global.config.AuthInterceptor;
@@ -249,6 +250,27 @@ class UserControllerTest {
                 .andExpect(jsonPath("$.code").value("INVALID_INPUT_VALUE"));
 
         then(userService).shouldHaveNoInteractions();
+    }
+
+    @Test
+    void 마이페이지_조회는_LoginUserId를_서비스에_전달하고_200과_이름을_반환한다() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new UserController(userService, refreshTokenCookieProvider))
+                .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
+                .addInterceptors(new AuthInterceptor(jwtProvider))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+        given(userService.findUserInfo(1L))
+                .willReturn(UserInfoResponse.builder().name("김국민").build());
+
+        mockMvc.perform(get("/api/user/me")
+                        .header("Authorization", "Bearer access-token"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("USER_INFO_RETRIEVED"))
+                .andExpect(jsonPath("$.data.name").value("김국민"));
     }
 
     @Test

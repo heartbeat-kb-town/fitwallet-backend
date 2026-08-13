@@ -2,6 +2,7 @@ package com.fitwallet.domain.user.mapper;
 
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -69,4 +70,7 @@ public interface UserMapper {
 
     /** 결제 PIN을 변경한다. */
     void updatePaymentPin(@Param("userId") Long userId, @Param("newPinHash") String newPinHash);
+
+    /** 마이페이지 표시용 사용자 정보를 조회한다. 없으면 null. */
+    UserInfoResponse findUserInfo(@Param("userId") Long userId);
 }

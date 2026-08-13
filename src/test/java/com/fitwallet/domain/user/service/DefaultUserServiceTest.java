@@ -7,6 +7,7 @@ import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.exception.UserErrorCode;
@@ -320,6 +321,26 @@ class DefaultUserServiceTest {
 
         then(userMapper).should(never())
                 .updatePaymentPin(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void 마이페이지_조회는_매퍼_결과를_그대로_반환한다() {
+        UserInfoResponse userInfo = UserInfoResponse.builder().name("김국민").build();
+        given(userMapper.findUserInfo(1L)).willReturn(userInfo);
+
+        UserInfoResponse result = userService.findUserInfo(1L);
+
+        assertThat(result.getName()).isEqualTo("김국민");
+    }
+
+    @Test
+    void 존재하지_않는_사용자를_조회하면_USER_NOT_FOUND_예외를_던진다() {
+        given(userMapper.findUserInfo(999L)).willReturn(null);
+
+        assertThatThrownBy(() -> userService.findUserInfo(999L))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.USER_NOT_FOUND);
     }
 
     private PinUpdateRequest pinUpdateRequest(String currentPin, String newPin, String newPinConfirm) {
