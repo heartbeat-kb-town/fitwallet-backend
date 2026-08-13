@@ -1,5 +1,5 @@
 name: Set up DB
-description: services로 띄운 MySQL을 KST로 맞추고 스키마+시드를 적용한다. 이 준비가 필요한 잡이 둘 이상이라 액션으로 뺐다.
+description: services로 띄운 MySQL을 KST로 맞춘다. 스키마·시드는 앱이 뜰 때 Flyway가 적용한다. 이 준비가 필요한 잡이 둘 이상이라 액션으로 뺐다.
 
 runs:
   using: composite
@@ -10,8 +10,9 @@ runs:
     # mysqld 인자가 되지 못한다) 런타임에 설정한다. 결과 상태(@@global.time_zone = '+09:00')는
     # 로컬과 동일하며, 갈라지면 CI만 통과하는 상황이 생기므로 값을 찍어 확인한다.
     #
-    # 아래 시딩보다 반드시 먼저 와야 한다 — SET GLOBAL은 이후 새로 맺는 커넥션에만 적용되고,
-    # 001-health-check.sql의 checked_at이 DEFAULT CURRENT_TIMESTAMP라 순서가 결과를 바꾼다.
+    # Flyway 마이그레이션보다 반드시 먼저 와야 한다 — SET GLOBAL은 이후 새로 맺는 커넥션에만
+    # 적용되고, 시드의 created_at/checked_at이 DEFAULT CURRENT_TIMESTAMP라 순서가 결과를 바꾼다.
+    # 마이그레이션은 테스트가 스프링 컨텍스트를 띄우는 시점(이 액션 이후)에 돈다.
     - name: Set MySQL timezone to KST
       shell: bash
       run: |
@@ -19,14 +20,3 @@ runs:
           -e "SET GLOBAL time_zone = '+09:00';"
         mysql -h 127.0.0.1 -P 3306 -uroot -proot1234 \
           -e "SELECT @@global.time_zone AS tz, NOW() AS now_kst;"
-
-    # services는 checkout 이전에 뜨기 때문에 docker-entrypoint-initdb.d 자동 초기화를
-    # 쓸 수 없다. 로컬과 동일한 초기화 SQL을 checkout 이후 직접 실행해 시딩한다.
-    # 파일이 늘어나도 이 스텝을 다시 고칠 필요가 없도록 init 디렉터리 전체를 번호순으로 돌린다.
-    - name: Initialize DB (schema + seed)
-      shell: bash
-      run: |
-        for f in docker/mysql/init/*.sql; do
-          echo "applying $f"
-          mysql -h 127.0.0.1 -P 3306 -uroot -proot1234 --default-character-set=utf8mb4 fitwallet < "$f"
-        done

@@ -23,9 +23,12 @@ services:
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
     ports:
       - "${MYSQL_PORT:-3306}:3306"
+    # 스키마·데이터는 여기서 넣지 않는다. 앱이 뜰 때 Flyway가
+    # src/main/resources/db/{migration,seed-local}을 적용한다.
+    # docker-entrypoint-initdb.d는 빈 볼륨 최초 1회만 실행돼서, 이미 데이터가 든 DB를
+    # 갱신할 수단이 되지 못한다 — 운영 RDS가 8일치 밀렸던 원인이다 (#213).
     volumes:
       - fitwallet-mysql-data:/var/lib/mysql
-      - ./docker/mysql/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${MYSQL_ROOT_PASSWORD}"]
       interval: 5s

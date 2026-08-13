@@ -1,11 +1,11 @@
 # DB 스키마 설명서
 
-> 팀 공유용 스키마 가이드. 실행 정본은 [`docker/mysql/init/002-schema.sql`](../docker/mysql/init/002-schema.sql)이며, 이 문서는 그 구조를 표로 정리한 것입니다.
-> 예시 데이터는 [`docker/mysql/init/003-seed.sql`](../docker/mysql/init/003-seed.sql)에 있고, 두 파일 모두 컨테이너 최초 기동 시 자동 적용됩니다.
+> 팀 공유용 스키마 가이드. 실행 정본은 [`src/main/resources/db/migration/`](../src/main/resources/db/migration)의 마이그레이션 파일들이며(기준 스키마는 [`V1__baseline_schema.sql`](../src/main/resources/db/migration/V1__baseline_schema.sql)), 이 문서는 그 누적 결과를 표로 정리한 것입니다.
+> 참조 데이터는 [`V2__reference_data.sql`](../src/main/resources/db/migration/V2__reference_data.sql), 데모 데이터(회원·결제내역)는 [`db/seed-local/`](../src/main/resources/db/seed-local)에 있습니다. 전부 앱 기동 시 Flyway가 적용합니다 ([AGENTS.md](../AGENTS.md) §11).
 >
 > - **엔진/문자셋**: InnoDB / `utf8mb4` (테이블 콜레이션 `utf8mb4_0900_ai_ci`, MySQL 8.0+)
 > - **테이블 수**: 19개
-> - **타임존**: 컨테이너 MySQL은 KST(`+09:00`)로 고정돼 있습니다 ([AGENTS.md](../AGENTS.md) §11). `DATETIME`에 담긴 값은 전부 KST 벽시계입니다
+> - **타임존**: 컨테이너 MySQL은 KST(`+09:00`)로 고정돼 있습니다 ([AGENTS.md](../AGENTS.md) §10). `DATETIME`에 담긴 값은 전부 KST 벽시계입니다
 
 ## 표 읽는 법
 
@@ -533,4 +533,4 @@ DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBati
 값 집합이 아닌 CHECK 제약(XOR·범위)은 각 테이블의 "상세 설명" 열에 적어 뒀습니다 — `ck_benefit_tier_xor`, `ck_card_event_target_xor`, `ck_card_event_period`, `ck_benefit_service_max_payment_amount`, `ck_benefit_service_point_currency_required`.
 
 ---
-*스키마 변경 시 `docker/mysql/init/002-schema.sql`과 이 문서를 함께 갱신하세요.*
+*스키마를 바꿀 때는 `src/main/resources/db/migration/`에 `V{다음번호}__{설명}.sql`을 추가하고 이 문서를 함께 갱신하세요. `V1__baseline_schema.sql`은 고치지 않습니다.*
