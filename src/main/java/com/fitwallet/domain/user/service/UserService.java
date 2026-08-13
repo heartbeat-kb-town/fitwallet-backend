@@ -7,6 +7,7 @@ import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 
 import java.util.List;
@@ -36,4 +37,7 @@ public interface UserService {
 
     /** 사용자의 결제 PIN을 변경한다. */
     void updatePaymentPin(Long userId, PinUpdateRequest request);
+
+    /** 마이페이지 표시용 사용자 정보를 조회한다. 없으면 예외를 던진다. */
+    UserInfoResponse findUserInfo(Long userId);
 }

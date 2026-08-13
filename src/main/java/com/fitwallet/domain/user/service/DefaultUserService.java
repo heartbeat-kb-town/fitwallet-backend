@@ -7,6 +7,7 @@ import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.exception.UserErrorCode;
@@ -189,6 +190,17 @@ public class DefaultUserService implements UserService {
         if (!request.getNewPin().equals(request.getNewPinConfirm())) {
             throw new BusinessException(UserErrorCode.NEW_PAYMENT_PIN_CONFIRM_MISMATCH);
         }
+    }
+
+    /** 마이페이지 표시용 사용자 정보를 조회한다. */
+    @Override
+    @Transactional(readOnly = true)
+    public UserInfoResponse findUserInfo(Long userId) {
+        UserInfoResponse userInfo = userMapper.findUserInfo(userId);
+        if (userInfo == null) {
+            throw new BusinessException(UserErrorCode.USER_NOT_FOUND);
+        }
+        return userInfo;
     }
 
     /**

@@ -15,7 +15,8 @@ public enum UserErrorCode implements ErrorCode {
     PIN_CONFIRM_MISMATCH(HttpStatus.BAD_REQUEST, "결제 PIN과 결제 PIN 확인이 일치하지 않습니다."),
     PAYMENT_PIN_ALREADY_REGISTERED(HttpStatus.CONFLICT, "결제 PIN이 이미 등록되어 있습니다."),
     INVALID_CURRENT_PAYMENT_PIN(HttpStatus.BAD_REQUEST, "현재 결제 비밀번호가 일치하지 않습니다."),
-    NEW_PAYMENT_PIN_CONFIRM_MISMATCH(HttpStatus.BAD_REQUEST, "새 결제 비밀번호와 확인 값이 일치하지 않습니다.");
+    NEW_PAYMENT_PIN_CONFIRM_MISMATCH(HttpStatus.BAD_REQUEST, "새 결제 비밀번호와 확인 값이 일치하지 않습니다."),
+    USER_NOT_FOUND(HttpStatus.NOT_FOUND, "사용자를 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String message;

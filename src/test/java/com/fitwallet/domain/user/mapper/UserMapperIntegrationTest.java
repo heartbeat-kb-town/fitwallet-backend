@@ -2,6 +2,7 @@ package com.fitwallet.domain.user.mapper;
 
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginInfoResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -191,6 +192,20 @@ class UserMapperIntegrationTest {
         userMapper.updatePaymentPin(userId, PIN_HASH_B);
 
         assertThat(userMapper.findPaymentPinHash(userId)).isEqualTo(PIN_HASH_B);
+    }
+
+    @Test
+    void 마이페이지_조회는_이름을_그대로_반환한다() {
+        Long userId = registerAndGetUserId();
+
+        UserInfoResponse userInfo = userMapper.findUserInfo(userId);
+
+        assertThat(userInfo.getName()).isEqualTo("회원가입테스트");
+    }
+
+    @Test
+    void 존재하지_않는_사용자의_마이페이지_조회는_null이다() {
+        assertThat(userMapper.findUserInfo(9999L)).isNull();
     }
 
     @Test

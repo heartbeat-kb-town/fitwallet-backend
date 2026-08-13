@@ -8,6 +8,7 @@ import com.fitwallet.domain.user.dto.request.SignUpRequest;
 import com.fitwallet.domain.user.dto.request.UserLoginRequest;
 import com.fitwallet.domain.user.dto.response.FrequentPlaceResponse;
 import com.fitwallet.domain.user.dto.response.TokenReissueResponse;
+import com.fitwallet.domain.user.dto.response.UserInfoResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginResponse;
 import com.fitwallet.domain.user.dto.response.UserLoginTokenResponse;
 import com.fitwallet.domain.user.service.UserService;
@@ -170,6 +171,16 @@ public class UserController {
         return ApiResponse.of(
                 UserSuccessCode.PAYMENT_PIN_UPDATED,
                 null
+        );
+    }
+
+    @GetMapping("/user/me")
+    public ResponseEntity<ApiResponse<UserInfoResponse>> findUserInfo(
+            @LoginUserId Long userId) {
+
+        return ApiResponse.of(
+                UserSuccessCode.USER_INFO_RETRIEVED,
+                userService.findUserInfo(userId)
         );
     }
 }
