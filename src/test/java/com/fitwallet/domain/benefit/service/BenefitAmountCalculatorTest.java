@@ -16,6 +16,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * <p>
  * 금액 단언은 전부 {@code isEqualByComparingTo}를 쓴다 — {@code isEqualTo}는 scale까지
  * 비교해서 {@code 3500}과 {@code 3500.00}이 다르다고 본다.
+ * <p>
+ * <b>{@code krwPerPoint}는 1을 쓰지 않는다.</b> 시드의 {@code point_currency}가 전부
+ * {@code 1.0000}이라 원화와 포인트가 같은 숫자로 나와, 축이 뒤바뀌어도 green이 뜬다.
  */
 class BenefitAmountCalculatorTest {
 
@@ -28,18 +31,18 @@ class BenefitAmountCalculatorTest {
     void 정률_캐시백은_결제금액에_요율을_곱한다() {
         BenefitCandidateResponse candidate = cashbackRate(new BigDecimal("10"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
 
-        assertThat(result).isEqualByComparingTo("3500");
+        assertThat(result.getKrw()).isEqualByComparingTo("3500");
     }
 
     @Test
     void 정액_캐시백은_결제금액과_무관하게_정액_그대로다() {
         BenefitCandidateResponse candidate = cashbackFixed(new BigDecimal("2000"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
 
-        assertThat(result).isEqualByComparingTo("2000");
+        assertThat(result.getKrw()).isEqualByComparingTo("2000");
     }
 
     @Test
@@ -47,9 +50,9 @@ class BenefitAmountCalculatorTest {
         // 35,000 × 5% = 1,750 포인트, 1포인트 = 0.8원 → 1,400원
         BenefitCandidateResponse candidate = accumulateRate(new BigDecimal("5"), new BigDecimal("0.8"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
 
-        assertThat(result).isEqualByComparingTo("1400");
+        assertThat(result.getKrw()).isEqualByComparingTo("1400");
     }
 
     @Test
@@ -63,10 +66,10 @@ class BenefitAmountCalculatorTest {
                 .perTxLimitAmount(new BigDecimal("4000.00"))
                 .build();
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), capped, NO_LIMIT);
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), capped, NO_LIMIT);
 
-        assertThat(result.scale()).isZero();
-        assertThat(result.toPlainString()).isEqualTo("4000");
+        assertThat(result.getKrw().scale()).isZero();
+        assertThat(result.getKrw().toPlainString()).isEqualTo("4000");
     }
 
     @Test
@@ -74,9 +77,9 @@ class BenefitAmountCalculatorTest {
         // 1,000원짜리를 사는데 2,000원 정액 할인이 걸린다 — 할인은 결제액을 넘을 수 없다
         BenefitCandidateResponse candidate = cashbackFixed(new BigDecimal("2000"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("1000"), candidate, NO_LIMIT);
+        BenefitAmount result = calculator.calculate(new BigDecimal("1000"), candidate, NO_LIMIT);
 
-        assertThat(result).isEqualByComparingTo("1000");
+        assertThat(result.getKrw()).isEqualByComparingTo("1000");
     }
 
     @Test
@@ -90,9 +93,9 @@ class BenefitAmountCalculatorTest {
                 .perTxLimitAmount(new BigDecimal("1000"))
                 .build();
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
 
-        assertThat(result).isEqualByComparingTo("1000");
+        assertThat(result.getKrw()).isEqualByComparingTo("1000");
     }
 
     @Test
@@ -103,9 +106,9 @@ class BenefitAmountCalculatorTest {
         BenefitCandidateResponse candidate = accumulateRateCapped(
                 new BigDecimal("10"), new BigDecimal("2"), new BigDecimal("1000"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("30000"), candidate, NO_LIMIT);
+        BenefitAmount result = calculator.calculate(new BigDecimal("30000"), candidate, NO_LIMIT);
 
-        assertThat(result).isEqualByComparingTo("2000");
+        assertThat(result.getKrw()).isEqualByComparingTo("2000");
     }
 
     @Test
@@ -115,9 +118,9 @@ class BenefitAmountCalculatorTest {
         BenefitCandidateResponse candidate = accumulateRateCapped(
                 new BigDecimal("10"), new BigDecimal("0.5"), new BigDecimal("1000"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("30000"), candidate, NO_LIMIT);
+        BenefitAmount result = calculator.calculate(new BigDecimal("30000"), candidate, NO_LIMIT);
 
-        assertThat(result).isEqualByComparingTo("500");
+        assertThat(result.getKrw()).isEqualByComparingTo("500");
     }
 
     @Test
@@ -126,9 +129,9 @@ class BenefitAmountCalculatorTest {
         BenefitCandidateResponse candidate = accumulateRateCapped(
                 new BigDecimal("10"), new BigDecimal("2"), new BigDecimal("1000"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("30000"), candidate, new BigDecimal("1500"));
+        BenefitAmount result = calculator.calculate(new BigDecimal("30000"), candidate, new BigDecimal("1500"));
 
-        assertThat(result).isEqualByComparingTo("1500");
+        assertThat(result.getKrw()).isEqualByComparingTo("1500");
     }
 
     @ParameterizedTest(name = "잔여 {0}원 → expectedAmount {1}원")
@@ -143,18 +146,18 @@ class BenefitAmountCalculatorTest {
         // 35,000 × 10% = 3,500 이 산출액이고, 잔여가 그보다 적으면 잔여가 이긴다
         BenefitCandidateResponse candidate = cashbackRate(new BigDecimal("10"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), candidate, new BigDecimal(remaining));
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, new BigDecimal(remaining));
 
-        assertThat(result).isEqualByComparingTo(expected);
+        assertThat(result.getKrw()).isEqualByComparingTo(expected);
     }
 
     @Test
     void 잔여가_산출액보다_많으면_산출액_그대로다() {
         BenefitCandidateResponse candidate = cashbackRate(new BigDecimal("10"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), candidate, new BigDecimal("20000"));
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, new BigDecimal("20000"));
 
-        assertThat(result).isEqualByComparingTo("3500");
+        assertThat(result.getKrw()).isEqualByComparingTo("3500");
     }
 
     @Test
@@ -162,9 +165,9 @@ class BenefitAmountCalculatorTest {
         // 35,000 × 5% = 1,750 포인트 → 1,400원. 잔여 800원이면 800원까지만.
         BenefitCandidateResponse candidate = accumulateRate(new BigDecimal("5"), new BigDecimal("0.8"));
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), candidate, new BigDecimal("800"));
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, new BigDecimal("800"));
 
-        assertThat(result).isEqualByComparingTo("800");
+        assertThat(result.getKrw()).isEqualByComparingTo("800");
     }
 
     @Test
@@ -178,9 +181,62 @@ class BenefitAmountCalculatorTest {
                 .perTxLimitAmount(new BigDecimal("1000"))
                 .build();
 
-        BigDecimal result = calculator.calculate(new BigDecimal("35000"), candidate, new BigDecimal("2000"));
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, new BigDecimal("2000"));
 
-        assertThat(result).isEqualByComparingTo("1000");
+        assertThat(result.getKrw()).isEqualByComparingTo("1000");
+    }
+
+    // ---------- 네이티브 축 ----------
+
+    @Test
+    void 캐시백은_원화와_네이티브가_같은_값이다() {
+        BenefitCandidateResponse candidate = cashbackRate(new BigDecimal("10"));
+
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
+
+        assertThat(result.getKrw()).isEqualByComparingTo("3500");
+        assertThat(result.getNativeAmount()).isEqualByComparingTo("3500");
+    }
+
+    @Test
+    void 적립은_네이티브가_포인트_개수고_원화는_환산값이다() {
+        // 35,000 × 5% = 1,750 포인트, 1포인트 0.8원 → 1,400원
+        BenefitCandidateResponse candidate = accumulateRate(new BigDecimal("5"), new BigDecimal("0.8"));
+
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
+
+        assertThat(result.getNativeAmount()).isEqualByComparingTo("1750");
+        assertThat(result.getKrw()).isEqualByComparingTo("1400");
+    }
+
+    @Test
+    void 포인트는_원화에서_역산할_수_없어_따로_들고_있어야_한다() {
+        // 1,751P × 0.8원 = 1,400.8원 → 절사하면 1,400원.
+        // 1,400 ÷ 0.8 = 1,750P라 되돌리면 1포인트가 사라진다.
+        BenefitCandidateResponse candidate = BenefitCandidateResponse.builder()
+                .serviceId(1L)
+                .benefitType(BenefitType.ACCUMULATE)
+                .valueType(ValueType.FIXED)
+                .valueNumber(new BigDecimal("1751"))
+                .krwPerPoint(new BigDecimal("0.8"))
+                .build();
+
+        BenefitAmount result = calculator.calculate(new BigDecimal("35000"), candidate, NO_LIMIT);
+
+        assertThat(result.getKrw()).isEqualByComparingTo("1400");
+        assertThat(result.getNativeAmount()).isEqualByComparingTo("1751");
+    }
+
+    @Test
+    void 원화로_들어온_한도_잔여는_포인트도_함께_자른다() {
+        // 3,000P 산출 → 잔여 1,500원 ÷ 2원 = 750P → 750P(1,500원).
+        // 포인트를 안 자르면 discount_amount에 3,000P가 적재돼 한도를 넘어선 사용량이 쌓인다.
+        BenefitCandidateResponse candidate = accumulateRate(new BigDecimal("10"), new BigDecimal("2"));
+
+        BenefitAmount result = calculator.calculate(new BigDecimal("30000"), candidate, new BigDecimal("1500"));
+
+        assertThat(result.getNativeAmount()).isEqualByComparingTo("750");
+        assertThat(result.getKrw()).isEqualByComparingTo("1500");
     }
 
     private BenefitCandidateResponse accumulateRate(BigDecimal valueNumber, BigDecimal krwPerPoint) {

@@ -495,7 +495,9 @@ CREATE TABLE payment_transaction (
     payment_session_id        BIGINT NULL,
     amount                    DECIMAL(15,2) NOT NULL,
     discount_amount           DECIMAL(15,2) NOT NULL DEFAULT 0,
-    -- v22: 최종금액(= amount - discount_amount). 할인 적용 후 실제 결제 금액.
+    -- v22: 최종금액. 혜택 적용 후 실제 결제 금액이며 단위는 원화다.
+    -- ⚠️ discount_amount 는 네이티브 단위라(아래 주석 참고) amount - discount_amount 라는
+    -- 등식이 성립하지 않는다. 적립 건은 포인트 개수를 원화로 환산한 뒤 뺀 값이다.
     final_amount              DECIMAL(15,2) NOT NULL,
     -- 실제 결제(승인) 발생 시각(비즈니스 시각). created_at(레코드 생성)과 분리.
     paid_at                   DATETIME NOT NULL,
@@ -503,14 +505,23 @@ CREATE TABLE payment_transaction (
     is_eligible               TINYINT(1) NOT NULL DEFAULT 1,
     -- v18: 적용 혜택 / 놓친 혜택을 인라인. 현행 정책상 결제:적용혜택은 "건당 최선 1개"라
     -- 1:1, 놓친 혜택도 "최선 대안 1개"만 → 별도 테이블(benefit_application/missed_benefit)
-    -- 대신 여기에 둔다. discount_amount 는 적용된 혜택 하나의 혜택값(할인+적립 원환산).
+    -- 대신 여기에 둔다. discount_amount 는 적용된 혜택 하나의 혜택값이며 단위는 네이티브다 —
+    -- applied_benefit_service_id 의 benefit_type 으로 해석한다(CASHBACK=원, ACCUMULATE=포인트
+    -- 개수). 어떤 포인트인지는 benefit_service.point_currency_id 로 판별하고, 원화가 필요한
+    -- 집계는 point_currency.krw_per_point 를 곱한다.
     -- (진짜 혜택 중첩/다중 대안이 필요해지면 benefit_service에 중첩 규칙을 추가하고
     --  적용내역을 별도 테이블로 분리하는 세트 변경이 필요.)
+    --
+    -- ⚠️ 단위가 컬럼마다 다르다. discount_amount 만 네이티브고 alternative_discount_amount /
+    -- missed_amount 는 원화다. 뒤 둘은 better_user_card_id 만 있고 better_benefit_service_id 가
+    -- 없어 읽는 쪽이 통화를 판별할 방법이 없기 때문이다.
     applied_benefit_service_id   BIGINT NULL,        -- 적용된 혜택(attribution). 혜택 0이면 NULL
     applied_tier_id              BIGINT NULL,        -- 적용 혜택의 한도 그룹(한도 소진 집계 키)
     better_user_card_id          BIGINT NULL,        -- 놓친 혜택: 더 유리했던 보유 카드. 없으면 NULL
-    alternative_discount_amount  DECIMAL(15,2) NULL, -- 그 카드였다면 받았을 혜택값
-    missed_amount                DECIMAL(15,2) NULL, -- 놓친 금액(= alternative - discount_amount)
+    alternative_discount_amount  DECIMAL(15,2) NULL, -- 그 카드였다면 받았을 혜택값(원화)
+    -- 놓친 금액(원화). discount_amount 와 축이 달라 alternative - discount_amount 라는 등식이
+    -- 성립하지 않는다 — 두 값 모두 원화로 환산한 뒤 뺀 결과다.
+    missed_amount                DECIMAL(15,2) NULL,
     created_at                DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at                DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     -- v25: 세션 1건은 거래 최대 1건으로 확정된다(1:1). NULL은 중복 허용되므로 앱을

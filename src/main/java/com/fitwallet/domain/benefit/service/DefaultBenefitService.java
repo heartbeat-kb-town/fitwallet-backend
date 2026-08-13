@@ -17,6 +17,7 @@ import com.fitwallet.domain.benefit.dto.response.BenefitReasonResponse;
 import com.fitwallet.domain.benefit.dto.response.CardBenefitResponse;
 import com.fitwallet.domain.benefit.dto.response.ExpectedBenefitResponse;
 import com.fitwallet.domain.benefit.dto.response.ExpectedBenefitStoreResponse;
+import com.fitwallet.domain.benefit.dto.response.PaymentBenefitResponse;
 import com.fitwallet.domain.benefit.exception.BenefitErrorCode;
 import com.fitwallet.domain.benefit.mapper.BenefitMapper;
 import com.fitwallet.global.exception.BusinessException;
@@ -89,13 +90,10 @@ public class DefaultBenefitService implements BenefitService {
         Long resolvedStoreId = resolveStoreId(storeId);
         BigDecimal resolvedAmount = resolveAmount(amount);
 
-        BenefitStoreResponse store = benefitMapper.findStore(resolvedStoreId);
-        if (store == null) {
-            throw new BusinessException(BenefitErrorCode.STORE_NOT_FOUND);
-        }
+        BenefitStoreResponse store = findStore(resolvedStoreId);
 
-        List<BenefitUserCardResponse> userCards = benefitMapper.findUserCards(userId);
-        if (userCards.isEmpty()) {
+        List<CardEvaluation> evaluations = evaluateCards(userId, store, resolvedAmount);
+        if (evaluations.isEmpty()) {
             return ExpectedBenefitResponse.builder()
                     .store(toStoreResponse(store))
                     .hasCard(false)
@@ -103,14 +101,8 @@ public class DefaultBenefitService implements BenefitService {
                     .build();
         }
 
-        List<Long> userCardIds = userCards.stream()
-                .map(BenefitUserCardResponse::getUserCardId)
-                .collect(Collectors.toList());
-        Map<Long, BigDecimal> prevMonthSpends = resolvePrevMonthSpends(userCardIds);
-
-        List<CardBenefitResponse> cards = userCards.stream()
-                .map(card -> evaluateCard(card, store,
-                        prevMonthSpends.getOrDefault(card.getUserCardId(), BigDecimal.ZERO), resolvedAmount))
+        List<CardBenefitResponse> cards = evaluations.stream()
+                .map(evaluation -> toCardResponse(evaluation, resolvedAmount))
                 .collect(Collectors.toList());
 
         return ExpectedBenefitResponse.builder()
@@ -118,6 +110,50 @@ public class DefaultBenefitService implements BenefitService {
                 .hasCard(true)
                 .cards(sortAndRank(cards, resolvedAmount))
                 .build();
+    }
+
+    /**
+     * 판정 자체는 {@code findExpectedBenefits}와 같은 {@link #evaluateCards}를 탄다 —
+     * 두 화면이 다른 금액을 답하지 않게 하는 것이 이 메서드의 존재 이유이므로 계산을 복제하지 않는다.
+     * 여기서만 다른 것은 <b>결과를 어떤 모양으로 내보내느냐</b>뿐이다.
+     */
+    @Override
+    @Transactional(readOnly = true)
+    public List<PaymentBenefitResponse> findPaymentBenefits(Long userId, Long storeId, BigDecimal amount) {
+        BenefitStoreResponse store = findStore(storeId);
+
+        return evaluateCards(userId, store, amount).stream()
+                .filter(evaluation -> evaluation.status() == CardBenefitStatus.AVAILABLE)
+                .map(evaluation -> toPaymentBenefit(evaluation, amount))
+                // Stream.sorted는 안정 정렬이라 동점이면 카드 표시 순서가 그대로 남는다.
+                .sorted(Comparator.comparing(PaymentBenefitResponse::getExpectedAmount).reversed())
+                .collect(Collectors.toList());
+    }
+
+    private BenefitStoreResponse findStore(Long storeId) {
+        BenefitStoreResponse store = benefitMapper.findStore(storeId);
+        if (store == null) {
+            throw new BusinessException(BenefitErrorCode.STORE_NOT_FOUND);
+        }
+        return store;
+    }
+
+    /** 보유 카드가 없으면 빈 목록이다 — 호출부가 {@code hasCard=false}와 구분해 쓴다. */
+    private List<CardEvaluation> evaluateCards(Long userId, BenefitStoreResponse store, BigDecimal amount) {
+        List<BenefitUserCardResponse> userCards = benefitMapper.findUserCards(userId);
+        if (userCards.isEmpty()) {
+            return List.of();
+        }
+
+        List<Long> userCardIds = userCards.stream()
+                .map(BenefitUserCardResponse::getUserCardId)
+                .collect(Collectors.toList());
+        Map<Long, BigDecimal> prevMonthSpends = resolvePrevMonthSpends(userCardIds);
+
+        return userCards.stream()
+                .map(card -> evaluateCard(card, store,
+                        prevMonthSpends.getOrDefault(card.getUserCardId(), BigDecimal.ZERO), amount))
+                .collect(Collectors.toList());
     }
 
     private Long resolveStoreId(String storeId) {
@@ -167,13 +203,13 @@ public class DefaultBenefitService implements BenefitService {
                         BenefitPrevMonthSpendResponse::getPrevMonthSpend));
     }
 
-    private CardBenefitResponse evaluateCard(BenefitUserCardResponse card, BenefitStoreResponse store,
-                                              BigDecimal prevMonthSpend, BigDecimal amount) {
+    private CardEvaluation evaluateCard(BenefitUserCardResponse card, BenefitStoreResponse store,
+                                         BigDecimal prevMonthSpend, BigDecimal amount) {
         List<BenefitCandidateResponse> candidates = benefitMapper.findCandidates(
                 card.getCardProductId(), prevMonthSpend, store.getBrandId(), store.getCategoryId());
 
         if (candidates.isEmpty()) {
-            return buildCard(card, CardBenefitStatus.NO_BENEFIT,
+            return new CardEvaluation(card, CardBenefitStatus.NO_BENEFIT,
                     reason(BenefitReasonCode.NO_BENEFIT_FOR_STORE, NO_BENEFIT_MESSAGE), null);
         }
 
@@ -182,7 +218,7 @@ public class DefaultBenefitService implements BenefitService {
                 .collect(Collectors.toList());
 
         if (tierOkCandidates.isEmpty()) {
-            return buildCard(card, CardBenefitStatus.CONDITION_NOT_MET,
+            return new CardEvaluation(card, CardBenefitStatus.CONDITION_NOT_MET,
                     reason(BenefitReasonCode.PREV_SPEND_NOT_MET, PREV_SPEND_NOT_MET_MESSAGE), null);
         }
 
@@ -193,7 +229,7 @@ public class DefaultBenefitService implements BenefitService {
                 .collect(Collectors.toList());
 
         if (minTxOkCandidates.isEmpty()) {
-            return buildCard(card, CardBenefitStatus.CONDITION_NOT_MET,
+            return new CardEvaluation(card, CardBenefitStatus.CONDITION_NOT_MET,
                     reason(BenefitReasonCode.MIN_TX_AMOUNT_NOT_MET,
                             minTxNotMetMessage(tierOkCandidates)), null);
         }
@@ -210,13 +246,35 @@ public class DefaultBenefitService implements BenefitService {
         CandidateEvaluation winner = pickWinner(anyAvailable ? availableGroup : evaluations, amount);
 
         if (anyAvailable) {
-            return buildCard(card, CardBenefitStatus.AVAILABLE, null, buildDetail(winner, amount));
+            return new CardEvaluation(card, CardBenefitStatus.AVAILABLE, null, winner);
         }
 
         BenefitLimitResponse exhaustedLimit = resolveExhaustedLimit(winner.exhaustedLimits());
         String message = limitExhaustedMessage(exhaustedLimit.getLimitPeriod(), exhaustedLimit.getLimitBasis());
-        return buildCard(card, CardBenefitStatus.CONDITION_NOT_MET,
-                reason(BenefitReasonCode.LIMIT_EXHAUSTED, message), buildDetail(winner, amount));
+        return new CardEvaluation(card, CardBenefitStatus.CONDITION_NOT_MET,
+                reason(BenefitReasonCode.LIMIT_EXHAUSTED, message), winner);
+    }
+
+    private CardBenefitResponse toCardResponse(CardEvaluation evaluation, BigDecimal amount) {
+        BenefitDetailResponse benefit = evaluation.winner() == null
+                ? null
+                : buildDetail(evaluation.winner(), amount);
+        return buildCard(evaluation.card(), evaluation.status(), evaluation.reason(), benefit);
+    }
+
+    /** {@code AVAILABLE}인 카드만 들어온다 — 그때 {@code winner}는 반드시 있다. */
+    private PaymentBenefitResponse toPaymentBenefit(CardEvaluation evaluation, BigDecimal amount) {
+        CandidateEvaluation winner = evaluation.winner();
+        BenefitCandidateResponse candidate = winner.candidate();
+        BenefitAmount benefitAmount = benefitAmountCalculator.calculate(amount, candidate, winner.remainingKrw());
+
+        return PaymentBenefitResponse.builder()
+                .userCardId(evaluation.card().getUserCardId())
+                .benefitServiceId(candidate.getServiceId())
+                .tierId(winner.tierId())
+                .expectedAmount(benefitAmount.getKrw())
+                .nativeAmount(benefitAmount.getNativeAmount())
+                .build();
     }
 
     /**
@@ -270,7 +328,19 @@ public class DefaultBenefitService implements BenefitService {
             remainingKrw = minRemaining(remainingKrw,
                     toRemainingKrw(limit.getLimitBasis(), remainingValue, candidate.getKrwPerPoint()));
         }
-        return new CandidateEvaluation(candidate, !exhaustedLimits.isEmpty(), exhaustedLimits, remainingKrw);
+        return new CandidateEvaluation(candidate, !exhaustedLimits.isEmpty(), exhaustedLimits,
+                remainingKrw, resolveTierId(limits));
+    }
+
+    /**
+     * 한도 사용량 집계 키({@code payment_transaction.applied_tier_id})로 쓸 tier.
+     * <p>
+     * {@code findLimits}는 전월실적 구간이 반열린 인터벌이라 tier 하나만 뽑고, 그 tier에 붙은
+     * 한도 행을 전부 돌려준다 — 어느 행을 봐도 {@code tier_id}는 같다. 한도가 아예 없으면
+     * 집계할 대상도 없으므로 {@code null}이다.
+     */
+    private Long resolveTierId(List<BenefitLimitResponse> limits) {
+        return limits.isEmpty() ? null : limits.get(0).getTierId();
     }
 
     /**
@@ -335,7 +405,7 @@ public class DefaultBenefitService implements BenefitService {
         }
         Comparator<CandidateEvaluation> byExpectedAmountDesc = Comparator
                 .comparing((CandidateEvaluation e) ->
-                        benefitAmountCalculator.calculate(amount, e.candidate(), e.remainingKrw()))
+                        benefitAmountCalculator.calculate(amount, e.candidate(), e.remainingKrw()).getKrw())
                 .reversed();
         return pool.stream()
                 .min(byExpectedAmountDesc.thenComparing(CandidateEvaluation::candidate, TIE_BREAK_ORDER))
@@ -384,7 +454,7 @@ public class DefaultBenefitService implements BenefitService {
                 .displayText(buildDisplayText(candidate))
                 .expectedAmount(amount == null
                         ? null
-                        : benefitAmountCalculator.calculate(amount, candidate, evaluation.remainingKrw()))
+                        : benefitAmountCalculator.calculate(amount, candidate, evaluation.remainingKrw()).getKrw())
                 .build();
     }
 
@@ -493,13 +563,16 @@ public class DefaultBenefitService implements BenefitService {
         private final List<BenefitLimitResponse> exhaustedLimits;
         /** 원화 환산 한도 잔여. {@code null}이면 금액으로 자를 한도가 없다. */
         private final BigDecimal remainingKrw;
+        /** 한도 사용량 집계 키. {@code null}이면 이 혜택에 한도가 걸려 있지 않다. */
+        private final Long tierId;
 
         CandidateEvaluation(BenefitCandidateResponse candidate, boolean exhausted,
-                             List<BenefitLimitResponse> exhaustedLimits, BigDecimal remainingKrw) {
+                             List<BenefitLimitResponse> exhaustedLimits, BigDecimal remainingKrw, Long tierId) {
             this.candidate = candidate;
             this.exhausted = exhausted;
             this.exhaustedLimits = exhaustedLimits;
             this.remainingKrw = remainingKrw;
+            this.tierId = tierId;
         }
 
         BigDecimal remainingKrw() {
@@ -516,6 +589,48 @@ public class DefaultBenefitService implements BenefitService {
 
         List<BenefitLimitResponse> exhaustedLimits() {
             return exhaustedLimits;
+        }
+
+        Long tierId() {
+            return tierId;
+        }
+    }
+
+    /**
+     * 카드 한 장의 판정 결과. 화면용({@link CardBenefitResponse})과 결제용
+     * ({@link PaymentBenefitResponse}) 두 모양이 <b>같은 판정에서 갈라져 나오도록</b> 두는 중간 표현이다.
+     * <p>
+     * {@code winner}가 {@code null}이면 판정할 후보 자체가 없었다는 뜻이다
+     * ({@code NO_BENEFIT}·{@code PREV_SPEND_NOT_MET}·{@code MIN_TX_AMOUNT_NOT_MET}).
+     */
+    private static final class CardEvaluation {
+        private final BenefitUserCardResponse card;
+        private final CardBenefitStatus status;
+        private final BenefitReasonResponse reason;
+        private final CandidateEvaluation winner;
+
+        CardEvaluation(BenefitUserCardResponse card, CardBenefitStatus status,
+                        BenefitReasonResponse reason, CandidateEvaluation winner) {
+            this.card = card;
+            this.status = status;
+            this.reason = reason;
+            this.winner = winner;
+        }
+
+        BenefitUserCardResponse card() {
+            return card;
+        }
+
+        CardBenefitStatus status() {
+            return status;
+        }
+
+        BenefitReasonResponse reason() {
+            return reason;
+        }
+
+        CandidateEvaluation winner() {
+            return winner;
         }
     }
 }

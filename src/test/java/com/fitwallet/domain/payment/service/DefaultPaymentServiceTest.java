@@ -1,9 +1,6 @@
 package com.fitwallet.domain.payment.service;
 
-import com.fitwallet.domain.benefit.dto.CardBenefitStatus;
-import com.fitwallet.domain.benefit.dto.ValueType;
-import com.fitwallet.domain.benefit.dto.response.BenefitDetailResponse;
-import com.fitwallet.domain.benefit.dto.response.CardBenefitResponse;
+import com.fitwallet.domain.benefit.dto.response.PaymentBenefitResponse;
 import com.fitwallet.domain.payment.dto.*;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
 import com.fitwallet.domain.payment.dto.response.PinVerifyResponse;
@@ -395,7 +392,7 @@ class DefaultPaymentServiceTest {
         then(paymentMapper).should(never()).markSessionFailed(any());
         then(paymentMapper).should(never()).markSessionCompleted(any());
         then(paymentMapper).should(never())
-                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test
@@ -433,54 +430,118 @@ class DefaultPaymentServiceTest {
         assertThat(response.getStoreName()).isEqualTo("스타벅스 강남점");
         then(paymentMapper).should(never()).markSessionCompleted(any());
         then(paymentMapper).should(never())
-                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     //놓친혜택
     @Test
     void 실제_받은_혜택보다_더_유리한_카드가_있으면_놓친혜택을_계산한다() {
-        CardBenefitResponse usedCard = CardBenefitResponse.builder()
-                .userCardId(1L)
-                .status(CardBenefitStatus.CONDITION_NOT_MET)
-                .build();
-        CardBenefitResponse betterCard = CardBenefitResponse.builder()
-                .userCardId(5L)
-                .status(CardBenefitStatus.AVAILABLE)
-                .benefit(BenefitDetailResponse.builder().benefitServiceId(125L).build())
-                .build();
-
-        given(paymentMapper.findBenefitAmountInfo(125L)).willReturn(
-                BenefitAmountInfo.builder()
-                        .valueType(ValueType.RATE)
-                        .valueNumber(BigDecimal.valueOf(20))
-                        .perTxLimitAmount(BigDecimal.valueOf(4000))
-                        .build());
-
         MissedBenefitInfo result = paymentService.calculateMissedBenefit(
-                List.of(usedCard, betterCard), 1L, BigDecimal.valueOf(4500), BigDecimal.ZERO);
+                List.of(benefit(5L, "900", "900"),
+                        benefit(1L, "500", "500")),
+                1L, BigDecimal.valueOf(500));
 
         assertThat(result.getBetterUserCardId()).isEqualTo(5L);
         assertThat(result.getAlternativeDiscountAmount()).isEqualByComparingTo("900");
+        assertThat(result.getMissedAmount()).isEqualByComparingTo("400");
+    }
+
+    @Test
+    void 혜택을_못_받은_카드로_결제했으면_최선_대안이_그대로_놓친_금액이_된다() {
+        MissedBenefitInfo result = paymentService.calculateMissedBenefit(
+                List.of(benefit(5L, "900", "900")), 1L, BigDecimal.ZERO);
+
+        assertThat(result.getBetterUserCardId()).isEqualTo(5L);
         assertThat(result.getMissedAmount()).isEqualByComparingTo("900");
     }
 
     @Test
     void 더_유리한_카드가_없으면_놓친혜택은_전부_null이다() {
-        CardBenefitResponse usedCard = CardBenefitResponse.builder()
-                .userCardId(1L)
-                .status(CardBenefitStatus.AVAILABLE)
-                .build();
-        CardBenefitResponse worseCard = CardBenefitResponse.builder()
-                .userCardId(2L)
-                .status(CardBenefitStatus.NO_BENEFIT)
-                .build();
-
         MissedBenefitInfo result = paymentService.calculateMissedBenefit(
-                List.of(usedCard, worseCard), 1L, BigDecimal.valueOf(4500), BigDecimal.valueOf(500));
+                List.of(benefit(1L, "500", "500")), 1L, BigDecimal.valueOf(500));
 
         assertThat(result.getBetterUserCardId()).isNull();
         assertThat(result.getAlternativeDiscountAmount()).isNull();
         assertThat(result.getMissedAmount()).isNull();
+    }
+
+    @Test
+    void 네이티브가_더_커도_원화가_작으면_더_유리한_카드가_아니다() {
+        // 대안은 900P 적립이고 1포인트 0.5원이라 원화로는 450원 — 실제 받은 500원보다 못하다.
+        // 네이티브(900)로 비교하면 더 유리하다고 잘못 판정한다.
+        MissedBenefitInfo result = paymentService.calculateMissedBenefit(
+                List.of(benefit(1L, "500", "500"),
+                        benefit(5L, "450", "900")),
+                1L, BigDecimal.valueOf(500));
+
+        assertThat(result.getBetterUserCardId()).isNull();
+        assertThat(result.getMissedAmount()).isNull();
+    }
+
+    // 거래 적재 값
+
+    @Test
+    void discount_amount에는_네이티브_금액이_들어간다() {
+        // 30,000원 결제에 3,000P 적립, 1포인트 0.8원 → 2,400원
+        PaymentTransactionValues values = paymentService.buildTransactionValues(
+                List.of(benefit(1L, "2400", "3000")),
+                1L, new BigDecimal("30000"));
+
+        assertThat(values.getDiscountAmount()).isEqualByComparingTo("3000");
+    }
+
+    @Test
+    void final_amount는_네이티브가_아니라_원화를_뺀_값이다() {
+        // 포인트 개수(3,000)를 빼면 27,000원이 된다 — 실제로는 2,400원만 깎인다
+        PaymentTransactionValues values = paymentService.buildTransactionValues(
+                List.of(benefit(1L, "2400", "3000")),
+                1L, new BigDecimal("30000"));
+
+        assertThat(values.getFinalAmount()).isEqualByComparingTo("27600");
+    }
+
+    @Test
+    void 원화와_네이티브가_같으면_그대로_차감된다() {
+        PaymentTransactionValues values = paymentService.buildTransactionValues(
+                List.of(benefit(1L, "3000", "3000")),
+                1L, new BigDecimal("30000"));
+
+        assertThat(values.getDiscountAmount()).isEqualByComparingTo("3000");
+        assertThat(values.getFinalAmount()).isEqualByComparingTo("27000");
+    }
+
+    @Test
+    void 적용된_혜택의_tierId를_함께_적재한다() {
+        // 이 값이 빠지면 BenefitMapper.findUsage가 앱 결제를 한도 사용량으로 세지 못한다
+        PaymentTransactionValues values = paymentService.buildTransactionValues(
+                List.of(benefit(1L, "3000", "3000")),
+                1L, new BigDecimal("30000"));
+
+        assertThat(values.getAppliedTierId()).isEqualTo(201L);
+        assertThat(values.getAppliedBenefitServiceId()).isEqualTo(101L);
+    }
+
+    @Test
+    void 쓴_카드에_혜택이_없으면_혜택_컬럼은_비우고_결제액을_그대로_적재한다() {
+        PaymentTransactionValues values = paymentService.buildTransactionValues(
+                List.of(benefit(5L, "900", "900")),
+                1L, new BigDecimal("30000"));
+
+        assertThat(values.getAppliedBenefitServiceId()).isNull();
+        assertThat(values.getAppliedTierId()).isNull();
+        assertThat(values.getDiscountAmount()).isEqualByComparingTo("0");
+        assertThat(values.getFinalAmount()).isEqualByComparingTo("30000");
+    }
+
+    /** {@code expectedAmount}는 원화, {@code nativeAmount}는 네이티브 단위 — 둘을 일부러 다르게 준다. */
+    private PaymentBenefitResponse benefit(Long userCardId, String expectedAmount, String nativeAmount) {
+        return PaymentBenefitResponse.builder()
+                .userCardId(userCardId)
+                .benefitServiceId(100L + userCardId)
+                .tierId(200L + userCardId)
+                .expectedAmount(new BigDecimal(expectedAmount))
+                .nativeAmount(new BigDecimal(nativeAmount))
+                .build();
     }
 
     // 가맹점 QR 스캔 (MPM)
@@ -620,7 +681,7 @@ class DefaultPaymentServiceTest {
         assertThat(result.getResponse().getStoreName()).isEqualTo("스타벅스 세종대점");
         then(paymentMapper).should(never()).markSessionCompleted(any());
         then(paymentMapper).should(never())
-                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+                .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
 
     @Test

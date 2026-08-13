@@ -101,21 +101,26 @@
         WHERE payment_id = #{paymentId}
     </update>
 
-    <select id="findBenefitAmountInfo" resultType="com.fitwallet.domain.payment.dto.BenefitAmountInfo">
-        SELECT value_type, value_number, per_tx_limit_amount
-        FROM benefit_service
-        WHERE service_id = #{serviceId}
-    </select>
-
+    <!--
+        applied_tier_id를 빼면 BenefitMapper.findUsage(WHERE applied_tier_id = ?)가 이 결제를
+        집계하지 못해 앱 결제로는 한도 잔여가 영영 줄지 않는다.
+    -->
     <insert id="insertPaymentTransaction">
         INSERT INTO payment_transaction (user_card_id, store_id, payment_session_id, amount,
         discount_amount, final_amount, paid_at,
-        is_used_app, applied_benefit_service_id, better_user_card_id, alternative_discount_amount, missed_amount)
+        is_used_app, applied_benefit_service_id, applied_tier_id,
+        better_user_card_id, alternative_discount_amount, missed_amount)
         VALUES (#{userCardId}, #{storeId}, #{paymentSessionId}, #{amount},
         #{discountAmount}, #{finalAmount}, #{paidAt},
-        1, #{appliedBenefitServiceId}, #{betterUserCardId}, #{alternativeDiscountAmount}, #{missedAmount})
+        1, #{appliedBenefitServiceId}, #{appliedTierId},
+        #{betterUserCardId}, #{alternativeDiscountAmount}, #{missedAmount})
     </insert>
 
+    <!--
+        expectedBenefitAmount는 원화 필드다. discount_amount는 네이티브 단위(ACCUMULATE면 포인트
+        개수)라 그대로 내보내면 적립 건에서 포인트 개수가 원화로 화면에 나간다 — krw_per_point로 환산한다.
+        혜택 없이 끝난 결제는 applied_benefit_service_id가 NULL이라 LEFT JOIN이어야 한다.
+    -->
     <select id="findPaymentResultBySessionId" resultType="com.fitwallet.domain.payment.dto.response.PaymentResultResponse">
         SELECT ps.payment_id,
             ps.status,
@@ -123,13 +128,18 @@
             s.store_name,
             cp.card_name AS payment_method,
             pt.amount,
-            pt.discount_amount AS expected_benefit_amount,
+            CASE WHEN bs.point_currency_id IS NOT NULL
+                 THEN pt.discount_amount * pc.krw_per_point
+                 ELSE pt.discount_amount
+            END AS expected_benefit_amount,
             pt.paid_at
         FROM payment_session ps
         JOIN payment_transaction pt ON pt.payment_session_id = ps.payment_session_id
         JOIN store s ON s.store_id = pt.store_id
         JOIN user_card uc ON uc.user_card_id = pt.user_card_id
         JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+        LEFT JOIN benefit_service bs ON bs.service_id = pt.applied_benefit_service_id
+        LEFT JOIN point_currency pc ON pc.point_currency_id = bs.point_currency_id
         WHERE ps.payment_session_id = #{paymentSessionId}
     </select>
 

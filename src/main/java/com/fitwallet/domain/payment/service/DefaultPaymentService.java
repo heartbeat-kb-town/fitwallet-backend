@@ -1,9 +1,6 @@
 package com.fitwallet.domain.payment.service;
 
-import com.fitwallet.domain.benefit.dto.CardBenefitStatus;
-import com.fitwallet.domain.benefit.dto.ValueType;
-import com.fitwallet.domain.benefit.dto.response.CardBenefitResponse;
-import com.fitwallet.domain.benefit.dto.response.ExpectedBenefitResponse;
+import com.fitwallet.domain.benefit.dto.response.PaymentBenefitResponse;
 import com.fitwallet.domain.benefit.service.BenefitService;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.payment.dto.*;
@@ -20,7 +17,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
-import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.UUID;
@@ -248,77 +244,87 @@ public class DefaultPaymentService implements PaymentService {
     }
 
 
+    /**
+     * 혜택 산출은 하지 않고 <b>benefit 도메인이 판정한 결과를 읽기만 한다.</b> 예상 혜택 화면과
+     * 결제 결과 화면이 같은 계산기를 타야 같은 금액을 답한다.
+     * <p>
+     * 저장 단위가 컬럼마다 다르다 — {@code discount_amount}만 네이티브(CASHBACK=원, ACCUMULATE=포인트)이고
+     * {@code final_amount}·{@code alternative_discount_amount}·{@code missed_amount}는 원화다.
+     * 놓친 혜택 두 컬럼이 원화인 것은 행에 {@code better_user_card_id}만 있고
+     * {@code better_benefit_service_id}가 없어 읽는 쪽이 통화를 판별할 수 없기 때문이다(스키마 주석 참고).
+     */
     private PaymentResultResponse completeAndBuildResponse(Long userId, String paymentId, PaymentResultSessionInfo session) {
         Long userCardId = session.getUserCardId();
         Long storeId = session.getStoreId();
         BigDecimal amount = session.getAmount();
 
-        Long appliedBenefitServiceId = null;
-        BigDecimal discountAmount = BigDecimal.ZERO;
-
-        ExpectedBenefitResponse expected = benefitService.findExpectedBenefits(userId, String.valueOf(storeId));
-        CardBenefitResponse matched = expected.getCards().stream()
-                .filter(card -> card.getUserCardId().equals(userCardId))
-                .findFirst()
-                .orElse(null);
-
-        if (matched != null && matched.getStatus() == CardBenefitStatus.AVAILABLE) {
-            appliedBenefitServiceId = matched.getBenefit().getBenefitServiceId();
-            BenefitAmountInfo benefitInfo = paymentMapper.findBenefitAmountInfo(appliedBenefitServiceId);
-            discountAmount = calculateDiscountAmount(benefitInfo, amount);
-        }
-
-        BigDecimal finalAmount = amount.subtract(discountAmount);
-
-        MissedBenefitInfo missedBenefit = calculateMissedBenefit(expected.getCards(), userCardId, amount, discountAmount);
+        List<PaymentBenefitResponse> benefits = benefitService.findPaymentBenefits(userId, storeId, amount);
+        PaymentTransactionValues values = buildTransactionValues(benefits, userCardId, amount);
 
         paymentMapper.insertPaymentTransaction(userCardId, storeId, session.getPaymentSessionId(),
-                amount, discountAmount, finalAmount, LocalDateTime.now(), appliedBenefitServiceId,
-                missedBenefit.getBetterUserCardId(), missedBenefit.getAlternativeDiscountAmount(), missedBenefit.getMissedAmount());
+                amount, values.getDiscountAmount(), values.getFinalAmount(), LocalDateTime.now(),
+                values.getAppliedBenefitServiceId(), values.getAppliedTierId(),
+                values.getBetterUserCardId(), values.getAlternativeDiscountAmount(), values.getMissedAmount());
         paymentMapper.markSessionCompleted(paymentId);
         paymentMapper.markPinAuthUsed(userId);
 
         return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
     }
 
-    //놓친 혜택(더 유리한 카드) 계산 — 실제 쓴 카드를 제외한 나머지 중 AVAILABLE인 카드들만 비교
-    //package-private: DefaultPaymentServiceTest에서 Math.random() 분기 없이 직접 테스트하기 위함
-    MissedBenefitInfo calculateMissedBenefit(List<CardBenefitResponse> cards, Long usedUserCardId,
-                                              BigDecimal amount, BigDecimal actualDiscountAmount) {
-        Long betterUserCardId = null;
-        BigDecimal alternativeDiscountAmount = null;
+    /**
+     * 판정 결과를 {@code payment_transaction} 컬럼 값으로 옮긴다.
+     * <p>
+     * package-private: 승인 여부가 {@code Math.random()} 목업이라 {@code completeAndBuildResponse}는
+     * 결정적으로 테스트할 수 없다. 값 계산만 떼어 내 직접 검증한다.
+     */
+    PaymentTransactionValues buildTransactionValues(List<PaymentBenefitResponse> benefits,
+                                                      Long userCardId, BigDecimal amount) {
+        PaymentBenefitResponse applied = benefits.stream()
+                .filter(benefit -> benefit.getUserCardId().equals(userCardId))
+                .findFirst()
+                .orElse(null);
 
-        for (CardBenefitResponse card : cards) {
-            if (card.getUserCardId().equals(usedUserCardId) || card.getStatus() != CardBenefitStatus.AVAILABLE) {
-                continue;
-            }
+        BigDecimal receivedKrw = applied == null ? BigDecimal.ZERO : applied.getExpectedAmount();
+        MissedBenefitInfo missedBenefit = calculateMissedBenefit(benefits, userCardId, receivedKrw);
 
-            BenefitAmountInfo candidateInfo = paymentMapper.findBenefitAmountInfo(card.getBenefit().getBenefitServiceId());
-            BigDecimal candidateDiscount = calculateDiscountAmount(candidateInfo, amount);
-
-            if (alternativeDiscountAmount == null || candidateDiscount.compareTo(alternativeDiscountAmount) > 0) { //처음 바로 갱신, 두번째부터는 최댓값보다 더 크면 갱신
-                alternativeDiscountAmount = candidateDiscount;
-                betterUserCardId = card.getUserCardId();
-            }
-        }
-
-        if (alternativeDiscountAmount != null && alternativeDiscountAmount.compareTo(actualDiscountAmount) > 0) {
-            return MissedBenefitInfo.builder()
-                    .betterUserCardId(betterUserCardId)
-                    .alternativeDiscountAmount(alternativeDiscountAmount)
-                    .missedAmount(alternativeDiscountAmount.subtract(actualDiscountAmount))
-                    .build();
-        }
-
-        return MissedBenefitInfo.builder().build();
+        return PaymentTransactionValues.builder()
+                .appliedBenefitServiceId(applied == null ? null : applied.getBenefitServiceId())
+                .appliedTierId(applied == null ? null : applied.getTierId())
+                .discountAmount(applied == null ? BigDecimal.ZERO : applied.getNativeAmount())
+                // 빼는 값은 네이티브가 아니라 원화다. 그대로 빼면 적립 건에서 포인트 개수를
+                // 원화에서 빼게 된다 — 3,000P 적립에 1포인트 0.8원이면 2,400원을 빼야 한다.
+                .finalAmount(amount.subtract(receivedKrw))
+                .betterUserCardId(missedBenefit.getBetterUserCardId())
+                .alternativeDiscountAmount(missedBenefit.getAlternativeDiscountAmount())
+                .missedAmount(missedBenefit.getMissedAmount())
+                .build();
     }
 
-    private BigDecimal calculateDiscountAmount(BenefitAmountInfo info, BigDecimal amount) {
-        BigDecimal raw = info.getValueType() == ValueType.RATE
-                ? amount.multiply(info.getValueNumber()).divide(BigDecimal.valueOf(100), 0, RoundingMode.DOWN) //정률일때 amount × valueNumber ÷ 100
-                : info.getValueNumber(); //정액일때는 그대로
+    /**
+     * 놓친 혜택(더 유리한 카드). {@code benefits}는 이미 원화 기대혜택액 내림차순이므로
+     * <b>자기 카드를 뺀 첫 번째가 곧 최선 대안</b>이다 — 다시 순회해 최댓값을 구하지 않는다.
+     * <p>
+     * 비교는 원화 축에서 한다. 두 카드의 혜택 타입이 다르면 네이티브끼리는 단위가 섞인다.
+     * <p>
+     * package-private: {@code DefaultPaymentServiceTest}에서 {@code Math.random()} 분기 없이 직접 테스트하기 위함.
+     *
+     * @param receivedKrw 실제 쓴 카드로 받은 혜택(원화). 혜택이 없었으면 0
+     */
+    MissedBenefitInfo calculateMissedBenefit(List<PaymentBenefitResponse> benefits, Long usedUserCardId,
+                                              BigDecimal receivedKrw) {
+        PaymentBenefitResponse best = benefits.stream()
+                .filter(benefit -> !benefit.getUserCardId().equals(usedUserCardId))
+                .findFirst()
+                .orElse(null);
 
-        BigDecimal capped = info.getPerTxLimitAmount() != null ? raw.min(info.getPerTxLimitAmount()) : raw;
-        return capped.min(amount);
+        if (best == null || best.getExpectedAmount().compareTo(receivedKrw) <= 0) {
+            return MissedBenefitInfo.builder().build();
+        }
+
+        return MissedBenefitInfo.builder()
+                .betterUserCardId(best.getUserCardId())
+                .alternativeDiscountAmount(best.getExpectedAmount())
+                .missedAmount(best.getExpectedAmount().subtract(receivedKrw))
+                .build();
     }
 }

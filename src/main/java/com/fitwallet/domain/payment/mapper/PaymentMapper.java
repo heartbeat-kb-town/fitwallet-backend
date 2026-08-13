@@ -37,7 +37,13 @@ public interface PaymentMapper {
     void markSessionProcessing(@Param("paymentId") String paymentId, @Param("storeId") Long storeId, @Param("amount") BigDecimal amount);
     void markSessionFailed(@Param("paymentId") String paymentId);
     void markSessionCompleted(@Param("paymentId") String paymentId);
-    BenefitAmountInfo findBenefitAmountInfo(@Param("serviceId") Long serviceId);
+    /**
+     * @param discountAmount             적용 혜택의 <b>네이티브 단위</b> 혜택값(CASHBACK=원, ACCUMULATE=포인트 개수)
+     * @param appliedTierId              한도 사용량 집계 키. 넣지 않으면 {@code BenefitMapper.findUsage}가
+     *                                   이 결제를 영영 세지 못해 한도 잔여가 줄지 않는다
+     * @param alternativeDiscountAmount  최선 대안 카드의 혜택값(<b>원화</b>)
+     * @param missedAmount               놓친 금액(<b>원화</b>)
+     */
     void insertPaymentTransaction(@Param("userCardId") Long userCardId,
                                   @Param("storeId") Long storeId,
                                   @Param("paymentSessionId") Long paymentSessionId,
@@ -46,6 +52,7 @@ public interface PaymentMapper {
                                   @Param("finalAmount") BigDecimal finalAmount,
                                   @Param("paidAt") LocalDateTime paidAt,
                                   @Param("appliedBenefitServiceId") Long appliedBenefitServiceId,
+                                  @Param("appliedTierId") Long appliedTierId,
                                   @Param("betterUserCardId") Long betterUserCardId,
                                   @Param("alternativeDiscountAmount") BigDecimal alternativeDiscountAmount,
                                   @Param("missedAmount") BigDecimal missedAmount);

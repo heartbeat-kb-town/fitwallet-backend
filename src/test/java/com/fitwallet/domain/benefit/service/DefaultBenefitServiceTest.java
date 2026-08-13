@@ -14,6 +14,7 @@ import com.fitwallet.domain.benefit.dto.response.BenefitUsageResponse;
 import com.fitwallet.domain.benefit.dto.response.BenefitUserCardResponse;
 import com.fitwallet.domain.benefit.dto.response.CardBenefitResponse;
 import com.fitwallet.domain.benefit.dto.response.ExpectedBenefitResponse;
+import com.fitwallet.domain.benefit.dto.response.PaymentBenefitResponse;
 import com.fitwallet.domain.benefit.exception.BenefitErrorCode;
 import com.fitwallet.domain.benefit.mapper.BenefitMapper;
 import com.fitwallet.global.exception.BusinessException;
@@ -934,6 +935,90 @@ class DefaultBenefitServiceTest {
 
         assertThat(response.getCards()).extracting(CardBenefitResponse::getUserCardId)
                 .containsExactly(1L, 2L, 3L);
+    }
+
+    // ---------- payment 전용 판정 ----------
+
+    @Test
+    void 결제용_판정은_AVAILABLE인_카드만_기대혜택액_내림차순으로_돌려준다() {
+        givenThreeAvailableCards(new BigDecimal("1000"), new BigDecimal("500"), new BigDecimal("3000"));
+
+        List<PaymentBenefitResponse> benefits =
+                benefitService.findPaymentBenefits(USER_ID, STORE_ID_LONG, new BigDecimal("35000"));
+
+        assertThat(benefits).extracting(PaymentBenefitResponse::getUserCardId)
+                .containsExactly(3L, 1L, 2L);
+    }
+
+    @Test
+    void 결제용_판정에서_혜택이_없는_카드는_빠진다() {
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of());
+
+        List<PaymentBenefitResponse> benefits =
+                benefitService.findPaymentBenefits(USER_ID, STORE_ID_LONG, new BigDecimal("35000"));
+
+        assertThat(benefits).isEmpty();
+    }
+
+    @Test
+    void 결제용_판정은_원화와_네이티브_금액을_함께_준다() {
+        // 35,000 × 5% = 1,750 마이신한포인트, 1포인트 0.8원 → 1,400원
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate(133L, null, BenefitType.ACCUMULATE, ValueType.RATE,
+                        new BigDecimal("5"), "마이신한포인트", new BigDecimal("0.8"), true)));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        PaymentBenefitResponse benefit = benefitService
+                .findPaymentBenefits(USER_ID, STORE_ID_LONG, new BigDecimal("35000")).get(0);
+
+        assertThat(benefit.getExpectedAmount()).isEqualByComparingTo("1400");
+        assertThat(benefit.getNativeAmount()).isEqualByComparingTo("1750");
+    }
+
+    @Test
+    void 결제용_판정은_한도_집계_키인_tierId를_실어_준다() {
+        // 이 값이 payment_transaction.applied_tier_id로 들어가야 한도 잔여가 줄어든다
+        givenClippingFixture(new BigDecimal("20000"), BigDecimal.ZERO);
+
+        PaymentBenefitResponse benefit = benefitService
+                .findPaymentBenefits(USER_ID, STORE_ID_LONG, new BigDecimal("35000")).get(0);
+
+        assertThat(benefit.getTierId()).isEqualTo(21L);
+        assertThat(benefit.getBenefitServiceId()).isEqualTo(133L);
+    }
+
+    @Test
+    void 한도가_걸려있지_않으면_tierId는_null이다() {
+        givenStore(CATEGORY_ID, BRAND_ID);
+        givenOneCard();
+        givenPrevMonthSpend(PREV_MONTH_SPEND);
+        given(benefitMapper.findCandidates(CARD_PRODUCT_ID, PREV_MONTH_SPEND, BRAND_ID, CATEGORY_ID))
+                .willReturn(List.of(candidate(133L, null, BenefitType.CASHBACK, ValueType.RATE,
+                        new BigDecimal("10"), null, null, true)));
+        given(benefitMapper.findLimits(null, 133L, PREV_MONTH_SPEND)).willReturn(List.of());
+
+        PaymentBenefitResponse benefit = benefitService
+                .findPaymentBenefits(USER_ID, STORE_ID_LONG, new BigDecimal("35000")).get(0);
+
+        assertThat(benefit.getTierId()).isNull();
+    }
+
+    @Test
+    void 결제용_판정도_없는_가맹점이면_STORE_NOT_FOUND_예외를_던진다() {
+        given(benefitMapper.findStore(STORE_ID_LONG)).willReturn(null);
+
+        assertThatThrownBy(() ->
+                benefitService.findPaymentBenefits(USER_ID, STORE_ID_LONG, new BigDecimal("35000")))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(BenefitErrorCode.STORE_NOT_FOUND);
     }
 
     // ---------- 픽스처 헬퍼 ----------
