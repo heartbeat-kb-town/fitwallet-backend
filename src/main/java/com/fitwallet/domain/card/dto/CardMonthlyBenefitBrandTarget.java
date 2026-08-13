@@ -16,4 +16,7 @@ public class CardMonthlyBenefitBrandTarget {
     private Long brandId;
     private String brandName;
     private String brandImageUrl;
+    private Long categoryId;
+    private String categoryName;
+    private String categoryImageUrl;
 }

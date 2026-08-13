@@ -31,6 +31,7 @@ public class CardMonthlyBenefitRule {
     private BigDecimal krwPerPoint;
 
     private Long tierId;
+    private Long servicePlanGroupId;
     private Long limitPlanGroupId;
     private Integer tierOrder;
     private BigDecimal tierMinimumAmount;

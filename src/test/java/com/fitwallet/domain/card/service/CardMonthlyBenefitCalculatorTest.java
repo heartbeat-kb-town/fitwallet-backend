@@ -5,6 +5,8 @@ import com.fitwallet.domain.benefit.dto.BenefitType;
 import com.fitwallet.domain.benefit.dto.LimitBasis;
 import com.fitwallet.domain.benefit.dto.ValueType;
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitCategoryTarget;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitBrandTarget;
+import com.fitwallet.domain.card.dto.CardMonthlyBenefitLimitStatus;
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitPeriod;
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitRule;
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitTargetUsage;
@@ -23,6 +25,10 @@ import java.time.YearMonth;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.spy;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 
 class CardMonthlyBenefitCalculatorTest {
 
@@ -180,6 +186,109 @@ class CardMonthlyBenefitCalculatorTest {
         assertThat(response.getCategoryBenefits()).singleElement()
                 .extracting(benefit -> benefit.getValueLabel())
                 .isEqualTo("리터당 60원 할인");
+    }
+
+    @Test
+    void 공동한도는_카테고리와_브랜드를_서비스별로_묶고_기존_평면응답도_유지한다() {
+        CardMonthlyBenefitUsageCalculator trackedUsageCalculator =
+                spy(new CardMonthlyBenefitUsageCalculator());
+        CardMonthlyBenefitCalculator trackedCalculator = new CardMonthlyBenefitCalculator(
+                trackedUsageCalculator,
+                new CardMonthlyBenefitItemAssembler(
+                        trackedUsageCalculator, new CardBenefitValueLabelFormatter()));
+        CardMonthlyBenefitRule categoryRule = sharedRule(
+                101L, "기본혜택 - 카페", BenefitScopeType.INDUSTRY);
+        CardMonthlyBenefitRule brandRule = sharedRule(
+                102L, "추가혜택 - 편의점(주말)", BenefitScopeType.BRAND);
+        CardMonthlyBenefitRule brandCountRule = CardMonthlyBenefitRule.builder()
+                .serviceId(102L)
+                .servicePlanGroupId(50L)
+                .benefitName("추가혜택 - 편의점(주말)")
+                .benefitType(BenefitType.CASHBACK)
+                .valueType(ValueType.RATE)
+                .valueNumber(new BigDecimal("10"))
+                .scopeType(BenefitScopeType.BRAND)
+                .benefitMinimumAmount(BigDecimal.ZERO)
+                .tierId(202L)
+                .tierOrder(1)
+                .tierMinimumAmount(BigDecimal.ZERO)
+                .limitId(302L)
+                .limitBasis(LimitBasis.COUNT)
+                .limitValue(new BigDecimal("2"))
+                .build();
+
+        CardMonthlyBenefitResponse response = trackedCalculator.calculate(
+                card(), period(), BigDecimal.ZERO, noRequirementState(),
+                List.of(categoryRule, brandRule, brandCountRule),
+                List.of(CardMonthlyBenefitCategoryTarget.builder()
+                        .serviceId(101L).categoryId(1L).categoryName("카페/디저트").build()),
+                List.of(CardMonthlyBenefitBrandTarget.builder()
+                        .serviceId(102L).brandId(10L).brandName("테스트브랜드")
+                        .categoryId(2L).categoryName("편의점/마트").build()),
+                List.of(
+                        CardMonthlyBenefitTargetUsage.builder()
+                                .serviceId(101L).categoryId(1L).transactionCount(1L)
+                                .totalPaymentAmount(new BigDecimal("3000"))
+                                .receivedBenefitAmount(new BigDecimal("300"))
+                                .build(),
+                        CardMonthlyBenefitTargetUsage.builder()
+                                .serviceId(102L).categoryId(2L).brandId(10L).transactionCount(1L)
+                                .totalPaymentAmount(new BigDecimal("2000"))
+                                .receivedBenefitAmount(new BigDecimal("200"))
+                                .build()));
+
+        assertThat(response.getCategoryBenefits()).singleElement().satisfies(benefit -> {
+            assertThat(benefit.getLimitGroupId()).isEqualTo(50L);
+            assertThat(benefit.getMonthlyLimits()).singleElement()
+                    .extracting(limit -> limit.getLimitId())
+                    .isEqualTo(301L);
+        });
+        assertThat(response.getBrandBenefits()).singleElement().satisfies(benefit -> {
+            assertThat(benefit.getLimitGroupId()).isEqualTo(50L);
+            assertThat(benefit.getMonthlyLimits()).hasSize(2);
+        });
+        assertThat(response.getSharedLimitGroups()).singleElement().satisfies(group -> {
+            assertThat(group.getLimitGroupId()).isEqualTo(50L);
+            assertThat(group.getCategories()).extracting(category -> category.getCategoryId())
+                    .containsExactly(1L, 2L);
+            assertThat(group.getSharedMonthlyLimit().getUsedValue()).isEqualByComparingTo("500");
+            assertThat(group.getGroupLimitStatus())
+                    .isEqualTo(CardMonthlyBenefitLimitStatus.AVAILABLE);
+            assertThat(group.getUsageBreakdown()).hasSize(2);
+            assertThat(group.getBenefitServices()).hasSize(2)
+                    .anySatisfy(service -> {
+                        assertThat(service.getBenefitServiceId()).isEqualTo(101L);
+                        assertThat(service.getDisplayQualifier()).isNull();
+                    })
+                    .anySatisfy(service -> {
+                        assertThat(service.getBenefitServiceId()).isEqualTo(102L);
+                        assertThat(service.getDisplayQualifier()).isEqualTo("주말 추가혜택");
+                        assertThat(service.getServiceMonthlyLimits()).singleElement();
+                    });
+        });
+        verify(trackedUsageCalculator, times(3))
+                .calculateItemLimitResult(any(), any(), any());
+    }
+
+    private CardMonthlyBenefitRule sharedRule(
+            Long serviceId, String benefitName, BenefitScopeType scopeType) {
+        return CardMonthlyBenefitRule.builder()
+                .serviceId(serviceId)
+                .servicePlanGroupId(50L)
+                .benefitName(benefitName)
+                .benefitType(BenefitType.CASHBACK)
+                .valueType(ValueType.RATE)
+                .valueNumber(new BigDecimal("10"))
+                .scopeType(scopeType)
+                .benefitMinimumAmount(BigDecimal.ZERO)
+                .tierId(201L)
+                .limitPlanGroupId(50L)
+                .tierOrder(1)
+                .tierMinimumAmount(BigDecimal.ZERO)
+                .limitId(301L)
+                .limitBasis(LimitBasis.AMOUNT)
+                .limitValue(new BigDecimal("1000"))
+                .build();
     }
 
     private CardUsageTierState noRequirementState() {

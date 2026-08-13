@@ -41,6 +41,7 @@ class CardMonthlyBenefitServiceIntegrationTest {
         assertThat(response.getCategoryBenefits()).isEmpty();
         assertThat(response.getBrandBenefits()).hasSize(6);
         assertThat(response.getBrandBenefits()).allSatisfy(benefit -> {
+            assertThat(benefit.getLimitGroupId()).isEqualTo(10L);
             assertThat(benefit.getMonthlyLimits()).hasSize(2);
             assertThat(benefit.getItemLimitStatus())
                     .isEqualTo(CardMonthlyBenefitLimitStatus.AVAILABLE);
@@ -50,10 +51,24 @@ class CardMonthlyBenefitServiceIntegrationTest {
                 .filteredOn(benefit -> benefit.getBenefitServiceId().equals(53L))
                 .flatExtracting(benefit -> benefit.getMonthlyLimits())
                 .anySatisfy(limit -> {
+                    assertThat(limit.getLimitId()).isNotNull();
                     assertThat(limit.isShared()).isTrue();
                     assertThat(limit.getUsedValue()).isEqualByComparingTo("1000");
                     assertThat(limit.getRemainingValue()).isEqualByComparingTo("4000");
                 });
+
+        assertThat(response.getSharedLimitGroups()).singleElement().satisfies(group -> {
+            assertThat(group.getLimitGroupId()).isEqualTo(10L);
+            assertThat(group.getCategories()).isNotEmpty();
+            assertThat(group.getSharedMonthlyLimit().getLimitId()).isNotNull();
+            assertThat(group.getSharedMonthlyLimit().getUsedValue()).isEqualByComparingTo("1000");
+            assertThat(group.getUsageBreakdown()).isNotEmpty();
+            assertThat(group.getBenefitServices()).hasSize(2);
+            assertThat(group.getBenefitServices()).allSatisfy(service -> {
+                assertThat(service.getTargets()).isNotEmpty();
+                assertThat(service.getServiceMonthlyLimits()).hasSize(1);
+            });
+        });
     }
 
     @Test
@@ -76,6 +91,7 @@ class CardMonthlyBenefitServiceIntegrationTest {
                     .isEqualTo(previousMonthUsage.getCurrentTier());
             assertThat(monthlyBenefit.getCategoryBenefits()).isNotNull();
             assertThat(monthlyBenefit.getBrandBenefits()).isNotNull();
+            assertThat(monthlyBenefit.getSharedLimitGroups()).isNotNull();
         }
     }
 }

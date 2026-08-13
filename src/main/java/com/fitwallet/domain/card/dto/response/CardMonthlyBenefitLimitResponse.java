@@ -20,6 +20,8 @@ import java.math.BigDecimal;
 @Builder
 public class CardMonthlyBenefitLimitResponse {
 
+    private Long limitId;
+
     @ApiModelProperty(value = "DB 한도 기준", example = "AMOUNT")
     private LimitBasis limitBasis;
 

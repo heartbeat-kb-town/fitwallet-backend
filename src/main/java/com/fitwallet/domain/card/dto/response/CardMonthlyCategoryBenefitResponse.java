@@ -22,6 +22,9 @@ import java.util.List;
 @Builder
 public class CardMonthlyCategoryBenefitResponse {
 
+    /** 공동 한도 그룹에 속하지 않으면 null. */
+    private Long limitGroupId;
+
     @ApiModelProperty(value = "혜택 서비스 ID", example = "1")
     private Long benefitServiceId;
 
