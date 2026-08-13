@@ -479,20 +479,36 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 | `user_card_id` (FK) | 결제에 쓴 카드 | BIGINT | NO | — | → `user_card` |
 | `store_id` (FK) | 가맹점 | BIGINT | **YES** | — | → `store`. 가맹점을 특정 못한 거래는 NULL |
 | `payment_session_id` (FK) | 확정된 결제 세션 | BIGINT | **YES** | — | → `payment_session`. UNIQUE (`uk_pt_payment_session_id`). **앱을 거치지 않은 거래는 NULL** |
-| `amount` | 결제액 | DECIMAL(15,2) | NO | — | |
-| `discount_amount` | 적용된 혜택값 | DECIMAL(15,2) | NO | `0.00` | 할인 + 적립의 원화 환산 |
-| `final_amount` | 최종 결제 금액 | DECIMAL(15,2) | NO | — | = `amount` − `discount_amount` |
+| `amount` | 결제액 | DECIMAL(15,2) | NO | — | **원화** |
+| `discount_amount` | 적용된 혜택값 | DECIMAL(15,2) | NO | `0.00` | ⚠️ **네이티브 단위입니다** — `applied_benefit_service_id`의 `benefit_type`으로 해석합니다(`CASHBACK`=원, `ACCUMULATE`=포인트 **개수**). 어떤 포인트인지는 `benefit_service.point_currency_id`로 판별하고, 원화가 필요한 집계는 `point_currency.krw_per_point`를 곱합니다. 아래 인용 블록 참고 |
+| `final_amount` | 최종 결제 금액 | DECIMAL(15,2) | NO | — | **원화.** ⚠️ `amount` − `discount_amount`가 **아닙니다** — 혜택값을 원화로 환산한 뒤 뺀 값입니다 |
 | `paid_at` | 실제 승인 시각 | DATETIME | NO | — | **비즈니스 시각.** 레코드 생성 시각(`created_at`)과 분리 |
 | `is_used_app` | 앱 사용 여부 | TINYINT(1) | NO | `0` | 앱(QR)을 거친 결제인지. 앱을 거쳤으면 `payment_session_id`도 채워집니다 |
 | `is_eligible` | **전월실적 산정 대상 여부** | TINYINT(1) | NO | `1` | `0`이면 이 거래가 **전월실적 합계에서 빠집니다**(세금·공과금·상품권 등 카드사가 실적에서 제외하는 거래). ⚠️ **스키마 전체에서 기본값이 `1`인 유일한 컬럼** — 대부분의 거래는 실적에 포함되기 때문입니다 |
 | `applied_benefit_service_id` (FK) | 적용된 혜택 | BIGINT | **YES** | — | → `benefit_service`. 받은 혜택이 없으면 NULL |
 | `applied_tier_id` (FK) | 적용 혜택의 한도 구간 | BIGINT | **YES** | — | → `benefit_tier`. 한도 소진 집계 키 |
 | `better_user_card_id` (FK) | 놓친 혜택: 더 유리했던 카드 | BIGINT | **YES** | — | → `user_card`. 없으면 NULL |
-| `alternative_discount_amount` | 그 카드였다면 받았을 혜택값 | DECIMAL(15,2) | **YES** | — | |
-| `missed_amount` | 놓친 금액 | DECIMAL(15,2) | **YES** | — | = `alternative_discount_amount` − `discount_amount` |
+| `alternative_discount_amount` | 그 카드였다면 받았을 혜택값 | DECIMAL(15,2) | **YES** | — | **원화.** 짝이 되는 `better_benefit_service_id`가 없어 읽는 쪽이 통화를 판별할 방법이 없으므로 환산해서 넣습니다 |
+| `missed_amount` | 놓친 금액 | DECIMAL(15,2) | **YES** | — | **원화.** ⚠️ `alternative_discount_amount` − `discount_amount`가 **아닙니다** — `discount_amount`와 축이 달라, 두 값을 모두 원화로 환산한 뒤 뺀 결과입니다 |
 | `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |
 | `updated_at` | 수정 시각 | DATETIME | NO | CURRENT_TIMESTAMP | `ON UPDATE CURRENT_TIMESTAMP` |
 
+> ⚠️ **금액 컬럼마다 단위가 다릅니다.** `discount_amount` **하나만** 네이티브(`CASHBACK`=원, `ACCUMULATE`=포인트 개수)이고 나머지 `amount`·`final_amount`·`alternative_discount_amount`·`missed_amount`는 전부 원화입니다.
+>
+> | 컬럼 | 단위 |
+> |---|---|
+> | `amount` | 원화 |
+> | `discount_amount` | **네이티브** (원 또는 포인트 개수) |
+> | `final_amount` | 원화 |
+> | `alternative_discount_amount` | 원화 |
+> | `missed_amount` | 원화 |
+>
+> 그래서 `final_amount = amount − discount_amount`도, `missed_amount = alternative_discount_amount − discount_amount`도 **성립하지 않습니다.** 두 뺄셈 모두 혜택값을 `point_currency.krw_per_point`로 원화 환산한 뒤에 계산한 결과입니다. 네이티브를 원화 필드로 내보내는 쿼리는 반드시 `krw_per_point`를 곱해야 합니다.
+>
+> `discount_amount`만 네이티브인 이유는 `applied_benefit_service_id`가 함께 있어 통화를 판별할 수 있기 때문입니다. `alternative_discount_amount`/`missed_amount`는 `better_user_card_id`만 있고 대응하는 `benefit_service`를 가리키지 않아 판별할 수단이 없어 원화로 고정했습니다.
+>
+> **`krw_per_point`가 현재 시드에서 전부 `1.0000`이라 두 계산 방식의 결과가 우연히 같습니다** — 단위를 잘못 쓴 코드는 지금 테스트로 잡히지 않습니다. 단위를 검증하는 테스트는 반드시 `1`이 아닌 `krw_per_point`를 씁니다.
+>
 > **`payment_session_id`는 UNIQUE입니다** — 세션 1건은 거래 최대 1건으로 확정됩니다(1:1). MySQL UNIQUE는 NULL을 중복 허용하므로 앱을 거치지 않은 거래 다수와 공존합니다. 이 UNIQUE 키가 `fk_pt_session`의 인덱스를 겸해 별도 인덱스를 두지 않았습니다.
 >
 > **혜택을 별도 테이블로 빼지 않은 이유**(v18): 현행 정책상 결제:적용혜택이 "건당 최선 1개"라 1:1이고, 놓친 혜택도 "최선 대안 1개"뿐입니다. 진짜 혜택 중첩이나 다중 대안이 필요해지면 `benefit_service`에 중첩 규칙을 추가하고 적용 내역을 별도 테이블로 분리하는 세트 변경이 필요합니다.
