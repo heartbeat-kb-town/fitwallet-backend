@@ -101,6 +101,8 @@ class DefaultCardServiceTest {
                 new CardUsageTierStateCalculator();
         CardMonthlyBenefitUsageCalculator monthlyBenefitUsageCalculator =
                 new CardMonthlyBenefitUsageCalculator();
+        CardMonthlyBenefitDisplayFormatter monthlyBenefitDisplayFormatter =
+                new CardMonthlyBenefitDisplayFormatter(benefitValueLabelFormatter);
         cardService = new DefaultCardService(
                 cardMapper,
                 new CardMonthlyPeriodResolver(clock),
@@ -109,7 +111,10 @@ class DefaultCardServiceTest {
                         monthlyBenefitUsageCalculator,
                         new CardMonthlyBenefitItemAssembler(
                                 monthlyBenefitUsageCalculator,
-                                benefitValueLabelFormatter)),
+                                monthlyBenefitDisplayFormatter),
+                        new CardMonthlyBenefitSharedLimitAssembler(
+                                monthlyBenefitUsageCalculator,
+                                monthlyBenefitDisplayFormatter)),
                 new CardTransactionProcessor(),
                 new CardSummaryAssembler(),
                 new CardUsageCalculator(

@@ -44,6 +44,7 @@ public class CardMonthlyBenefitCalculator {
 
     private final CardMonthlyBenefitUsageCalculator usageCalculator;
     private final CardMonthlyBenefitItemAssembler itemAssembler;
+    private final CardMonthlyBenefitSharedLimitAssembler sharedLimitAssembler;
 
     public CardMonthlyBenefitResponse calculate(
             CardSummaryCardInfo card,
@@ -97,7 +98,7 @@ public class CardMonthlyBenefitCalculator {
                         .build())
                 .categoryBenefits(categoryBenefits)
                 .brandBenefits(brandBenefits)
-                .sharedLimitGroups(itemAssembler.createSharedLimitGroups(
+                .sharedLimitGroups(sharedLimitAssembler.createSharedLimitGroups(
                         selectedServices, categoryTargets, brandTargets,
                         usageIndex, limitUsageSnapshot))
                 .build();

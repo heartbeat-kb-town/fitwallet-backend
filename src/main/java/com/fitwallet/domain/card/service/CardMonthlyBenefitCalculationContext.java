@@ -6,9 +6,10 @@ import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.global.exception.BusinessException;
 
 import java.math.BigDecimal;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
-import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -26,6 +27,25 @@ final class CardMonthlyBenefitCalculationContext {
         SelectedService(CardMonthlyBenefitRule definition, List<CardMonthlyBenefitRule> limits) {
             this.definition = definition;
             this.limits = limits;
+        }
+
+        Long sharedLimitGroupId() {
+            Set<Long> groupIds = new LinkedHashSet<>();
+            for (CardMonthlyBenefitRule limit : limits) {
+                if (!limit.isShared()) {
+                    continue;
+                }
+                if (definition.getServicePlanGroupId() == null
+                        || !Objects.equals(definition.getServicePlanGroupId(),
+                        limit.getLimitPlanGroupId())) {
+                    throw new BusinessException(CardErrorCode.INVALID_CARD_MONTHLY_BENEFIT_DATA);
+                }
+                groupIds.add(limit.getLimitPlanGroupId());
+            }
+            if (groupIds.size() > 1) {
+                throw new BusinessException(CardErrorCode.INVALID_CARD_MONTHLY_BENEFIT_DATA);
+            }
+            return groupIds.isEmpty() ? null : groupIds.iterator().next();
         }
     }
 
