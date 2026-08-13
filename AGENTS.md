@@ -8,7 +8,7 @@
 ## 빌드 · 실행
 
 ```bash
-docker compose up -d      # 로컬 MySQL (스키마 + 시드 자동 적용)
+docker compose up -d      # 로컬 MySQL (빈 DB. 스키마·시드는 앱이 뜰 때 Flyway가 넣는다 — §11)
 ./gradlew build           # 컴파일 + 테스트 + war 패키징 — MySQL 필요
 ./gradlew appRun          # http://localhost:8080 (Gretty)
 ./gradlew test            # 테스트만 — MySQL 필요
@@ -369,7 +369,40 @@ public List<CardListResponse> findMyCards(@LoginUserId Long userId) {
 
 ---
 
-## 11. 테스트 규칙
+## 11. DB 마이그레이션
+
+스키마와 참조 데이터는 **Flyway가 앱 기동 시점에 적용한다.** 손으로 SQL을 돌리는 절차는 없다.
+
+```
+src/main/resources/db/
+├─ migration/     # 스키마 + 참조 데이터 — 모든 환경 공통
+│  ├─ V1__baseline_schema.sql        기준 스키마 (갱신하지 않는다)
+│  ├─ V2__reference_data.sql         카드사·카드·혜택·가맹점 마스터
+│  └─ V3.. V6..                      그 뒤의 변경
+└─ seed-local/    # 데모 데이터 — 로컬·CI만 (V900)
+   └─ V900__demo_data.sql            회원·보유카드·검색기록·결제내역
+```
+
+- **스키마를 바꾸려면 `db/migration/`에 `V{다음번호}__{설명}.sql`을 새로 만든다.**
+  `V1__baseline_schema.sql`을 고치지 않는다 — 이미 적용된 DB는 다시 읽지 않으므로 아무 효과가 없다
+- **마이그레이션은 멱등하게 쓴다.** 운영 RDS의 실제 상태를 완전히 알 수 없어 baseline이
+  실제보다 낮게 잡혀 있을 수 있다. 컬럼 추가는 `information_schema`를 확인한 뒤
+  `PREPARE`로 실행하고(`V5` 참고), 데이터는 조건 없는 `UPDATE`로 쓴다
+- **참조 데이터와 데모 데이터를 섞지 않는다.** 카드·혜택·가맹점 마스터는 모든 환경이 같아야 하니
+  `db/migration/`에, 회원·결제내역은 환경마다 달라야 하니 `db/seed-local/`에 둔다.
+  운영은 `flyway.locations`에 `db/seed-local`을 넣지 않는다 (§13)
+- 적용 시점은 `FlywayMigrator`이고, `sqlSessionFactory`가 `depends-on`으로 그 뒤에 뜬다.
+  **마이그레이션이 실패하면 앱이 뜨지 않는다** — 스키마가 안 맞는 코드가 서비스되지 않게 하는 장치다
+- CI에서 돌리지 않는 이유는 접근 경로다. 운영 RDS 보안그룹이 3306을 EB 보안그룹과 지정 IP에만
+  여는데 GitHub Actions 러너는 IP가 매번 바뀐다. 앱은 이미 접속 권한이 있다
+
+> ⚠️ **`docker compose up -d`는 빈 DB만 만든다.** 스키마는 앱이나 테스트를 처음 돌릴 때 선다.
+> 이 구조 이전의 볼륨을 그대로 쓰면 데모 데이터가 중복 적재돼 기동이 실패하므로,
+> `docker compose down -v && docker compose up -d`로 볼륨을 새로 만든다.
+
+---
+
+## 12. 테스트 규칙
 
 | 계층 | 도구 | DB | 의무 |
 |---|---|---|---|
@@ -387,7 +420,7 @@ public List<CardListResponse> findMyCards(@LoginUserId Long userId) {
 
 ---
 
-## 12. 환경 / 프로파일
+## 13. 환경 / 프로파일
 
 Boot가 아니라 `application-{profile}.yml` 자동 로딩이 없다. 시스템 프로퍼티 `-Denv`로 파일을 고른다.
 
@@ -406,7 +439,7 @@ src/main/resources/config/
 
 ---
 
-## 13. Git / GitHub 워크플로우
+## 14. Git / GitHub 워크플로우
 
 ### Git 컨벤션
 
@@ -504,7 +537,7 @@ AWS 액세스 키를 두지 않는다. 역할 ARN만 저장소 Variable `AWS_ROL
   재배포가 막힌다
 - 배포 후 EB 상태와 `GET /health/db`를 확인하고, 실패하면 EB 이벤트를 로그에 찍는다
 - **환경 속성은 워크플로가 건드리지 않는다.** `JWT_SECRET`·DB 접속정보·`env=prod`는
-  EB에만 있고 저장소에 없다 (§12)
+  EB에만 있고 저장소에 없다 (§13)
 - 비용 절감으로 환경을 내려둔 상태면 `Check environment is Ready`에서 실패한다.
   환경을 먼저 띄우고 Actions에서 workflow_dispatch로 재실행한다
 - 릴리스와 무관하게 배선만 확인하거나 재배포하려면 Actions 탭에서 main을 골라

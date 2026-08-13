@@ -52,18 +52,19 @@ docker compose up -d
 docker compose ps   # mysql 서비스가 healthy 상태인지 확인
 ```
 
-컨테이너를 **처음 띄울 때** `docker/mysql/init/`의 SQL이 번호순으로 자동 실행되어,
-스키마(18개 테이블)와 예시 데이터(카드사 3사·혜택·가맹점·회원·결제내역)가 함께 들어갑니다.
-테이블 구조는 [docs/erd.md](./docs/erd.md)를 참고하세요.
+이 단계에서는 **빈 데이터베이스만** 만들어집니다. 스키마(18개 테이블)와 예시 데이터
+(카드사 3사·혜택·가맹점·회원·결제내역)는 다음 단계에서 **앱이나 테스트를 처음 돌릴 때
+Flyway가** 넣습니다 (`src/main/resources/db/`). 테이블 구조는 [docs/erd.md](./docs/erd.md)를
+참고하세요.
 
-> 이 초기화 스크립트는 **데이터 볼륨이 비어 있을 때만** 실행됩니다. 스키마나 시드가
-> 바뀌었다면 `docker compose down -v && docker compose up -d`로 볼륨을 지우고 다시 띄워야
-> 반영됩니다.
+> 스키마를 바꾸려면 `src/main/resources/db/migration/`에 `V{다음번호}__{설명}.sql`을
+> 추가하면 됩니다. 다음 기동 때 자동으로 적용되므로 볼륨을 지울 필요가 없고, 운영 서버도
+> 배포와 함께 같은 파일이 적용됩니다.
 
-> ⚠️ **이미 컨테이너를 띄워 둔 상태에서 이 저장소를 pull 했다면 한 번 재생성하세요.**
-> MySQL 서버 타임존을 KST로 고정(`--default-time-zone=+09:00`)했는데, `docker-compose.yml`
-> 변경은 기존 컨테이너에 반영되지 않습니다. 그 전에 쌓인 `created_at` 등은 UTC 값이라
-> 시드(KST)와 9시간 어긋나 있으므로 볼륨까지 지우고 다시 띄우는 편이 깔끔합니다.
+> ⚠️ **이미 컨테이너를 띄워 둔 상태에서 이 저장소를 pull 했다면 볼륨까지 지우고 재생성하세요.**
+> 예전 방식(`docker/mysql/init/`)으로 이미 데이터가 들어간 볼륨에 그대로 붙으면 데모 데이터가
+> 중복 적재돼 앱 기동이 실패합니다. MySQL 서버 타임존(`--default-time-zone=+09:00`) 변경도
+> 기존 컨테이너에는 반영되지 않으므로 어차피 한 번은 재생성해야 합니다.
 >
 > ```bash
 > docker compose down -v && docker compose up -d

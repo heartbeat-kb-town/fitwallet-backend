@@ -1,4 +1,24 @@
 -- =========================================================
+-- V1 — 기준 스키마 (baseline)
+--
+-- 이 저장소의 스키마 전체를 한 파일로 담은 기준점이다. 새로 만드는 DB는 이 파일부터
+-- 순서대로 적용된다. 운영처럼 이미 데이터가 든 DB는 flyway.baseline-version 까지를
+-- "이미 적용됨"으로 간주하고 그 뒤 파일만 적용한다.
+--
+-- ⚠️ 이 파일은 갱신하지 않는다. 스키마를 바꿀 때는 V{다음번호} 파일을 새로 만든다.
+--    누적된 최신 모양의 설명은 docs/erd.md 를 본다.
+-- =========================================================
+
+CREATE TABLE IF NOT EXISTS health_check (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    message VARCHAR(100) NOT NULL,
+    checked_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO health_check (message) VALUES ('fitwallet-backend DB connection OK');
+
+
+-- =========================================================
 -- fitwallet 스키마 DDL (확정 ERD v27)
 -- MySQL 8.x / InnoDB / utf8mb4
 --

@@ -1,16 +1,7 @@
--- 신한카드(issuer_id = 1) 20종 카드 이미지 URL 채우기
+-- V3 — 신한카드(issuer_id = 1) 20종 카드 이미지 URL 채우기 (2026-08-05)
 --
--- 왜 별도 파일인가:
---   docker/mysql/init/*.sql 은 MySQL 볼륨이 비어 있을 때 단 한 번만 실행된다.
---   따라서 003-seed.sql 을 고쳐도 "이미 떠 있는" 로컬 MySQL 과 운영 RDS 에는 반영되지 않는다.
---   이 디렉터리는 컨테이너에 마운트되지 않으므로 자동 실행되지 않는다 (의도된 동작).
---
--- 적용 방법:
---   로컬  docker compose exec -T mysql \
---           mysql -uroot -p"$MYSQL_ROOT_PASSWORD" fitwallet < docker/mysql/migration/2026-08-05-shinhan-card-images.sql
---   운영  mysql -h {RDS_ENDPOINT} -u {USER} -p fitwallet < docker/mysql/migration/2026-08-05-shinhan-card-images.sql
---
--- 볼륨을 새로 만드는 경우(docker compose down -v)에는 003-seed.sql 이 같은 값을 넣으므로 실행할 필요가 없다.
+-- 새로 만드는 DB에서는 V2(참조 데이터)가 이미 같은 값을 넣으므로 아무 행도 바뀌지 않는다.
+-- 이 파일이 실제로 일하는 곳은 V2 이전 상태로 굳어 있는 DB(운영 RDS)다.
 --
 -- 이미지 출처: 신한카드 공식 CDN. 카드 상세 페이지의 og:image 메타에 실린 플레이트 코드를 그대로 쓴다.
 --   규격은 420x264 가 기본이며 아래 3건은 예외다.

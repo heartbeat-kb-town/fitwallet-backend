@@ -47,6 +47,11 @@ dependencies {
     runtimeOnly 'com.mysql:mysql-connector-j:8.4.0'
     implementation 'com.zaxxer:HikariCP:5.1.0'
 
+    // DB 마이그레이션 (앱 기동 시 src/main/resources/db/migration 적용)
+    // flyway-core는 DB별 지원을 모듈로 분리했으므로 flyway-mysql이 함께 있어야 MySQL을 인식한다.
+    implementation 'org.flywaydb:flyway-core:13.2.0'
+    runtimeOnly 'org.flywaydb:flyway-mysql:13.2.0'
+
     // Servlet / JSON
     providedCompile 'javax.servlet:javax.servlet-api:4.0.1'
     implementation 'com.fasterxml.jackson.core:jackson-databind:2.17.2'
