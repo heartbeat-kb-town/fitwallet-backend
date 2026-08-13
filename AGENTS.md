@@ -379,8 +379,9 @@ src/main/resources/db/
 │  ├─ V1__baseline_schema.sql        기준 스키마 (갱신하지 않는다)
 │  ├─ V2__reference_data.sql         카드사·카드·혜택·가맹점 마스터
 │  └─ V3.. V6..                      그 뒤의 변경
-└─ seed-local/    # 데모 데이터 — 로컬·CI만 (V900)
-   └─ V900__demo_data.sql            회원·보유카드·검색기록·결제내역
+└─ seed-local/    # 데모 데이터 — 로컬·CI만 (V900번대)
+   ├─ V900__demo_data.sql            회원·보유카드·검색기록·결제내역
+   └─ V901__benefit_demo_data.sql    혜택 추천 시연용 보유카드·결제내역 (NOW() 기준 상대 날짜)
 ```
 
 - **스키마를 바꾸려면 `db/migration/`에 `V{다음번호}__{설명}.sql`을 새로 만든다.**
@@ -413,7 +414,8 @@ src/main/resources/db/
 - 테스트 DB는 **docker compose MySQL과 시드 데이터를 그대로 쓴다.** 별도 스키마나 Testcontainers를 두지 않는다
 - 격리는 클래스 레벨 `@Transactional` 자동 롤백으로 처리한다. 데이터를 바꾸는 테스트를 써도 된다
 - 단언은 **AssertJ `assertThat`으로 통일**한다. JUnit `Assertions.*`를 쓰지 않는다
-- 시드 데모 페르소나는 `user_id = 1` (카드 5건, 거래 355건)
+- 시드 데모 페르소나는 `user_id = 1` (카드 9건, 거래 391건) — V900이 카드 5건·거래 355건,
+  V901이 혜택 추천 시연용으로 카드 4건·거래 36건을 더한다
 
 > ⚠️ **한 테스트 안에서 "조회 → 변경 → 다시 같은 조회"를 하지 않는다.** 변경 전 상태와
 > 변경 후 상태는 **테스트를 나눠서** 검증한다(운영 코드도 마찬가지다).

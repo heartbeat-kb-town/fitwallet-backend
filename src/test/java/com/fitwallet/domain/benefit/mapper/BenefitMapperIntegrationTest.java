@@ -72,7 +72,7 @@ class BenefitMapperIntegrationTest {
     void 사용자의_카드를_표시순서대로_조회한다() {
         List<BenefitUserCardResponse> cards = benefitMapper.findUserCards(SEED_USER_ID);
 
-        assertThat(cards).hasSize(5)
+        assertThat(cards).hasSize(9)
                 .isSortedAccordingTo(Comparator.comparing(BenefitUserCardResponse::getDisplayOrder));
     }
 
@@ -80,7 +80,7 @@ class BenefitMapperIntegrationTest {
     void 소프트_삭제된_카드는_목록에서_제외된다() {
         jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
 
-        assertThat(benefitMapper.findUserCards(SEED_USER_ID)).hasSize(4)
+        assertThat(benefitMapper.findUserCards(SEED_USER_ID)).hasSize(8)
                 .extracting(BenefitUserCardResponse::getUserCardId)
                 .doesNotContain(1L);
     }
@@ -224,11 +224,14 @@ class BenefitMapperIntegrationTest {
         assertThat(usage.getUsedAmount()).isEqualByComparingTo("3500.00");
     }
 
+    // 3건은 V900의 7월 거래 2건 + V901이 "오늘"로 넣는 컴포즈커피 1건이다.
+    // V901의 행은 NOW() 기준이라 날짜가 고정돼 있지 않지만, 언제 적재해도 이 기간
+    // 시작(2026-07-01)보다는 뒤이므로 집계에서 빠지지 않는다.
     @Test
     void COUNT_기준_소진량을_집계한다() {
         BenefitUsageResponse usage =
                 benefitMapper.findUsage(3L, 69L, LocalDateTime.of(2026, 7, 1, 0, 0));
 
-        assertThat(usage.getUsedCount()).isEqualTo(2L);
+        assertThat(usage.getUsedCount()).isEqualTo(3L);
     }
 }
