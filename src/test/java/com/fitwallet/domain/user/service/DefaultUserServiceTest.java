@@ -1,6 +1,7 @@
 package com.fitwallet.domain.user.service;
 
 import com.fitwallet.domain.user.dto.request.LocationAgreeRequest;
+import com.fitwallet.domain.user.dto.request.PaymentPinVerifyRequest;
 import com.fitwallet.domain.user.dto.request.PinRegisterRequest;
 import com.fitwallet.domain.user.dto.request.PinUpdateRequest;
 import com.fitwallet.domain.user.dto.request.SignUpRequest;
@@ -324,6 +325,30 @@ class DefaultUserServiceTest {
     }
 
     @Test
+    void 현재_PIN_확인시_저장된_해시와_일치하면_예외없이_통과한다() {
+        PaymentPinVerifyRequest request = paymentPinVerifyRequest("111111");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("111111", "stored-hash")).willReturn(true);
+
+        userService.verifyPaymentPin(1L, request);
+
+        then(userMapper).should(never())
+                .updatePaymentPin(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any());
+    }
+
+    @Test
+    void 현재_PIN_확인시_저장된_해시와_다르면_INVALID_CURRENT_PAYMENT_PIN_예외를_던진다() {
+        PaymentPinVerifyRequest request = paymentPinVerifyRequest("999999");
+        given(userMapper.findPaymentPinHash(1L)).willReturn("stored-hash");
+        given(passwordEncoder.matches("999999", "stored-hash")).willReturn(false);
+
+        assertThatThrownBy(() -> userService.verifyPaymentPin(1L, request))
+                .isInstanceOf(BusinessException.class)
+                .extracting(e -> ((BusinessException) e).getErrorCode())
+                .isEqualTo(UserErrorCode.INVALID_CURRENT_PAYMENT_PIN);
+    }
+
+    @Test
     void 마이페이지_조회는_매퍼_결과를_그대로_반환한다() {
         UserInfoResponse userInfo = UserInfoResponse.builder().name("김국민").build();
         given(userMapper.findUserInfo(1L)).willReturn(userInfo);
@@ -349,6 +374,14 @@ class DefaultUserServiceTest {
         ReflectionTestUtils.setField(request, "currentPin", currentPin);
         ReflectionTestUtils.setField(request, "newPin", newPin);
         ReflectionTestUtils.setField(request, "newPinConfirm", newPinConfirm);
+
+        return request;
+    }
+
+    private PaymentPinVerifyRequest paymentPinVerifyRequest(String currentPin) {
+        PaymentPinVerifyRequest request = new PaymentPinVerifyRequest();
+
+        ReflectionTestUtils.setField(request, "currentPin", currentPin);
 
         return request;
     }

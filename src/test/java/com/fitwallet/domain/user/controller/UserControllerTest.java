@@ -253,6 +253,29 @@ class UserControllerTest {
     }
 
     @Test
+    void 결제_PIN_확인은_LoginUserId를_서비스에_전달하고_200과_CURRENT_PAYMENT_PIN_VERIFIED를_반환한다() throws Exception {
+        MockMvc mockMvc = MockMvcBuilders
+                .standaloneSetup(new UserController(userService, refreshTokenCookieProvider))
+                .setCustomArgumentResolvers(new LoginUserIdArgumentResolver())
+                .addInterceptors(new AuthInterceptor(jwtProvider))
+                .setControllerAdvice(new GlobalExceptionHandler())
+                .build();
+
+        given(jwtProvider.getUserIdFromAccessToken("access-token")).willReturn(1L);
+
+        mockMvc.perform(post("/api/user/payment-pin/verify")
+                        .header("Authorization", "Bearer access-token")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"currentPin\":\"111111\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.success").value(true))
+                .andExpect(jsonPath("$.code").value("CURRENT_PAYMENT_PIN_VERIFIED"))
+                .andExpect(jsonPath("$.message").value("현재 결제 비밀번호를 확인했습니다."));
+
+        then(userService).should().verifyPaymentPin(eq(1L), ArgumentMatchers.any());
+    }
+
+    @Test
     void 마이페이지_조회는_LoginUserId를_서비스에_전달하고_200과_이름을_반환한다() throws Exception {
         MockMvc mockMvc = MockMvcBuilders
                 .standaloneSetup(new UserController(userService, refreshTokenCookieProvider))

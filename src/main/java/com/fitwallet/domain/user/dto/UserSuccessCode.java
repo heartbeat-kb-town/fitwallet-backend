@@ -17,6 +17,7 @@ public enum UserSuccessCode implements SuccessCode {
     LOCATION_AGREEMENT_UPDATED(HttpStatus.OK, "위치 정보 이용 동의 상태를 변경했습니다."),
     LOGOUT_SUCCESS(HttpStatus.OK, "로그아웃되었습니다."),
     PAYMENT_PIN_UPDATED(HttpStatus.OK, "결제 비밀번호를 변경했습니다."),
+    CURRENT_PAYMENT_PIN_VERIFIED(HttpStatus.OK, "현재 결제 비밀번호를 확인했습니다."),
     USER_INFO_RETRIEVED(HttpStatus.OK, "사용자 정보를 조회했습니다.");
 
     private final HttpStatus status;
