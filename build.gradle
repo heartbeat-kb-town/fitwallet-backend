@@ -118,7 +118,15 @@ gretty {
     contextPath = '/'
     servletContainer = 'tomcat9'
     httpPort = 8080
-    jvmArgs = ['-Denv=local', timezoneJvmArg] + dotenvJvmArgs
+    // 프로파일을 하드코딩하지 않는다. test 태스크(위)와 같은 규칙이다 —
+    // -Denv 미지정이면 local이라 팀원의 기존 동작은 그대로다.
+    //
+    // 'local'로 굳어 있으면 `./gradlew appRun -Denv=perf`가 조용히 무시되고 개발 DB(3307)에
+    // 붙어 seed-local까지 적용한다. 성능 DB를 세팅한다고 믿으면서 개발 DB를 건드리게 된다.
+    //
+    // ⚠️ dotenvJvmArgs가 .env 전체(MYSQL_PORT 등)를 뒤에 붙이므로, perf 프로파일은
+    // 접속 정보를 PERF_DB_* 라는 다른 이름으로 받는다 (application-perf.properties 참고).
+    jvmArgs = ["-Denv=${System.getProperty('env', 'local')}".toString(), timezoneJvmArg] + dotenvJvmArgs
 
     // openapiDump를 Gretty의 통합테스트 훅에 태운다. Gretty가 이 태스크 앞뒤로
     // appBeforeIntegrationTest(서버 기동) / appAfterIntegrationTest(종료)를 자동으로 끼워준다.

@@ -57,7 +57,7 @@ docs/openapi.json
 #
 # 정상 위치는 저장소 밖이다. 기본 ~/fitwallet-perf-data, PERF_DATA_DIR로 덮어쓴다.
 #   raw/  공공데이터 상가정보 원본 (data.go.kr, 로그인 필요해 사람이 받는다)
-#   out/  생성 CSV (store 110만 / payment_transaction 540만 등)
+#   out/  생성 TSV (store 272만 / payment_transaction 540만 등, 약 4GB)
 #
 # 저장소 밖에 두는 이유는 유출 방지가 아니라 파일 보존이다. 저장소 안에 두면
 # `git clean -xfd`가 ignore된 파일까지 지워 원본을 다시 내려받아야 한다.
@@ -66,3 +66,8 @@ data/
 out/
 *.csv
 !src/**/*.csv
+*.tsv
+
+# 적재 스크립트가 만드는 바이트코드 캐시 (scripts/perf-data/)
+__pycache__/
+*.pyc
