@@ -34,10 +34,12 @@ class CardMonthlyBenefitCalculatorTest {
 
     private final CardMonthlyBenefitUsageCalculator usageCalculator =
             new CardMonthlyBenefitUsageCalculator();
+    private final CardMonthlyBenefitDisplayFormatter displayFormatter =
+            new CardMonthlyBenefitDisplayFormatter(new CardBenefitValueLabelFormatter());
     private final CardMonthlyBenefitCalculator calculator = new CardMonthlyBenefitCalculator(
             usageCalculator,
-            new CardMonthlyBenefitItemAssembler(
-                    usageCalculator, new CardBenefitValueLabelFormatter()));
+            new CardMonthlyBenefitItemAssembler(usageCalculator, displayFormatter),
+            new CardMonthlyBenefitSharedLimitAssembler(usageCalculator, displayFormatter));
 
     @Test
     void 포인트는_하단에서_포인트로_표시하고_상단에서_원화로_환산한다() {
@@ -192,10 +194,14 @@ class CardMonthlyBenefitCalculatorTest {
     void 공동한도는_카테고리와_브랜드를_서비스별로_묶고_기존_평면응답도_유지한다() {
         CardMonthlyBenefitUsageCalculator trackedUsageCalculator =
                 spy(new CardMonthlyBenefitUsageCalculator());
+        CardMonthlyBenefitDisplayFormatter trackedDisplayFormatter =
+                new CardMonthlyBenefitDisplayFormatter(new CardBenefitValueLabelFormatter());
         CardMonthlyBenefitCalculator trackedCalculator = new CardMonthlyBenefitCalculator(
                 trackedUsageCalculator,
                 new CardMonthlyBenefitItemAssembler(
-                        trackedUsageCalculator, new CardBenefitValueLabelFormatter()));
+                        trackedUsageCalculator, trackedDisplayFormatter),
+                new CardMonthlyBenefitSharedLimitAssembler(
+                        trackedUsageCalculator, trackedDisplayFormatter));
         CardMonthlyBenefitRule categoryRule = sharedRule(
                 101L, "기본혜택 - 카페", BenefitScopeType.INDUSTRY);
         CardMonthlyBenefitRule brandRule = sharedRule(
