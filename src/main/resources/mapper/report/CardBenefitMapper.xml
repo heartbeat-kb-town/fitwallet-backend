@@ -22,6 +22,7 @@
         LEFT JOIN payment_transaction pt
         ON pt.user_card_id = uc.user_card_id
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
+        AND pt.transaction_status = 'APPROVED'
         LEFT JOIN benefit_service bs ON pt.applied_benefit_service_id = bs.service_id
         WHERE uc.user_card_id = #{userCardId}
         AND uc.user_id = #{userId}
@@ -50,6 +51,7 @@
         LEFT JOIN brand br ON s.brand_id = br.brand_id
         WHERE pt.user_card_id = #{userCardId}
         AND uc.user_id = #{userId}
+        AND pt.transaction_status = 'APPROVED'
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
         ORDER BY c.category_id, pt.paid_at DESC
     </select>

@@ -1,5 +1,6 @@
 package com.fitwallet.domain.card.dto.response;
 
+import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import lombok.AllArgsConstructor;
@@ -44,6 +45,9 @@ public class CardTransactionItemResponse {
 
     @ApiModelProperty(value = "결제 일시(Asia/Seoul, ISO-8601)", example = "2026-07-21T21:16:30")
     private LocalDateTime paidAt;
+
+    @ApiModelProperty(value = "거래 상태", example = "CANCELED")
+    private CardTransactionStatus transactionStatus;
 
     @ApiModelProperty(value = "카드 실적 인정 여부. false일 때만 실적 미인정 배지를 표시한다", example = "true")
     private Boolean performanceIncluded;

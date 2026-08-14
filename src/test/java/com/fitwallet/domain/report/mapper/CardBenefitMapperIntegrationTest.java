@@ -4,9 +4,11 @@ import com.fitwallet.domain.report.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.report.dto.response.CategoryTransactionRawResponse;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.sql.DataSource;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -17,6 +19,9 @@ class CardBenefitMapperIntegrationTest {
 
     @Autowired
     private CardBenefitMapper cardBenefitMapper;
+
+    @Autowired
+    private DataSource dataSource;
 
     @Test
     void 시드_유저_소유의_카드_요약을_조회한다() {
@@ -71,5 +76,25 @@ class CardBenefitMapperIntegrationTest {
         assertThat(result.getTotalDiscount()).isNotNull();
         assertThat(result.getTotalPoint()).isNotNull();
         assertThat(result.getTotalSpend()).isNotNull();
+    }
+
+    @Test
+    void 취소거래는_카드별_혜택요약과_상세에서_제외한다() {
+        new JdbcTemplate(dataSource).update("""
+                INSERT INTO payment_transaction
+                    (user_card_id, store_id, amount, discount_amount, final_amount, paid_at,
+                     applied_benefit_service_id, transaction_status)
+                VALUES (1, 1, 10000, 1000, 9000, '2099-01-15 10:00:00', 1, 'CANCELED')
+                """);
+
+        CardSummaryResponse summary = cardBenefitMapper.getCardSummary(1L, 1L, "2099-01");
+        List<CategoryTransactionRawResponse> transactions =
+                cardBenefitMapper.getCategoryTransactions(1L, 1L, "2099-01");
+
+        assertThat(summary).isNotNull();
+        assertThat(summary.getTotalDiscount()).isZero();
+        assertThat(summary.getTotalPoint()).isZero();
+        assertThat(summary.getTotalSpend()).isZero();
+        assertThat(transactions).isEmpty();
     }
 }

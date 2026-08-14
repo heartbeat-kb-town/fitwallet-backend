@@ -206,8 +206,17 @@ public class DefaultCardService implements CardService {
                 request.getYearMonth(), card.getCardType());
         CardTransactionProcessor.PreparedTransactionQuery query =
                 cardTransactionProcessor.prepareQuery(cardId, request, period);
-        BigDecimal totalAmount = cardMapper.sumTransactionAmount(
-                userId, cardId, query.getSummaryCondition());
+        BigDecimal totalAmount;
+        if (card.getCardType() == CardType.CREDIT) {
+            totalAmount = card.getScheduledPaymentAmount();
+            if (totalAmount == null) {
+                throw new IllegalStateException(
+                        "신용카드 결제예정금액 조회 결과가 없습니다. cardId=" + cardId);
+            }
+        } else {
+            totalAmount = cardMapper.sumTransactionAmount(
+                    userId, cardId, query.getSummaryCondition());
+        }
         List<CardTransactionItemResponse> transactions = cardMapper.findTransactions(
                 userId, cardId, query.getPageCondition());
         return cardTransactionProcessor.createResponse(card, query, totalAmount, transactions);

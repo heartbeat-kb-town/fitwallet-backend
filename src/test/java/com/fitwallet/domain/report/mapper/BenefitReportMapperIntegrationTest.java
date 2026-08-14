@@ -44,6 +44,23 @@ class BenefitReportMapperIntegrationTest {
         assertThat(result.size()).isLessThanOrEqualTo(5);
     }
 
+    @Test
+    void 취소거래는_받은혜택_놓친혜택_카테고리_지출에서_모두_제외한다() {
+        jdbcTemplate().update("""
+                INSERT INTO payment_transaction
+                    (user_card_id, store_id, amount, discount_amount, final_amount, paid_at,
+                     is_used_app, applied_benefit_service_id, better_user_card_id,
+                     alternative_discount_amount, missed_amount, transaction_status)
+                VALUES (1, 1, 10000, 1000, 9000, '2099-01-15 10:00:00',
+                        0, 1, 2, 1500, 500, 'CANCELED')
+                """);
+
+        assertThat(benefitReportMapper.getTotalReceivedBenefit(1L, "2099-01")).isZero();
+        assertThat(benefitReportMapper.getTotalMissedBenefit(1L, "2099-01")).isZero();
+        assertThat(benefitReportMapper.getCategoryBenefits(1L, "2099-01")).isEmpty();
+        assertThat(benefitReportMapper.getTopSpendingCategories(1L, "2099-01", 5)).isEmpty();
+    }
+
     /**
      * 시드 데이터의 point_currency는 전부 krw_per_point = 1.0000이라
      * "환산이 실제로 곱해지는지"를 숫자로 구분할 수 없다.

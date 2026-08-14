@@ -37,6 +37,7 @@
             #{userCardId}
         </foreach>
         AND is_eligible = 1
+        AND transaction_status = 'APPROVED'
         AND paid_at &gt;= DATE_FORMAT(NOW() - INTERVAL 1 MONTH, '%Y-%m-01')
         AND paid_at &lt; DATE_FORMAT(NOW(), '%Y-%m-01')
         GROUP BY user_card_id
@@ -101,6 +102,7 @@
         FROM payment_transaction
         WHERE user_card_id = #{userCardId}
           AND applied_tier_id = #{tierId}
+          AND transaction_status = 'APPROVED'
           AND paid_at &gt;= #{periodStart}
     </select>
 

@@ -1,6 +1,7 @@
 package com.fitwallet.domain.card.controller;
 
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
+import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import com.fitwallet.domain.card.dto.CardListSortType;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
@@ -25,7 +26,9 @@ import com.fitwallet.domain.card.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryTierResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryUsageResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
+import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
 import com.fitwallet.domain.card.dto.response.CardTransactionSummaryResponse;
+import com.fitwallet.domain.card.dto.response.CardSummaryTransactionResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
 import com.fitwallet.domain.card.exception.CardErrorCode;
 import com.fitwallet.domain.card.service.CardService;
@@ -50,6 +53,7 @@ import org.springframework.http.converter.json.MappingJackson2HttpMessageConvert
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -103,7 +107,11 @@ class CardControllerTest {
                         .value("카드별 결제 내역 조회에 성공했습니다."))
                 .andExpect(jsonPath("$.data.yearMonth").value("2026-07"))
                 .andExpect(jsonPath("$.data.paymentSummary.summaryType")
-                        .value("MONTHLY_PAYMENT_AMOUNT"));
+                        .value("SCHEDULED_PAYMENT"))
+                .andExpect(jsonPath("$.data.transactions.content[0].transactionStatus")
+                        .value("CANCELED"))
+                .andExpect(jsonPath("$.data.transactions.content[0].performanceIncluded")
+                        .value(false));
     }
 
     @Test
@@ -193,6 +201,8 @@ class CardControllerTest {
                 .andExpect(jsonPath("$.data.amountSummary.creditUsageAmount").value(1240000))
                 .andExpect(jsonPath("$.data.amountSummary.asOfDate").value("2026-08-04"))
                 .andExpect(jsonPath("$.data.recentTransactions").isArray())
+                .andExpect(jsonPath("$.data.recentTransactions[0].transactionStatus")
+                        .value("CANCELED"))
                 .andExpect(jsonPath("$.data.usageSummary.tierType").value("MULTIPLE_TIERS"))
                 .andExpect(jsonPath("$.data.usageSummary.currentTier.tierName").value("1구간"));
     }
@@ -428,12 +438,19 @@ class CardControllerTest {
                 .yearMonth("2026-07")
                 .availableYearMonths(List.of("2026-07", "2026-06", "2026-05"))
                 .paymentSummary(CardTransactionSummaryResponse.builder()
-                        .summaryType(CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT)
+                        .summaryType(CardTransactionSummaryType.SCHEDULED_PAYMENT)
                         .amount(new BigDecimal("89800.00"))
                         .build())
                 .transactions(CardTransactionCursorResponse.builder()
-                        .content(List.of())
-                        .size(0)
+                        .content(List.of(CardTransactionItemResponse.builder()
+                                .transactionId(348L)
+                                .storeName("본죽 역삼점")
+                                .paymentAmount(new BigDecimal("24900.00"))
+                                .paidAt(LocalDateTime.of(2026, 7, 21, 21, 16, 30))
+                                .transactionStatus(CardTransactionStatus.CANCELED)
+                                .performanceIncluded(false)
+                                .build()))
+                        .size(1)
                         .hasNext(false)
                         .nextCursor(null)
                         .build())
@@ -453,7 +470,13 @@ class CardControllerTest {
                         .creditUsageAmount(new BigDecimal("1240000.00"))
                         .asOfDate(LocalDate.of(2026, 8, 4))
                         .build())
-                .recentTransactions(List.of())
+                .recentTransactions(List.of(CardSummaryTransactionResponse.builder()
+                        .transactionId(348L)
+                        .storeName("본죽 역삼점")
+                        .paymentAmount(new BigDecimal("24900.00"))
+                        .paidAt(LocalDateTime.of(2026, 7, 21, 21, 16, 30))
+                        .transactionStatus(CardTransactionStatus.CANCELED)
+                        .build()))
                 .usageSummary(CardSummaryUsageResponse.builder()
                         .yearMonth("2026-08")
                         .tierType(CardUsageTierType.MULTIPLE_TIERS)

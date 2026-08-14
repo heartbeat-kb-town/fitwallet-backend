@@ -3,6 +3,7 @@ package com.fitwallet.domain.card.service;
 import com.fitwallet.domain.card.dto.CardMonthlyPeriod;
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionSummaryType;
+import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardTransactionCardResponse;
@@ -66,7 +67,9 @@ public class CardTransactionProcessor {
                 .yearMonth(query.period.getYearMonth().toString())
                 .availableYearMonths(query.period.getAvailableYearMonths())
                 .paymentSummary(CardTransactionSummaryResponse.builder()
-                        .summaryType(CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT)
+                        .summaryType(card.getCardType() == CardType.CREDIT
+                                ? CardTransactionSummaryType.SCHEDULED_PAYMENT
+                                : CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT)
                         .amount(totalAmount)
                         .build())
                 .transactions(createCursorResponse(

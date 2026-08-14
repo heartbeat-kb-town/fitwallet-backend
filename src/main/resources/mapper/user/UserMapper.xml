@@ -71,6 +71,7 @@
                  JOIN category c ON c.category_id = s.category_id
         WHERE uc.user_id = #{userId}
           AND uc.is_deleted = 0
+          AND pt.transaction_status = 'APPROVED'
           AND pt.paid_at >= (NOW() - INTERVAL 1 MONTH)
         GROUP BY s.store_id, s.store_name, s.address, c.category_name
         ORDER BY COUNT(*) DESC, MAX(pt.paid_at) DESC
