@@ -2,10 +2,11 @@
 #
 # 생성된 TSV를 성능 DB에 적재한다.
 #
-#   scripts/perf-data/load.sh
+#   scripts/perf-data/load.sh              처음 적재할 때
+#   scripts/perf-data/load.sh --reset      이미 들어 있는 적재분을 비우고 다시 넣을 때
 #
 # 전제 — docker compose -f docker-compose.perf.yml up -d 로 DB가 떠 있고,
-#        ./gradlew appRun -Denv=perf 로 스키마(V1~V9)가 적용돼 있어야 한다.
+#        ./gradlew appStart -Denv=perf 로 스키마(V1~V10)가 적용돼 있어야 한다.
 #
 # 이 데이터는 Flyway 밖이라 flyway_schema_history에 기록되지 않는다.
 set -euo pipefail
@@ -28,6 +29,28 @@ if [[ "$DB_PORT" == "3306" || "$DB_PORT" == "3307" ]]; then
     echo "중단: PERF_DB_PORT=$DB_PORT 는 개발 DB에서 흔히 쓰는 포트다." >&2
     echo "      성능 DB는 3308이다. 정말 이 포트에 넣으려면 PERF_ALLOW_DEV_PORT=1 을 준다." >&2
     [[ "${PERF_ALLOW_DEV_PORT:-0}" == "1" ]] || exit 1
+fi
+
+if [[ "${1:-}" == "--reset" ]]; then
+    # 두 번 적재하면 PK 중복으로 실패한다. 다시 넣기 전에 비운다.
+    #
+    # FOREIGN_KEY_CHECKS를 꺼야 한다. payment_session이 user_card를 FK 참조하고 있어
+    # 참조 행이 0건이어도 TRUNCATE가 제약 자체로 거부된다
+    # (ERROR 1701: Cannot truncate a table referenced in a foreign key constraint).
+    #
+    # store는 TRUNCATE하지 않는다 — V2 참조데이터 244행은 Flyway가 넣은 것이라 남겨야 한다.
+    echo "초기화: 적재분을 비운다 (store는 245번부터만)"
+    MYSQL_PWD="$DB_PASSWORD" mysql \
+        --default-character-set=utf8mb4 \
+        --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" "$DB_NAME" --execute="
+        SET FOREIGN_KEY_CHECKS = 0;
+        TRUNCATE TABLE payment_transaction;
+        TRUNCATE TABLE search_history;
+        TRUNCATE TABLE user_card;
+        TRUNCATE TABLE users;
+        SET FOREIGN_KEY_CHECKS = 1;
+        DELETE FROM store WHERE store_id > 244;"
+    echo
 fi
 
 for table in "${TABLES[@]}"; do

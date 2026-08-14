@@ -75,6 +75,14 @@ SELECT SUM(applied_benefit_service_id IS NOT NULL) AS 혜택적용,
           'OK', 'CHECK') AS 판정
 FROM payment_transaction;
 
+SELECT '=== 7-1. transaction_status는 전부 APPROVED여야 한다 (V10) ===' AS ``;
+
+-- 현재 집계 SQL이 transaction_status를 거르지 않으므로 CANCELED가 섞이면 리포트 합계가 틀어진다.
+-- 집계 SQL이 상태를 거르게 되는 후속 작업에서 이 단언을 함께 고친다 (이슈 #226).
+SELECT transaction_status AS 상태, COUNT(*) AS 행수,
+       IF(transaction_status = 'APPROVED', 'OK', 'CHECK — 집계 SQL이 이 상태를 거르는지 확인') AS 판정
+FROM payment_transaction GROUP BY transaction_status;
+
 SELECT '=== 8. 정합성: 적용된 혜택이 그 카드의 상품에 실제로 있는가 ===' AS ``;
 
 -- 이 값이 0이 아니면 무작위로 채운 것이다. GROUP BY 카디널리티와 인덱스 선택도가

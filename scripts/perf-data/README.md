@@ -49,12 +49,19 @@ MYSQL_PWD=fitwallet1234 mysql --default-character-set=utf8mb4 \
 
 ### 되돌리기
 
+두 번 적재하면 PK 중복으로 실패한다. 다시 넣으려면 `--reset`을 준다.
+
 ```bash
+scripts/perf-data/load.sh --reset                    # 적재분만 비우고 다시 넣는다
 docker compose -f docker-compose.perf.yml down -v    # 볼륨까지 지우고 처음부터
 ```
 
-두 번 적재하면 PK 중복으로 실패한다. 데이터만 비우려면 `payment_transaction` → `search_history`
-→ `user_card` → `users` 순으로 `TRUNCATE`하고 `store`는 `DELETE FROM store WHERE store_id > 244`.
+`--reset`은 `store`를 `TRUNCATE`하지 않는다 — V2 참조데이터 244행은 Flyway가 넣은 것이라
+`DELETE FROM store WHERE store_id > 244`로 적재분만 지운다.
+
+> ⚠️ 손으로 `TRUNCATE`하면 `user_card`에서 막힌다. `payment_session`이 `user_card`를 FK 참조하고
+> 있어 **참조 행이 0건이어도 제약 자체로 거부된다**(`ERROR 1701`). `--reset`은
+> `FOREIGN_KEY_CHECKS`를 끄고 돈다.
 
 ---
 
@@ -124,7 +131,19 @@ compose 프로젝트 이름은 기본이 디렉터리명이다. perf 파일이 `
 실제로 겪었다 — `docker compose -f docker-compose.perf.yml up -d` 한 번에 `fitwallet-mysql`이
 제거됐다(볼륨이 남아 데이터는 보존됐다). 최상단 `name: fitwallet-perf`가 이걸 막는다.
 
-### 9. `build.gradle`이 Gretty 프로파일을 하드코딩하고 있었다 (수정함)
+### 9. 스키마에 컬럼이 끼어들어도 밀리지 않게 컬럼 목록을 명시한다
+
+V10이 `transaction_status`를 **`AFTER paid_at`**, 즉 테이블 중간에 넣었다. `load.sh`가 컬럼을
+이름으로 넘기기 때문에 아무것도 밀리지 않았다. 위치 기반이었다면 `is_used_app`의 `1`/`0`이
+`transaction_status`로 들어가 CHECK 제약에 걸렸을 것이다.
+
+컬럼 목록은 `build_store.py`의 `COLUMNS`가 정본이고, 생성 스크립트가 `.columns` 파일로 내보낸다.
+**손으로 두 군데 적지 않는다.**
+
+> ⚠️ V10을 540만 행에 적용하면 **71초**가 걸린다(INSTANT DDL이 아니고 CHECK 제약을 검증한다).
+> 스테이징에서는 **마이그레이션을 끝낸 뒤 적재한다** — 순서가 뒤집히면 그만큼 더 걸린다.
+
+### 10. `build.gradle`이 Gretty 프로파일을 하드코딩하고 있었다 (수정함)
 
 `jvmArgs = ['-Denv=local', ...]`이라 `./gradlew appRun -Denv=perf`가 조용히 무시되고
 **3307 개발 DB에 붙어 `seed-local`까지 적용했다.** `test` 태스크와 같은 방식
@@ -143,6 +162,15 @@ compose 프로젝트 이름은 기본이 디렉터리명이다. perf 파일이 `
 `GROUP BY` 그룹 수가 카드당 3개에서 165개로 퍼져 집계 부하가 왜곡된다. 그래서 '이 카드로 이
 가맹점에서 결제했을 때 실제로 적용 가능한 혜택'만 고른다. 조인 대상 테이블이 다 합쳐 1,000행대라
 메모리에 올려도 무해하다. `verify.sql` §8·§9가 이걸 검증한다.
+
+**거래는 전부 `transaction_status = 'APPROVED'`다.** 아직 아무도 이 컬럼을 읽지 않는다 —
+`BenefitReportMapper`·`CardBenefitMapper`의 집계가 상태를 거르지 않으므로, 지금 `CANCELED`를
+섞으면 그 금액이 리포트 합계에 그대로 잡혀 수치가 틀린다. 이슈 #226도 "집계 SQL 반영 전에는
+실제 거래를 `CANCELED`로 변경하지 않는다"고 못박았다.
+
+> **후속 작업이 집계 SQL에 상태 필터를 넣을 때 함께 고칠 것** —
+> `build_synthetic.py`의 `TRANSACTION_STATUS`에서 비율을 나누고, `verify.sql` §7-1의 단언을
+> 바꾼다. 재생성은 6분이면 끝나므로 미리 만들어 두지 않는다.
 
 **재현성.** 같은 시드(`--seed`)와 같은 기준일(`--reference-date`)이면 출력이 바이트 단위로 같다.
 `paid_at`이 기준일 상대라 날짜가 바뀌면 결과도 바뀐다 — 고정하려면 `--reference-date`를 넘긴다.

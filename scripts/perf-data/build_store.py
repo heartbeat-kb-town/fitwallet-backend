@@ -52,9 +52,12 @@ COLUMNS = {
         "user_card_id, user_id, card_product_id, first4, last4, expiry_date, display_order, "
         "bank_name, balance, credit_limit, scheduled_payment_amount, is_deleted"
     ),
+    # transaction_status(V10)는 DEFAULT 'APPROVED'라 빼도 적재는 된다. 그래도 명시한다 —
+    # "전부 승인 건"이 기본값에 기댄 우연이 아니라 의도라는 것을 코드에 남긴다.
+    # 컬럼 목록을 이름으로 넘기므로 V10이 AFTER paid_at으로 중간에 끼어들어도 밀리지 않는다.
     "payment_transaction": (
         "payment_transaction_id, user_card_id, store_id, payment_session_id, amount, "
-        "discount_amount, final_amount, paid_at, is_used_app, is_eligible, "
+        "discount_amount, final_amount, paid_at, transaction_status, is_used_app, is_eligible, "
         "applied_benefit_service_id, applied_tier_id, better_user_card_id, "
         "alternative_discount_amount, missed_amount"
     ),

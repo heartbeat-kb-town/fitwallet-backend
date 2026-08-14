@@ -48,6 +48,15 @@ PLAIN_SHARE = 0.45  # 브랜드 없는 category 1~6
 BETTER_SHARE = 0.30  # better_user_card_id를 채우는 비율
 APP_SHARE = 0.45  # is_used_app = 1 비율 (데모 실측 175/391)
 
+# 생성 거래는 전부 승인 건이다. CANCELED를 섞지 않는 이유는 아직 아무도 이 컬럼을 읽지 않아서다 —
+# BenefitReportMapper·CardBenefitMapper의 집계가 transaction_status를 거르지 않으므로,
+# 지금 취소 건을 넣으면 그 금액이 리포트 합계에 그대로 잡혀 수치가 틀린다.
+# 이슈 #226도 "집계 SQL 반영 전에는 실제 거래를 CANCELED로 변경하지 않는다"고 못박았다.
+#
+# 후속 작업(집계 SQL이 상태를 거르게 되는 시점)에서 취소 건이 필요해지면 여기서 비율을 나눈다.
+# 재생성은 6분이면 끝난다 — 미리 만들어 두는 것보다 그때 만드는 편이 안전하다.
+TRANSACTION_STATUS = "APPROVED"
+
 CARDS_PER_USER = ((1, 18), (2, 22), (3, 24), (4, 18), (5, 11), (6, 7))  # (장수, 가중치%)
 
 # category별 결제금액 중앙값(원). 실측이 아니라 상식에 기반한 판단이다.
@@ -407,6 +416,7 @@ def write_transactions(out_dir, rng, stores, benefits, card_start, card_product,
                             f"{native:.2f}",
                             f"{amount - received:.2f}",  # final_amount는 원화를 뺀다
                             paid_at.strftime("%Y-%m-%d %H:%M:%S"),
+                            TRANSACTION_STATUS,
                             "1" if rng.random() < APP_SHARE else "0",
                             "1",  # is_eligible
                             NULL if service_id is None else str(service_id),
