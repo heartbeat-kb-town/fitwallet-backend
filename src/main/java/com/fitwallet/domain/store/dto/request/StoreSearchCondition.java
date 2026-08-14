@@ -17,7 +17,8 @@ import lombok.NoArgsConstructor;
  *   <li>{@code keyword} — trim한 뒤 공백만 남으면 {@code null}로 취급한다(= 필터 없음)</li>
  *   <li>{@code radiusMeters} — 반경 정책을 적용한 <b>최종값</b>이다.
  *       키워드 검색 모드에서 미전달이면 {@code null}(전국, 거리 필터 없음),
- *       {@code keyword} 없이 {@code categoryId}만 보낸 주변 조회에서 미전달이면 {@code 3000}(3km)</li>
+ *       {@code keyword} 없는 주변 조회({@code categoryId}만 보내거나 좌표만 보낸 경우)에서
+ *       미전달이면 {@code 3000}(3km)</li>
  * </ul>
  * 즉 매퍼는 <b>확정된 조건</b>만 본다. 검증과 정책 적용은 서비스가 끝낸 상태다.
  * <p>

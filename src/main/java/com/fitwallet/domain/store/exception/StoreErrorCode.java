@@ -9,7 +9,6 @@ import org.springframework.http.HttpStatus;
 @RequiredArgsConstructor
 public enum StoreErrorCode implements ErrorCode {
 
-    KEYWORD_OR_CATEGORY_REQUIRED(HttpStatus.BAD_REQUEST, "검색어 또는 카테고리를 입력해 주세요."),
     COORDINATE_PAIR_REQUIRED(HttpStatus.BAD_REQUEST, "위도와 경도를 함께 전달해 주세요."),
     INVALID_COORDINATE(HttpStatus.BAD_REQUEST, "좌표 값이 올바르지 않습니다."),
     CATEGORY_NOT_FOUND(HttpStatus.BAD_REQUEST, "존재하지 않는 카테고리입니다."),

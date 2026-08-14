@@ -98,25 +98,47 @@ class DefaultStoreServiceTest {
     }
 
     @Test
-    void 키워드와_카테고리가_모두_없으면_KEYWORD_OR_CATEGORY_REQUIRED_예외를_던진다() {
+    void 키워드와_카테고리가_모두_없어도_주변_조회_모드로_조회된다() {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        List<StoreSummaryResponse> expected = List.of(store(1L));
+        given(storeMapper.findStores(any())).willReturn(expected);
+        ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
-        assertThatThrownBy(() -> storeService.searchStores(1L, cond))
-                .isInstanceOf(BusinessException.class)
-                .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(StoreErrorCode.KEYWORD_OR_CATEGORY_REQUIRED);
+        StoreSearchResponse response = storeService.searchStores(1L, cond);
+
+        then(storeMapper).should().findStores(captor.capture());
+        assertThat(captor.getValue().getKeyword()).isNull();
+        assertThat(captor.getValue().getCategoryId()).isNull();
+        assertThat(captor.getValue().getRadiusMeters()).isEqualTo(3000);
+        assertThat(response.getStores()).isEqualTo(expected);
     }
 
     @Test
-    void 키워드가_공백뿐이면_미전달로_취급해_KEYWORD_OR_CATEGORY_REQUIRED_예외를_던진다() {
+    void 좌표만_있으면_카테고리_확인도_검색어_기록도_하지_않는다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(never()).existsCategory(any());
+        then(searchHistoryService).should(never()).record(any(), anyString());
+    }
+
+    @Test
+    void 키워드가_공백뿐이고_카테고리도_없으면_미전달로_취급해_주변_조회_모드가_된다() {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("   ").build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
 
-        assertThatThrownBy(() -> storeService.searchStores(1L, cond))
-                .isInstanceOf(BusinessException.class)
-                .extracting(e -> ((BusinessException) e).getErrorCode())
-                .isEqualTo(StoreErrorCode.KEYWORD_OR_CATEGORY_REQUIRED);
+        StoreSearchResponse response = storeService.searchStores(1L, cond);
+
+        assertThat(response.getKeyword()).isNull();
+        assertThat(response.getRadiusMeters()).isEqualTo(3000);
     }
 
     @Test
