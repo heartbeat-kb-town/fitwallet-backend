@@ -1,0 +1,59 @@
+# 성능 측정 전용 MySQL. 팀원의 개발 DB(docker-compose.yml)와 완전히 분리된 컨테이너·볼륨이다.
+#
+#   docker compose -f docker-compose.perf.yml up -d
+#   ./gradlew appRun -Denv=perf          # 스키마 적용 (V1~V9, seed-local 없음)
+#   scripts/perf-data/load.sh            # 약 4GB 적재
+#
+# ⚠️ name을 지우지 말 것. compose 프로젝트 이름은 기본이 디렉터리명(fitwallet-backend)이라,
+# 이 파일이 docker-compose.yml과 같은 프로젝트에 들어가면 서비스 키가 같을 때 compose가
+# "같은 서비스의 새 설정"으로 보고 **개발 DB 컨테이너를 교체해 버린다.**
+# 실제로 겪었다 — `docker compose -f docker-compose.perf.yml up -d` 한 번에
+# fitwallet-mysql이 제거됐다(볼륨은 남아 데이터는 보존됐다).
+# 프로젝트를 분리하면 두 스택이 서로를 보지 못한다.
+name: fitwallet-perf
+
+# 개발 DB와 섞일 수 없는 이유가 넷이다 — 프로젝트가 다르고, 컨테이너 이름이 다르고,
+# 볼륨이 다르고, 포트가 다르다. 사람의 주의력이 아니라 구조로 막는다.
+services:
+  mysql-perf:
+    image: mysql:8.4
+    container_name: fitwallet-mysql-perf
+    restart: unless-stopped
+    # --local-infile=1 이 없으면 load.sh의 LOAD DATA LOCAL INFILE이 서버에서 거부된다
+    # (MySQL 8은 기본이 OFF다). 클라이언트 쪽 --local-infile=1 만으로는 안 된다.
+    #
+    # buffer-pool 2G — 성능 데이터가 약 4GB라 전부 상주하지는 않지만, 기본값 128M로 두면
+    # 로컬 측정이 통째로 디스크 I/O 싸움이 되어 쿼리 개선 효과가 묻힌다.
+    # 스테이징 RDS(db.m7g.large, 8GiB → 버퍼 풀 약 6GB)와는 다른 조건이므로, 로컬 수치와
+    # 스테이징 수치를 직접 비교하지 않는다. 로컬은 개선 전/후 비교용이다.
+    #
+    # 타임존은 개발 DB와 같은 이유로 오프셋을 쓴다 (docker-compose.yml 주석 참고).
+    command: >
+      --default-time-zone=+09:00
+      --local-infile=1
+      --innodb-buffer-pool-size=2G
+    environment:
+      TZ: Asia/Seoul
+      MYSQL_ROOT_PASSWORD: ${PERF_DB_ROOT_PASSWORD:-root1234}
+      MYSQL_DATABASE: ${PERF_DB_NAME:-fitwallet}
+      MYSQL_USER: ${PERF_DB_USER:-fitwallet}
+      MYSQL_PASSWORD: ${PERF_DB_PASSWORD:-fitwallet1234}
+    # 3308이다. 3306·3307은 개발자마다 이미 쓰고 있을 수 있다
+    # (이 저장소 기준 .env의 MYSQL_PORT가 3307인 환경이 있다).
+    ports:
+      - "${PERF_DB_PORT:-3308}:3306"
+    # 스키마는 여기서 넣지 않는다. 앱을 -Denv=perf로 띄우면 Flyway가 db/migration만 적용한다.
+    # 대량 데이터는 Flyway 밖이라 flyway_schema_history에 기록되지 않는다.
+    volumes:
+      - fitwallet-mysql-perf-data:/var/lib/mysql
+      # load.sh가 컨테이너 안에서 돌 때 쓰는 경로. 호스트에서 mysql 클라이언트로 붙는 기본 경로에서는
+      # 쓰이지 않는다.
+      - ${PERF_DATA_DIR:-~/fitwallet-perf-data}/out:/perf-data:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-p${PERF_DB_ROOT_PASSWORD:-root1234}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  fitwallet-mysql-perf-data:

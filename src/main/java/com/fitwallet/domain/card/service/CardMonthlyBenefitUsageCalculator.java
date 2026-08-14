@@ -34,7 +34,7 @@ public class CardMonthlyBenefitUsageCalculator {
         UsageIndex index = new UsageIndex();
         rulesByService.forEach((serviceId, serviceRules) -> {
             serviceRules.stream()
-                    .map(CardMonthlyBenefitRule::getLimitPlanGroupId)
+                    .map(CardMonthlyBenefitRule::getServicePlanGroupId)
                     .filter(Objects::nonNull)
                     .findFirst()
                     .ifPresent(planGroupId -> index.planGroupServices
@@ -171,6 +171,13 @@ public class CardMonthlyBenefitUsageCalculator {
         BigDecimal rawUsed = calculateRawLimitUsageValue(definition, limit, usage);
         BigDecimal rawRemaining = limit.getLimitValue().subtract(rawUsed).max(BigDecimal.ZERO);
         return new LimitUsageResult(rawUsed, rawRemaining);
+    }
+
+    BigDecimal calculateLimitUsageValue(
+            CardMonthlyBenefitRule definition,
+            CardMonthlyBenefitRule limit,
+            UsageTotals usage) {
+        return calculateRawLimitUsageValue(definition, limit, usage);
     }
 
     private BigDecimal countCapacity(

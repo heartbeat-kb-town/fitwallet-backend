@@ -165,6 +165,17 @@ class StoreMapperIntegrationTest {
     }
 
     @Test
+    void 키워드와_카테고리가_모두_없으면_반경_안에서_가까운_순_5건이_조회된다() {
+        // 서비스가 주변 조회 모드에 적용하는 기본 반경(3km)을 그대로 넣는다.
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, 3000));
+
+        assertThat(stores)
+                .hasSize(5)
+                .isSortedAccordingTo(Comparator.comparing(StoreSummaryResponse::getDistanceMeters))
+                .allSatisfy(store -> assertThat(store.getDistanceMeters()).isLessThanOrEqualTo(3000));
+    }
+
+    @Test
     void 반경을_주지_않으면_거리_필터가_걸리지_않는다() {
         List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null));
 

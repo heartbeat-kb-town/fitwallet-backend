@@ -34,14 +34,16 @@ class CardMonthlyBenefitMapperIntegrationTest {
 
         assertThat(rules).filteredOn(rule -> rule.getServiceId().equals(53L))
                 .extracting(
+                        CardMonthlyBenefitRule::getServicePlanGroupId,
+                        CardMonthlyBenefitRule::getLimitPlanGroupId,
                         CardMonthlyBenefitRule::getTierId,
                         CardMonthlyBenefitRule::getLimitBasis,
                         CardMonthlyBenefitRule::isShared)
                 .containsExactlyInAnyOrder(
-                        org.assertj.core.groups.Tuple.tuple(21L, LimitBasis.AMOUNT, true),
-                        org.assertj.core.groups.Tuple.tuple(22L, LimitBasis.AMOUNT, true),
-                        org.assertj.core.groups.Tuple.tuple(23L, LimitBasis.AMOUNT, true),
-                        org.assertj.core.groups.Tuple.tuple(57L, LimitBasis.COUNT, false));
+                        org.assertj.core.groups.Tuple.tuple(10L, 10L, 21L, LimitBasis.AMOUNT, true),
+                        org.assertj.core.groups.Tuple.tuple(10L, 10L, 22L, LimitBasis.AMOUNT, true),
+                        org.assertj.core.groups.Tuple.tuple(10L, 10L, 23L, LimitBasis.AMOUNT, true),
+                        org.assertj.core.groups.Tuple.tuple(10L, null, 57L, LimitBasis.COUNT, false));
     }
 
     @Test
@@ -50,6 +52,10 @@ class CardMonthlyBenefitMapperIntegrationTest {
                 .findMonthlyBenefitBrandTargets(ALL_PASS_CARD_PRODUCT_ID);
 
         assertThat(targets).filteredOn(target -> target.getServiceId().equals(53L))
+                .allSatisfy(target -> {
+                    assertThat(target.getCategoryId()).isNotNull();
+                    assertThat(target.getCategoryName()).isNotBlank();
+                })
                 .extracting(CardMonthlyBenefitBrandTarget::getBrandId)
                 .containsExactly(15L, 16L, 17L);
     }

@@ -1,0 +1,21 @@
+-- v26: 업종(category)에 '기타'를 추가한다.
+--
+-- 배경 — 성능 고도화용으로 공공데이터(소상공인시장진흥공단 상가(상권)정보) 약 110만 건을
+-- store에 적재하는데, 이 데이터의 상권업종분류는 우리 category 6종(카페/디저트, 편의점/마트,
+-- 쇼핑, 푸드, 병원, 주유)보다 훨씬 넓다. 학원·부동산·미용실·세탁소·숙박·PC방 등 상당수가
+-- 6종 어디에도 해당하지 않는다.
+--
+-- store.category_id가 NOT NULL이라 이들을 적재하려면 받아줄 값이 반드시 있어야 한다.
+-- 기존 6종 중 하나(예: '쇼핑')에 몰아넣는 선택지는 버렸다 — idx_store_category_id의
+-- 카디널리티가 왜곡돼 옵티마이저가 그 값 조회에서 인덱스를 버리게 되고, 그러면
+-- "우리 쿼리가 느린 것"이 아니라 "데이터를 잘못 만든 것"이 측정 결과로 나온다.
+--
+-- 운영 영향 — 이 category에 속한 store는 운영에 없다. category 전건을 반환하는 API도
+-- 없어(CategoryController 부재) 화면에 노출될 경로가 없다.
+--
+-- category_id를 7로 못박는 이유는 V2가 1~6을 명시적으로 부여한 관례를 잇기 위해서다.
+-- 다만 적재 스크립트는 이 값을 하드코딩하지 않고 category_name = '기타'로 조회해 쓴다.
+--
+-- 멱등성 — category_name에 UNIQUE(uk_category_category_name)가 있어 재실행 시
+-- INSERT IGNORE가 조용히 통과한다.
+INSERT IGNORE INTO category (category_id, category_name) VALUES (7, '기타');

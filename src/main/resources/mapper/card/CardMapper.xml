@@ -120,7 +120,8 @@
         <result column="currency_name" property="pointCurrencyName"/>
         <result column="krw_per_point" property="krwPerPoint"/>
         <result column="tier_id" property="tierId"/>
-        <result column="plan_group_id" property="limitPlanGroupId"/>
+        <result column="service_plan_group_id" property="servicePlanGroupId"/>
+        <result column="limit_plan_group_id" property="limitPlanGroupId"/>
         <result column="tier_order" property="tierOrder"/>
         <result column="min_prev_month_spend" property="tierMinimumAmount"/>
         <result column="max_prev_month_spend" property="tierMaximumAmount"/>
@@ -330,7 +331,8 @@
                pc.currency_name,
                pc.krw_per_point,
                bt.tier_id,
-               bt.plan_group_id,
+               bs.plan_group_id service_plan_group_id,
+               bt.plan_group_id limit_plan_group_id,
                bt.tier_order,
                bt.min_prev_month_spend,
                bt.max_prev_month_spend,
@@ -373,10 +375,14 @@
         SELECT bs.service_id,
                b.brand_id,
                b.brand_name,
-               b.brand_image_url
+               b.brand_image_url,
+               c.category_id,
+               c.category_name,
+               c.category_image_url
         FROM benefit_service bs
                  JOIN service_brand sb ON sb.service_id = bs.service_id
                  JOIN brand b ON b.brand_id = sb.brand_id
+                 LEFT JOIN category c ON c.category_id = b.category_id
         WHERE bs.card_product_id = #{cardProductId}
           AND bs.scope_type = 'BRAND'
         ORDER BY bs.service_id,

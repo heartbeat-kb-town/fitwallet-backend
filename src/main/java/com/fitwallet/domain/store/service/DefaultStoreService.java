@@ -50,10 +50,9 @@ public class DefaultStoreService implements StoreService {
 
         String keyword = normalizeKeyword(cond.getKeyword());
         Long categoryId = cond.getCategoryId();
-        if (keyword == null && categoryId == null) {
-            throw new BusinessException(StoreErrorCode.KEYWORD_OR_CATEGORY_REQUIRED);
-        }
 
+        // 키워드가 없으면 주변 조회 모드다. 카테고리도 없는(= 좌표만 온) 요청도 여기 포함된다 —
+        // 앱이 검색 화면에 처음 들어와 아무것도 입력하지 않은 상태에서 내 주변 가맹점을 보여주는 경우다.
         boolean nearbyMode = keyword == null;
         Integer requestedRadius = cond.getRadiusMeters();
         if (requestedRadius != null && requestedRadius <= 0) {

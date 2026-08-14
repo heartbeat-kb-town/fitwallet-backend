@@ -52,3 +52,22 @@ db.properties
 # OpenAPI 스펙은 정본이 아니라 로컬에서 훑어보는 산출물이다 (AGENTS.md §5).
 # ./gradlew openapiDump로 뽑아볼 수는 있지만 커밋 대상이 아니다.
 docs/openapi.json
+
+# 성능 테스트 데이터 (약 3.5GB) — 절대 커밋하지 않는다.
+#
+# 정상 위치는 저장소 밖이다. 기본 ~/fitwallet-perf-data, PERF_DATA_DIR로 덮어쓴다.
+#   raw/  공공데이터 상가정보 원본 (data.go.kr, 로그인 필요해 사람이 받는다)
+#   out/  생성 TSV (store 272만 / payment_transaction 540만 등, 약 4GB)
+#
+# 저장소 밖에 두는 이유는 유출 방지가 아니라 파일 보존이다. 저장소 안에 두면
+# `git clean -xfd`가 ignore된 파일까지 지워 원본을 다시 내려받아야 한다.
+# 아래 규칙은 그래도 안에 풀었을 때를 위한 이중 방어다.
+data/
+out/
+*.csv
+!src/**/*.csv
+*.tsv
+
+# 적재 스크립트가 만드는 바이트코드 캐시 (scripts/perf-data/)
+__pycache__/
+*.pyc

@@ -38,4 +38,7 @@ public class CardMonthlyBenefitResponse {
 
     @ApiModelProperty(value = "브랜드 범위 월간 혜택. 없으면 빈 배열")
     private List<CardMonthlyBrandBenefitResponse> brandBenefits;
+
+    /** 현재 실적 구간에서 선택된 공동 월 한도 그룹. 없으면 빈 배열. */
+    private List<CardMonthlyBenefitSharedLimitGroupResponse> sharedLimitGroups;
 }

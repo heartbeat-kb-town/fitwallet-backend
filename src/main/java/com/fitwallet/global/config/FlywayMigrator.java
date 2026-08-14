@@ -65,6 +65,22 @@ public class FlywayMigrator {
         MigrateResult result = Flyway.configure()
                 .dataSource(dataSource)
                 .locations(resolved)
+                // 데모 시드(db/seed-local)가 V900번대를 쓰기 때문에 반드시 필요하다.
+                //
+                // 로컬·CI는 db/migration과 db/seed-local을 같은 이력 테이블에 함께 적용한다.
+                // 시드를 적용하고 나면 이력의 최고 버전이 901이 되는데, 그 뒤에 스키마 변경으로
+                // V7을 추가하면 Flyway는 "이미 901까지 적용됐는데 7이 미적용"으로 보고
+                // out-of-order 판정해 validate 단계에서 기동을 막는다
+                // (Detected resolved migration not applied to database: 7).
+                //
+                // 시드 번호를 900번대로 띄운 것은 스키마보다 뒤에 적용되게 하려는 의도적 설계이므로,
+                // 낮은 번호가 나중에 들어오는 것은 이 저장소에서 정상 상황이다. 이 플래그가 없으면
+                // 앞으로 추가되는 모든 db/migration 버전이 로컬에서 동일하게 막힌다.
+                //
+                // 운영은 locations에 seed-local이 없어 이력 최고 버전이 항상 스키마 쪽이라
+                // 애초에 out-of-order가 생기지 않는다. 적용 순서는 이 플래그와 무관하게
+                // 버전 오름차순으로 유지된다 — 허용되는 것은 "뒤늦은 합류"뿐이다.
+                .outOfOrder(true)
                 .baselineOnMigrate(true)
                 .baselineVersion(baselineVersion)
                 .load()
