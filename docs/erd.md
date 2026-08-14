@@ -483,6 +483,7 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 | `discount_amount` | 적용된 혜택값 | DECIMAL(15,2) | NO | `0.00` | ⚠️ **네이티브 단위입니다** — `applied_benefit_service_id`의 `benefit_type`으로 해석합니다(`CASHBACK`=원, `ACCUMULATE`=포인트 **개수**). 어떤 포인트인지는 `benefit_service.point_currency_id`로 판별하고, 원화가 필요한 집계는 `point_currency.krw_per_point`를 곱합니다. 아래 인용 블록 참고 |
 | `final_amount` | 최종 결제 금액 | DECIMAL(15,2) | NO | — | **원화.** ⚠️ `amount` − `discount_amount`가 **아닙니다** — 혜택값을 원화로 환산한 뒤 뺀 값입니다 |
 | `paid_at` | 실제 승인 시각 | DATETIME | NO | — | **비즈니스 시각.** 레코드 생성 시각(`created_at`)과 분리 |
+| `transaction_status` | 거래 상태 | VARCHAR(20) | NO | `APPROVED` | CHECK `APPROVED`(승인) / `CANCELED`(전체 승인취소). 취소 시각은 별도로 저장하지 않습니다 — [§3](#3-코드-값-check-제약) |
 | `is_used_app` | 앱 사용 여부 | TINYINT(1) | NO | `0` | 앱(QR)을 거친 결제인지. 앱을 거쳤으면 `payment_session_id`도 채워집니다 |
 | `is_eligible` | **전월실적 산정 대상 여부** | TINYINT(1) | NO | `1` | `0`이면 이 거래가 **전월실적 합계에서 빠집니다**(세금·공과금·상품권 등 카드사가 실적에서 제외하는 거래). ⚠️ **스키마 전체에서 기본값이 `1`인 유일한 컬럼** — 대부분의 거래는 실적에 포함되기 때문입니다 |
 | `applied_benefit_service_id` (FK) | 적용된 혜택 | BIGINT | **YES** | — | → `benefit_service`. 받은 혜택이 없으면 NULL |
@@ -529,6 +530,7 @@ DDL의 CHECK 값이 전부 자바 enum 상수 이름 규칙과 일치해, MyBati
 | `benefit_limit.limit_period` | `PER_TRANSACTION`, `DAY`, `MONTH`, `YEAR`                                                                             | `ck_benefit_limit_limit_period` |
 | `payment_session.status` | `PENDING`, `SCANNED`, `PROCESSING`, `COMPLETED`, `EXPIRED`, `FAILED`                                                  | `ck_payment_session_status` |
 | `payment_session.fail_reason` | `PIN_MISMATCH`, `PIN_LOCKED`, `CANCELED_BY_USER`, `CARD_UNAVAILABLE`, `SYSTEM_ERROR`, `MOCK_RANDOM_DECLINE` (NULL 허용) | `ck_payment_session_fail_reason` |
+| `payment_transaction.transaction_status` | `APPROVED`, `CANCELED` | `ck_payment_transaction_status` |
 
 값 집합이 아닌 CHECK 제약(XOR·범위)은 각 테이블의 "상세 설명" 열에 적어 뒀습니다 — `ck_benefit_tier_xor`, `ck_card_event_target_xor`, `ck_card_event_period`, `ck_benefit_service_max_payment_amount`, `ck_benefit_service_point_currency_required`.
 
