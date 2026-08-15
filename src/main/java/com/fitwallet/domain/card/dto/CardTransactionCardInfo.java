@@ -11,7 +11,7 @@ import java.math.BigDecimal;
  * 카드별 결제 내역 조회에 사용하는 보유 카드 내부 정보.
  * <p>
  * 로그인 사용자의 카드 소유권을 확인하고 카드 기본 정보와
- * 현재 월 신용카드의 저장된 결제 이용금액을 구성하는 데 사용한다.
+ * 승인 거래에서 다시 계산한 신용카드 결제예정금액을 구성하는 데 사용한다.
  */
 @Getter
 @NoArgsConstructor
@@ -27,6 +27,6 @@ public class CardTransactionCardInfo {
     private CardType cardType;
     private String maskedRearNumber;
 
-    /** 현재 월 신용카드는 반드시 값이 있어야 하며, null이면 데이터 정합성 오류로 처리한다. */
+    /** 신용카드는 전체 승인 거래의 final_amount 합계이며, 체크카드는 null이다. */
     private BigDecimal scheduledPaymentAmount;
 }

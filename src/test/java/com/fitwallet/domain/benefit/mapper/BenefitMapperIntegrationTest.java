@@ -101,15 +101,19 @@ class BenefitMapperIntegrationTest {
     }
 
     @Test
-    void is_eligible이_0인_거래는_합계에서_제외된다() {
+    void 실적미인정과_취소거래는_전월실적_합계에서_제외된다() {
         jdbcTemplate.update("INSERT INTO payment_transaction "
                 + "(user_card_id, amount, discount_amount, final_amount, paid_at, is_used_app, is_eligible) "
                 + "VALUES (1, 50000, 0, 50000, '2026-07-15 10:00:00', 0, 0)");
+        jdbcTemplate.update("INSERT INTO payment_transaction "
+                + "(user_card_id, amount, discount_amount, final_amount, paid_at, is_used_app, "
+                + "is_eligible, transaction_status) "
+                + "VALUES (1, 70000, 0, 70000, '2026-07-16 10:00:00', 0, 1, 'CANCELED')");
 
         List<BenefitPrevMonthSpendResponse> spends = benefitMapper.findPrevMonthSpends(List.of(1L));
 
         assertThat(spends).singleElement()
-                .satisfies(s -> assertThat(s.getPrevMonthSpend()).isEqualByComparingTo("89800.00"));
+                .satisfies(s -> assertThat(s.getPrevMonthSpend()).isEqualByComparingTo("64900.00"));
     }
 
     @Test
@@ -218,6 +222,11 @@ class BenefitMapperIntegrationTest {
 
     @Test
     void AMOUNT_기준_소진량을_집계한다() {
+        jdbcTemplate.update("INSERT INTO payment_transaction "
+                + "(user_card_id, amount, discount_amount, final_amount, paid_at, "
+                + "applied_tier_id, transaction_status) "
+                + "VALUES (1, 10000, 9000, 1000, '2026-07-20 10:00:00', 163, 'CANCELED')");
+
         BenefitUsageResponse usage =
                 benefitMapper.findUsage(1L, 163L, LocalDateTime.of(2026, 7, 1, 0, 0));
 

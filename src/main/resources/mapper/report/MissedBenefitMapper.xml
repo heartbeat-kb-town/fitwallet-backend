@@ -15,6 +15,7 @@
         FROM payment_transaction pt
         JOIN user_card uc ON pt.user_card_id = uc.user_card_id
         WHERE uc.user_id = #{userId}
+        AND pt.transaction_status = 'APPROVED'
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
         AND pt.better_user_card_id IS NOT NULL
     </select>
@@ -43,6 +44,7 @@
         JOIN category c ON s.category_id = c.category_id
         LEFT JOIN brand br ON s.brand_id = br.brand_id
         WHERE uc.user_id = #{userId}
+        AND pt.transaction_status = 'APPROVED'
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
         AND pt.is_used_app = #{isUsedApp}
         AND pt.better_user_card_id IS NOT NULL

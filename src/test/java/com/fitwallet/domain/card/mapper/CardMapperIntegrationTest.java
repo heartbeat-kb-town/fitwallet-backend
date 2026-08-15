@@ -101,11 +101,17 @@ class CardMapperIntegrationTest {
 
         assertThat(cards).filteredOn(c -> c.getCardType() == CardType.CREDIT)
                 .isNotEmpty()
-                .allSatisfy(c -> assertThat(c.getCreditLimit()).isNotNull());
+                .allSatisfy(c -> {
+                    assertThat(c.getCreditLimit()).isNotNull();
+                    assertThat(c.getScheduledPaymentAmount()).isNotNull();
+                });
 
         assertThat(cards).filteredOn(c -> c.getCardType() == CardType.DEBIT)
                 .isNotEmpty()
-                .allSatisfy(c -> assertThat(c.getBalance()).isNotNull());
+                .allSatisfy(c -> {
+                    assertThat(c.getBalance()).isNotNull();
+                    assertThat(c.getScheduledPaymentAmount()).isNull();
+                });
     }
 
     @Test
@@ -208,7 +214,7 @@ class CardMapperIntegrationTest {
     }
 
     @Test
-    void 마이데이터_카드의_카드번호_유효기간_한도_결제예정액이_저장된다() {
+    void 마이데이터_결제예정액은_원본으로_저장하되_API값은_승인거래로_재계산한다() {
         // card_product_id=1은 CREDIT이고 SEED_USER_ID(1)에는 아직 등록돼 있지 않다.
         MyDataCard card = myDataCard(1L, "9999", "1111", null, null,
                 BigDecimal.valueOf(2_500_000), BigDecimal.valueOf(180_000), List.of());
@@ -221,9 +227,17 @@ class CardMapperIntegrationTest {
         assertThat(saved.getMaskedRearNumber()).isEqualTo("1111");
         assertThat(saved.getExpiryDate()).isEqualTo(LocalDate.of(2031, 12, 31));
         assertThat(saved.getCreditLimit()).isEqualByComparingTo(BigDecimal.valueOf(2_500_000));
-        assertThat(saved.getScheduledPaymentAmount()).isEqualByComparingTo(BigDecimal.valueOf(180_000));
+        assertThat(saved.getScheduledPaymentAmount()).isZero();
         assertThat(saved.getBankName()).isNull();
         assertThat(saved.getBalance()).isNull();
+
+        BigDecimal storedAmount = jdbcTemplate.queryForObject(
+                "SELECT scheduled_payment_amount FROM user_card "
+                        + "WHERE user_id = ? AND card_product_id = ?",
+                BigDecimal.class,
+                SEED_USER_ID,
+                1L);
+        assertThat(storedAmount).isEqualByComparingTo(BigDecimal.valueOf(180_000));
     }
 
     @Test
@@ -246,6 +260,7 @@ class CardMapperIntegrationTest {
         assertThat((BigDecimal) row.get("amount")).isEqualByComparingTo(BigDecimal.valueOf(8_500));
         assertThat((BigDecimal) row.get("final_amount")).isEqualByComparingTo(BigDecimal.valueOf(8_500));
         assertThat((LocalDateTime) row.get("paid_at")).isEqualTo(paidAt);
+        assertThat(row.get("transaction_status")).isEqualTo("APPROVED");
     }
 
     /** card_product_id=1(CREDIT)로 마이데이터 카드를 등록하고 생성된 PK를 돌려준다. */

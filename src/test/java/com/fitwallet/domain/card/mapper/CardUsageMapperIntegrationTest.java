@@ -1,6 +1,7 @@
 package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardType;
+import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import com.fitwallet.domain.card.dto.CardUsageAmountSummary;
 import com.fitwallet.domain.card.dto.CardUsageBenefitRule;
 import com.fitwallet.domain.card.dto.CardUsageCardInfo;
@@ -68,6 +69,10 @@ class CardUsageMapperIntegrationTest {
         LocalDateTime endAt = LocalDateTime.of(2030, 2, 1, 0, 0);
         insertTransaction(new BigDecimal("10000.00"), startAt, true);
         insertTransaction(new BigDecimal("4000.00"), startAt.plusDays(1), false);
+        insertTransaction(new BigDecimal("50000.00"), startAt.plusDays(2), true,
+                CardTransactionStatus.CANCELED);
+        insertTransaction(new BigDecimal("7000.00"), startAt.plusDays(3), false,
+                CardTransactionStatus.CANCELED);
         insertTransaction(new BigDecimal("90000.00"), endAt, false);
 
         CardUsageAmountSummary summary = cardMapper.findUsageAmounts(
@@ -122,10 +127,16 @@ class CardUsageMapperIntegrationTest {
     }
 
     private void insertTransaction(BigDecimal amount, LocalDateTime paidAt, boolean eligible) {
+        insertTransaction(amount, paidAt, eligible, CardTransactionStatus.APPROVED);
+    }
+
+    private void insertTransaction(BigDecimal amount, LocalDateTime paidAt, boolean eligible,
+                                   CardTransactionStatus transactionStatus) {
         jdbcTemplate.update("""
                 INSERT INTO payment_transaction
-                    (user_card_id, amount, final_amount, paid_at, is_eligible)
-                VALUES (?, ?, ?, ?, ?)
-                """, NORI_USER_CARD_ID, amount, amount, paidAt, eligible);
+                    (user_card_id, amount, final_amount, paid_at, is_eligible, transaction_status)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """, NORI_USER_CARD_ID, amount, amount, paidAt, eligible,
+                transactionStatus.name());
     }
 }

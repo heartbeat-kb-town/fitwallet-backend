@@ -4,10 +4,20 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.fitwallet.domain.card.mapper.CardMapper">
 
+    <!-- 결제주기 없이 현재 남아 있는 전체 승인 거래의 실제 청구액을 계산한다. -->
+    <sql id="scheduledPaymentAmount">
+        CASE WHEN cp.card_type = 'CREDIT' THEN (
+            SELECT COALESCE(SUM(scheduled_pt.final_amount), 0)
+            FROM payment_transaction scheduled_pt
+            WHERE scheduled_pt.user_card_id = uc.user_card_id
+              AND scheduled_pt.transaction_status = 'APPROVED'
+        ) ELSE NULL END AS scheduled_payment_amount
+    </sql>
+
     <!--
         컬럼을 명시한다 (SELECT * 금지).
         snake_case → camelCase는 mapUnderscoreToCamelCase가 처리하므로 별칭이 필요 없다.
-        first4/last4, card_company_name만 API/DTO 필드명과 이름 자체가 달라 AS를 붙인다
+        first4/last4, card_company_name과 계산 컬럼만 API/DTO 필드명과 이름 자체가 달라 AS를 붙인다
         (card_company_name → issuerName은 cardTransactionCardInfoMap/cardUsageCardInfoMap과
         같은 이름을 맞춘 것 — 그쪽은 resultMap이라 <result>로 매핑하고, 여기는 평면
         DTO라 resultType을 쓰므로 SQL에서 AS로 맞춘다).
@@ -22,7 +32,7 @@
         uc.bank_name,
         uc.balance,
         uc.credit_limit,
-        uc.scheduled_payment_amount,
+        <include refid="scheduledPaymentAmount"/>,
         uc.display_order,
         cp.card_name,
         cp.card_type,
@@ -50,7 +60,8 @@
         <result column="category_image_url" property="categoryImageUrl"/>
         <result column="amount" property="paymentAmount"/>
         <result column="paid_at" property="paidAt"/>
-        <result column="is_eligible" property="performanceIncluded"/>
+        <result column="transaction_status" property="transactionStatus"/>
+        <result column="performance_included" property="performanceIncluded"/>
     </resultMap>
 
     <resultMap id="cardSummaryCardInfoMap"
@@ -73,6 +84,7 @@
         <result column="category_image_url" property="categoryImageUrl"/>
         <result column="amount" property="paymentAmount"/>
         <result column="paid_at" property="paidAt"/>
+        <result column="transaction_status" property="transactionStatus"/>
     </resultMap>
 
     <resultMap id="cardUsageCardInfoMap"
@@ -139,7 +151,7 @@
                cp.card_image_url,
                cp.card_type,
                uc.last4,
-               uc.scheduled_payment_amount
+               <include refid="scheduledPaymentAmount"/>
         FROM user_card uc
                  JOIN card_product cp ON cp.card_product_id = uc.card_product_id
                  JOIN issuer i ON i.issuer_id = cp.issuer_id
@@ -155,6 +167,7 @@
         WHERE uc.user_id = #{userId}
           AND uc.user_card_id = #{cardId}
           AND uc.is_deleted = 0
+          AND pt.transaction_status = 'APPROVED'
           AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
           AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
     </select>
@@ -167,7 +180,8 @@
                c.category_image_url,
                pt.amount,
                pt.paid_at,
-               pt.is_eligible
+               pt.transaction_status,
+               (pt.is_eligible = 1 AND pt.transaction_status = 'APPROVED') performance_included
         FROM payment_transaction pt
                  JOIN user_card uc ON uc.user_card_id = pt.user_card_id
                  LEFT JOIN store s ON s.store_id = pt.store_id
@@ -245,7 +259,8 @@
                c.category_name,
                c.category_image_url,
                pt.amount,
-               pt.paid_at
+               pt.paid_at,
+               pt.transaction_status
         FROM payment_transaction pt
                  JOIN user_card uc ON uc.user_card_id = pt.user_card_id
                  LEFT JOIN store s ON s.store_id = pt.store_id
@@ -282,6 +297,7 @@
         WHERE uc.user_id = #{userId}
           AND uc.user_card_id = #{cardId}
           AND uc.is_deleted = 0
+          AND pt.transaction_status = 'APPROVED'
           AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
           AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
     </select>
@@ -416,6 +432,7 @@
           AND uc.user_card_id = #{cardId}
           AND uc.is_deleted = 0
           AND pt.applied_benefit_service_id IS NOT NULL
+          AND pt.transaction_status = 'APPROVED'
           AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
           AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
         GROUP BY pt.applied_benefit_service_id,
@@ -435,9 +452,10 @@
         <if test="sortType != null and sortType.name() == 'RECENTLY_USED'">
                  LEFT JOIN (
                      SELECT user_card_id,
-                            MAX(paid_at) AS last_paid_at
-                     FROM payment_transaction
-                     GROUP BY user_card_id
+                             MAX(paid_at) AS last_paid_at
+                      FROM payment_transaction
+                      WHERE transaction_status = 'APPROVED'
+                      GROUP BY user_card_id
                  ) recent_payment ON recent_payment.user_card_id = uc.user_card_id
         </if>
         WHERE uc.user_id = #{userId}

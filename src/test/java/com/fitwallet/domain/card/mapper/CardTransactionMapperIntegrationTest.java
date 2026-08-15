@@ -1,6 +1,7 @@
 package com.fitwallet.domain.card.mapper;
 
 import com.fitwallet.domain.card.dto.CardTransactionCardInfo;
+import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.response.CardTransactionItemResponse;
@@ -42,7 +43,16 @@ class CardTransactionMapperIntegrationTest {
     }
 
     @Test
-    void 결제내역용_카드_정보와_저장된_결제이용금액을_조회한다() {
+    void 결제내역용_카드_정보와_승인거래로_재계산한_결제예정금액을_조회한다() {
+        jdbcTemplate.update(
+                "UPDATE user_card SET scheduled_payment_amount = 999999 WHERE user_card_id = ?",
+                SEED_CREDIT_CARD_ID);
+        BigDecimal expectedAmount = jdbcTemplate.queryForObject(
+                "SELECT COALESCE(SUM(final_amount), 0) FROM payment_transaction "
+                        + "WHERE user_card_id = ? AND transaction_status = 'APPROVED'",
+                BigDecimal.class,
+                SEED_CREDIT_CARD_ID);
+
         CardTransactionCardInfo card =
                 cardMapper.findTransactionCardInfo(SEED_USER_ID, SEED_CREDIT_CARD_ID);
 
@@ -53,7 +63,8 @@ class CardTransactionMapperIntegrationTest {
         assertThat(card.getIssuerName()).isNotBlank();
         assertThat(card.getCardType()).isEqualTo(CardType.CREDIT);
         assertThat(card.getMaskedRearNumber()).hasSize(4);
-        assertThat(card.getScheduledPaymentAmount()).isNotNull();
+        assertThat(card.getScheduledPaymentAmount()).isEqualByComparingTo(expectedAmount);
+        assertThat(card.getScheduledPaymentAmount()).isNotEqualByComparingTo("999999");
     }
 
     @Test
@@ -79,6 +90,8 @@ class CardTransactionMapperIntegrationTest {
         insertTransaction(startAt.minusSeconds(1), SEED_STORE_ID, "900.00", "1.00", true);
         insertTransaction(startAt, SEED_STORE_ID, "100.00", "10.00", true);
         insertTransaction(startAt.plusDays(1), SEED_STORE_ID, "200.00", "20.00", false);
+        insertTransaction(startAt.plusDays(2), SEED_STORE_ID,
+                "500.00", "500.00", true, CardTransactionStatus.CANCELED);
         insertTransaction(endAt, SEED_STORE_ID, "800.00", "1.00", true);
 
         BigDecimal amount = cardMapper.sumTransactionAmount(
@@ -113,7 +126,8 @@ class CardTransactionMapperIntegrationTest {
 
         insertTransaction(firstPaidAt, SEED_STORE_ID, "100.00", "100.00", true);
         insertTransaction(secondPaidAt, SEED_STORE_ID, "200.00", "200.00", true);
-        insertTransaction(thirdPaidAt, SEED_STORE_ID, "300.00", "300.00", true);
+        insertTransaction(thirdPaidAt, SEED_STORE_ID,
+                "300.00", "300.00", true, CardTransactionStatus.CANCELED);
 
         List<CardTransactionItemResponse> transactions = cardMapper.findTransactions(
                 SEED_USER_ID,
@@ -124,6 +138,10 @@ class CardTransactionMapperIntegrationTest {
         assertThat(transactions)
                 .extracting(CardTransactionItemResponse::getPaidAt)
                 .containsExactly(thirdPaidAt, secondPaidAt);
+        assertThat(transactions)
+                .extracting(CardTransactionItemResponse::getTransactionStatus)
+                .containsExactly(CardTransactionStatus.CANCELED, CardTransactionStatus.APPROVED);
+        assertThat(transactions.get(0).getPerformanceIncluded()).isFalse();
     }
 
     @Test
@@ -184,16 +202,25 @@ class CardTransactionMapperIntegrationTest {
 
     private void insertTransaction(LocalDateTime paidAt, Long storeId,
                                    String amount, String finalAmount, boolean eligible) {
+        insertTransaction(paidAt, storeId, amount, finalAmount,
+                eligible, CardTransactionStatus.APPROVED);
+    }
+
+    private void insertTransaction(LocalDateTime paidAt, Long storeId,
+                                   String amount, String finalAmount, boolean eligible,
+                                   CardTransactionStatus transactionStatus) {
         jdbcTemplate.update(
                 "INSERT INTO payment_transaction "
-                        + "(user_card_id, store_id, amount, discount_amount, final_amount, paid_at, is_eligible) "
-                        + "VALUES (?, ?, ?, 0, ?, ?, ?)",
+                        + "(user_card_id, store_id, amount, discount_amount, final_amount, paid_at, "
+                        + "is_eligible, transaction_status) "
+                        + "VALUES (?, ?, ?, 0, ?, ?, ?, ?)",
                 SEED_CREDIT_CARD_ID,
                 storeId,
                 new BigDecimal(amount),
                 new BigDecimal(finalAmount),
                 Timestamp.valueOf(paidAt),
-                eligible);
+                eligible,
+                transactionStatus.name());
     }
 
     private CardTransactionSearchCondition condition(

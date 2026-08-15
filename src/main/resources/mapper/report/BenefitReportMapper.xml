@@ -15,6 +15,7 @@
         LEFT JOIN benefit_service bs ON pt.applied_benefit_service_id = bs.service_id
         LEFT JOIN point_currency pc ON bs.point_currency_id = pc.point_currency_id
         WHERE uc.user_id = #{userId}
+        AND pt.transaction_status = 'APPROVED'
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
     </select>
 
@@ -23,6 +24,7 @@
         FROM payment_transaction pt
         JOIN user_card uc ON pt.user_card_id = uc.user_card_id
         WHERE uc.user_id = #{userId}
+        AND pt.transaction_status = 'APPROVED'
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
     </select>
 
@@ -44,6 +46,7 @@
         LEFT JOIN benefit_service bs ON pt.applied_benefit_service_id = bs.service_id
         LEFT JOIN point_currency pc ON bs.point_currency_id = pc.point_currency_id
         WHERE uc.user_id = #{userId}
+        AND pt.transaction_status = 'APPROVED'
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
         GROUP BY c.category_id, c.category_name
         ORDER BY benefitAmount DESC
@@ -61,6 +64,7 @@
         JOIN store s ON pt.store_id = s.store_id
         JOIN category c ON s.category_id = c.category_id
         WHERE uc.user_id = #{userId}
+        AND pt.transaction_status = 'APPROVED'
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
         GROUP BY c.category_id, c.category_name
         ORDER BY spendAmount DESC

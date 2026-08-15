@@ -64,6 +64,7 @@ public class CardController {
             - `sort`를 생략하면 결제 탭에서 사용하는 `displayOrder` 순으로 반환한다.
             - `sort=RECENTLY_USED`이면 최근 승인 거래 시각 내림차순으로 반환한다.
             - 최근 거래가 없는 카드는 뒤로 보내고 동률이면 `displayOrder`, `userCardId` 순으로 정렬한다.
+            - 신용카드의 `scheduledPaymentAmount`는 기간 제한 없이 전체 승인 거래의 `finalAmount`를 합산한다.
             - 보유 카드가 없으면 빈 배열을 반환한다.
             """)
     @GetMapping("/user-cards")
@@ -80,7 +81,7 @@ public class CardController {
 
             - 신용카드 결제 이용금액과 실적은 현재 월 1일부터 전날까지 반영한다.
             - 체크카드는 현재 잔액을 반환하고 실적은 오늘까지 반영한다.
-            - 최근 이용 내역은 카드 유형과 관계없이 KST 기준 오늘과 어제의 전체 승인 거래다.
+            - 최근 이용 내역은 카드 유형과 관계없이 KST 기준 오늘과 어제의 승인·취소 거래다.
             - 최근 이용 내역은 `paidAt DESC`, `transactionId DESC` 순이며 접힘·펼침은 클라이언트가 처리한다.
             - 실적 조건이 없으면 `tierType`과 `performanceStatus`가 `NO_REQUIREMENT`이고 표시 값은 null이다.
 
@@ -113,7 +114,7 @@ public class CardController {
 
             - `cardId`는 카드 상품 ID가 아닌 보유 카드 ID(`user_card_id`)입니다.
             - KST 기준 이번 달 1일 00:00:00부터 오늘 00:00:00 직전까지 집계합니다.
-            - `transactionCount`는 카테고리·브랜드 전체 거래가 아니라 현재 혜택 서비스가 실제 적용된 거래 건수입니다.
+            - `transactionCount`는 카테고리·브랜드 전체 거래가 아니라 현재 혜택 서비스가 실제 적용된 승인 거래 건수입니다.
             - 카테고리·브랜드 혜택은 한 번에 반환하며 소진된 혜택은 각 배열의 하단에 정렬합니다.
             - 적용 가능한 월 한도 혜택이 없으면 빈 배열을 반환합니다.
 
@@ -136,9 +137,10 @@ public class CardController {
 
             - `yearMonth`를 생략하면 현재 월을 조회하며, 현재 월을 포함한 최근 3개월만 조회할 수 있다.
             - 정렬 기준은 `paidAt DESC`, `transactionId DESC`이며 `nextCursor`로 다음 내역을 조회한다.
-            - 현재 월 신용카드는 전날까지의 `amount` 합계를 결제 이용금액으로 반환한다.
-            - 현재 월 체크카드는 오늘까지, 과거 월 카드는 해당 월 전체 거래의 `amount` 합계를 반환한다.
-            - 실적 미인정 거래도 목록과 합계에 포함하며 `performanceIncluded=false`로 구분한다.
+            - 신용카드는 조회 월과 무관하게 전체 승인 거래의 `finalAmount` 합계를 결제예정금액으로 반환한다.
+            - 체크카드는 현재 월은 오늘까지, 과거 월은 해당 월 승인 거래의 `amount` 합계를 반환한다.
+            - 승인·취소 거래를 모두 목록에 노출하고 `transactionStatus`로 구분한다.
+            - 취소 거래는 합계와 실적에서 제외되어 `performanceIncluded=false`이며, 승인된 실적 미인정 거래는 합계에 포함한다.
             - 가맹점 정보가 없으면 `storeName`, `categoryName`, `categoryImageUrl`은 null이다.
 
             | HTTP | code | message |

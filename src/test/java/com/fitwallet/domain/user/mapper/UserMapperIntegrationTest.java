@@ -315,6 +315,28 @@ class UserMapperIntegrationTest {
                 .containsExactly(validStore);
     }
 
+    @Test
+    void 취소거래는_자주찾는장소_집계에서_제외한다() {
+        Long userId = createUserWithCard("frequent-canceled-user");
+        Long userCardId = findUserCardId(userId);
+        Long approvedStore = createStore("승인거래매장");
+        Long canceledStore = createStore("취소거래매장");
+        insertTransactionDaysAgo(userCardId, approvedStore, 1);
+        for (int i = 0; i < 5; i++) {
+            jdbcTemplate.update(
+                    "INSERT INTO payment_transaction "
+                            + "(user_card_id, store_id, amount, final_amount, paid_at, transaction_status) "
+                            + "VALUES (?, ?, 1000, 1000, NOW() - INTERVAL ? DAY, 'CANCELED')",
+                    userCardId, canceledStore, i);
+        }
+
+        List<FrequentPlaceResponse> places = userMapper.findFrequentPlaces(userId);
+
+        assertThat(places).extracting(FrequentPlaceResponse::getStoreId)
+                .containsExactly(approvedStore)
+                .doesNotContain(canceledStore);
+    }
+
     /** 회원가입 후 카드 상품(card_product_id=1)으로 카드 한 장을 등록한다. */
     private Long createUserWithCard(String loginId) {
         SignUpRequest request = new SignUpRequest();
