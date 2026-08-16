@@ -8,38 +8,50 @@
 
 ## 브랜치 전략
 
-배포되는 브랜치와 개발이 쌓이는 브랜치를 분리합니다.
-`main`, `develop` 모두 직접 push는 금지이며, 모든 변경은 Pull Request를 통해 반영합니다.
+**`main`과 `develop`은 목적이 다른 두 갈래이고, 서로 병합하지 않습니다.**
+둘 다 직접 push는 금지이며, 모든 변경은 Pull Request를 통해 반영합니다.
 
 | 브랜치 | 역할 | 어떻게 갱신되나 | 병합 방식 |
 |------|------|----------------|----------|
-| `main` | 배포 브랜치. 배포된 것만 담습니다 | `develop` → `main` 릴리스 PR로만 | **Merge commit** |
-| `develop` | 통합 브랜치(기본 브랜치). 다음 배포에 들어갈 작업이 모입니다 | 작업 브랜치 → `develop` PR | **Squash and Merge** |
-| 작업 브랜치 | 이슈 하나 단위의 작업 | `develop`에서 분기 | (머지 후 삭제) |
+| `main` | **성능 최적화 + 배포.** CD가 여기서 운영에 올립니다 | `perf/*` 작업 브랜치 → `main` PR | **Squash and Merge** |
+| `develop` | **추가 기능 개발.** 로컬 시연용입니다 | `feat/*` 등 작업 브랜치 → `develop` PR | **Squash and Merge** |
+| 작업 브랜치 | 이슈 하나 단위의 작업 | **분기점은 작업 성격에 따라 갈립니다(아래)** | (머지 후 삭제) |
+
+| 작업 | 분기 | PR base | 예 |
+|------|------|---------|-----|
+| **성능 측정 · 성능 개선** | **`main`** | **`main`** | `perf/store-search-bbox` |
+| 기능 개발 · 버그 수정 · 문서 등 | `develop` | `develop` | `feat/login-page` |
 
 ```
+perf/store-search-bbox ─┐
+perf/k6-baseline ───────┼─▶ main ─(CD)─▶ 운영
+                        ┘
+
 feat/login-page ─┐
-fix/calc-error ──┼─▶ develop ─(릴리스 PR)─▶ main
+fix/calc-error ──┼─▶ develop ─▶ 로컬 시연
 docs/update ─────┘
 ```
 
-- 작업 브랜치는 **항상 최신 `develop`에서 분기**하고, PR의 base도 `develop`입니다
-- `main`으로 가는 PR은 릴리스 PR 하나뿐입니다
-- 릴리스 PR은 Merge commit으로 합칩니다. Squash로 합치면 `main`과 `develop`의 히스토리가 갈라져
-  다음 릴리스마다 충돌이 반복됩니다
+### 두 갈래가 갈라진 채로 가는 이유
 
-### 릴리스 (develop → main)
+성능 개선의 산출물은 **개선 전/후 수치**입니다. 그 수치는 실제로 배포되어 돌고 있는 코드를
+기준으로 재야 의미가 있습니다. 아직 배포되지 않은 기능이 측정에 섞여 들어오면
+"무엇을 고쳐서 빨라졌는지"를 가를 수 없게 됩니다. 그래서 성능 작업은 `main`에서만 갈라지고,
+기능 개발은 `develop`에 쌓인 채 로컬에서 시연합니다.
 
-배포 시점에 `develop`의 내용을 `main`으로 올립니다.
-
-```bash
-gh pr create --base main --head develop --title "release: 2026-07-28 배포"
-```
-
-- 제목: `release: {날짜 또는 버전} 배포` — 이슈 번호는 붙이지 않습니다
-- 본문에는 이번 배포에 포함된 PR 목록을 적습니다
-- **Merge commit**으로 머지합니다 (Squash 금지)
-- 머지 후 `main`은 `develop`의 조상이 되므로, `main`을 `develop`으로 되돌려 머지하는 작업은 필요 없습니다
+> [!IMPORTANT]
+> **되돌려 머지(back-merge)하지 않습니다.** 두 브랜치는 앞으로 계속 갈라진 상태로 갑니다.
+> 예전의 `develop` → `main` 릴리스 PR도 더 이상 만들지 않습니다.
+>
+> 그 대가로 알고 있어야 할 것 세 가지입니다.
+>
+> 1. **`develop`의 기능은 운영에 배포되지 않습니다.** 의도된 동작입니다 — 시연은 로컬에서 합니다
+> 2. **`main`에 머지하면 그 즉시 운영에 배포됩니다.** 성능 PR도 예외가 아닙니다
+>    (`.github/workflows/ci.yml`의 `deploy` 잡이 main push에서 돕니다)
+> 3. **양쪽 모두에 필요한 변경은 각 브랜치에 따로 반영해야 합니다.** `AGENTS.md`,
+>    `CONTRIBUTING.md`, `scripts/` 같은 공통 파일이 여기 해당합니다.
+>    실제로 PR #236(`load.sh --reset`의 고아 FK 수정)이 `main`에만 있어
+>    `develop`의 `load.sh`는 아직 고아 행을 남깁니다
 
 ### 브랜치 네이밍 규칙
 
@@ -104,15 +116,16 @@ fix: 모바일에서 클릭 이벤트 미작동 수정
 ## Pull Request 규칙
 
 - PR은 하나의 목적만 담습니다 (기능 하나, 버그 하나)
-- PR의 base는 `develop`입니다
+- PR의 base는 **분기점과 같습니다** — 성능 작업(`perf/`)은 `main`, 나머지는 `develop`
+  (위 "브랜치 전략" 참고)
 - PR 제목 형식: `[#이슈번호] type: 작업 내용`
   - 예시: `[#1] chore: 프로젝트 초기 세팅`
   - 예시: `[#12] fix: 이자율 계산 오류 수정`
 - 최소 1명의 승인(Approve) 이후 merge 가능합니다
 - 리뷰어는 48시간 내 리뷰를 완료합니다
 - merge 방식은 **Squash and Merge**를 기본으로 합니다
-- 단, 릴리스 PR(`develop` → `main`)은 예외입니다. 제목은 `release: {날짜 또는 버전} 배포` 형식이고
-  이슈 번호를 붙이지 않으며, **Merge commit**으로 합칩니다 (위 "릴리스" 절 참고)
+- 예전에 있던 릴리스 PR(`develop` → `main`, Merge commit)은 두 브랜치를 병합하지 않기로 하면서
+  더 이상 만들지 않습니다 (위 "브랜치 전략" 참고)
 
 ## 코드 리뷰 규칙
 
