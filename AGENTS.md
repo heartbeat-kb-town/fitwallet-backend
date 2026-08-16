@@ -447,10 +447,27 @@ src/main/resources/config/
 
 원본 규칙은 [CONTRIBUTING.md](./CONTRIBUTING.md)에 있다.
 
-- `main`은 **배포 브랜치**다. `develop` → `main` 릴리스 PR로만 갱신하며 병합은 **Merge commit**이다
-- `develop`은 **통합 브랜치이자 기본 브랜치**다. 모든 작업 브랜치는 `develop`에서 분기하고
-  **PR의 base는 항상 `develop`**이며 병합은 **Squash and Merge**다
+**`main`과 `develop`은 목적이 다른 두 갈래이고, 서로 병합하지 않는다.**
+
+| 브랜치 | 역할 | 들어오는 PR | 병합 |
+|---|---|---|---|
+| `main` | **성능 최적화 + 배포.** CD가 여기서 운영에 올린다 | `perf/*` | Squash and Merge |
+| `develop` | **추가 기능 개발.** 로컬 시연용 | `feat/*` · `fix/*` · `docs/*` 등 | Squash and Merge |
+
 - `main`, `develop` 모두 **직접 push 금지**
+- **분기점과 PR base는 같다** — 성능 작업은 `main`에서 갈라 `main`으로, 나머지는 `develop`에서 갈라 `develop`으로
+
+성능 개선의 산출물은 **개선 전/후 수치**이고, 그 수치는 실제 배포되어 도는 코드를 기준으로
+재야 의미가 있다. 아직 배포되지 않은 기능이 측정에 섞이면 "무엇을 고쳐서 빨라졌는지"를
+가를 수 없다. 그래서 성능은 `main`에서만 갈라지고, 기능은 `develop`에 쌓인 채 로컬에서 시연한다.
+
+> ⚠️ **back-merge하지 않는다. 두 브랜치는 계속 갈라진 채로 간다.**
+> 예전의 `develop` → `main` 릴리스 PR도 더 이상 만들지 않는다. 대가로 알아야 할 것:
+> ① `develop`의 기능은 **운영에 배포되지 않는다**(의도된 동작, 시연은 로컬)
+> ② **`main`에 머지하면 그 즉시 운영에 배포된다** — 성능 PR도 예외가 아니다
+> ③ 양쪽에 다 필요한 변경(`AGENTS.md`·`CONTRIBUTING.md`·`scripts/` 등)은 **각 브랜치에 따로
+> 반영**해야 한다. 실제로 PR #236(`load.sh --reset` 고아 FK 수정)이 `main`에만 있어
+> `develop`의 `load.sh`는 아직 고아 행을 남긴다
 - 브랜치: `{type}/{설명}` — **영어 소문자 + 하이픈** (`feat`, `fix`, `docs`, `chore`, `style`, `refactor`, `test`, `perf`, `ci`)
 - 커밋: `type: 한국어 설명` (Conventional Commits)
 
@@ -483,8 +500,11 @@ src/main/resources/config/
 
 #### 2. 브랜치 생성
 
+**성능 작업은 `main`에서**, 기능·수정 작업은 `develop`에서 분기한다(위 표).
+
 ```bash
-git checkout develop && git pull origin develop
+git checkout main && git pull origin main           # 성능 작업
+git checkout develop && git pull origin develop     # 기능·수정·문서
 git checkout -b {type}/{설명}
 ```
 
@@ -504,28 +524,21 @@ git push -u origin {브랜치명}
 
 #### 6. PR 생성 (`gh pr create --repo heartbeat-kb-town/fitwallet-backend --base develop`)
 
+- **base는 분기점과 같아야 한다** — 기능·수정은 `--base develop`, 성능 작업은 `--base main`
 - 제목: `[#이슈번호] type: 작업 내용`
 - 본문: 관련 이슈(`closes #N`) / 작업 내용 / 변경 유형(체크박스) / 체크리스트 / 리뷰어에게 전달할 내용
 - 이슈가 마일스톤에 연결돼 있으면 PR도 같은 마일스톤에 연결한다
 
 이슈가 여러 개로 쪼개지는 큰 작업은 먼저 상위 이슈나 마일스톤으로 묶고, 하위 작업 단위로 이 플로우를 반복한다.
 
-#### 릴리스 플로우 (develop → main)
+#### 릴리스 플로우 (develop → main) — 더 이상 쓰지 않는다
 
-배포 시점에 **사용자가 명시적으로 요청할 때만** 실행한다.
-
-```bash
-gh pr create --repo heartbeat-kb-town/fitwallet-backend \
-  --base main --head develop --title "release: {날짜 또는 버전} 배포"
-```
-
-- 이슈를 만들지 않고 제목에 이슈 번호도 붙이지 않는다
-- 본문에 이번 배포에 포함된 PR 목록을 적는다 (`git log main..develop --oneline`)
-- **Merge commit**으로 머지한다 (Squash 금지 — 히스토리가 갈라져 다음 릴리스에서 충돌한다)
+두 브랜치를 병합하지 않기로 하면서 폐기됐다. `develop`의 내용을 `main`으로 올리는 PR을
+**만들지 않는다.** `main`은 `perf/*` PR로만 갱신되고, 그 머지가 곧 배포다(아래).
 
 #### 자동 배포 (CD)
 
-**이 PR이 머지되면 운영 환경이 갱신된다.** `.github/workflows/ci.yml`의 `deploy` 잡이
+**`main`에 머지되면 운영 환경이 갱신된다.** `.github/workflows/ci.yml`의 `deploy` 잡이
 main push에서 실행돼, `build` 잡이 만든 WAR를 그대로 Elastic Beanstalk
 `fitwallet-backend` / `fitwallet-prod`(`ap-northeast-2`)에 올린다. 배포 시점에 다시
 빌드하지 않으므로 테스트를 통과한 바이너리가 그대로 올라간다.
