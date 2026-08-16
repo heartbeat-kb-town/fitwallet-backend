@@ -21,7 +21,8 @@
  *   - PATCH /user/payment-pin          → PIN이 바뀌어 이후 결제 계열이 전부 실패한다
  *
  * 그래서 두 계열로 나눈다.
- *   READ  — 반복해도 상태가 변하지 않는다. N=30. **SLO 판정의 정본은 이쪽이다**
+ *   READ  — 반복해도 상태가 변하지 않는다. N=READ_ITERATIONS(기본 200).
+ *           **SLO 판정의 정본은 이쪽이다**
  *   WRITE — 반복하면 제약에 걸리거나 데이터를 오염시킨다. N=WRITE_ITERATIONS(기본 3),
  *           그리고 측정 전용 유저에게만 쏜다(§ WRITE_USER)
  *
@@ -37,9 +38,19 @@ import { Trend, Rate } from 'k6/metrics';
 const BASE_URL = (__ENV.BASE_URL || 'http://fitwallet-backend-prod.ap-northeast-2.elasticbeanstalk.com')
     .replace(/\/$/, '');
 
-/** 측정 반복 횟수. 워밍업 분은 기록하지 않고 따로 돈다. */
-const WARMUP = Number(__ENV.WARMUP || 5);
-const READ_ITERATIONS = Number(__ENV.READ_ITERATIONS || 30);
+/**
+ * 측정 반복 횟수. 워밍업 분은 기록하지 않고 따로 돈다.
+ *
+ * **N=200인 이유** — p95를 말하려면 상위 5% 구간에 표본이 충분히 있어야 한다.
+ * N=200이면 상위 5%가 10개다. 처음에 N=30으로 쟀는데 그때는 상위 5%가 1.5개뿐이라
+ * p95가 사실상 "두 번째로 큰 값"이었다.
+ *
+ * **p99는 출력하지 않는다.** N=200이어도 상위 1%가 2개뿐이라 보간으로 지어낸 값이 되고,
+ * 실측하면 항상 max 바로 밑에 붙어 max의 그림자 노릇만 한다. 꼬리가 궁금하면 max를 본다.
+ */
+const WARMUP = Number(__ENV.WARMUP || 10);
+const READ_ITERATIONS = Number(__ENV.READ_ITERATIONS || 200);
+/** WRITE는 반복하면 제약에 걸리거나 데이터를 오염시켜 늘릴 수 없다. 통계값을 내지 않는다. */
 const WRITE_ITERATIONS = Number(__ENV.WRITE_ITERATIONS || 3);
 
 /**
@@ -193,7 +204,7 @@ export const options = {
     // baseline은 판정이 아니라 관측이다. threshold를 걸면 느린 엔드포인트에서 테스트가 중단돼
     // 나머지 표가 비어버린다. SLO 판정은 4단계에서 붙인다.
     thresholds: {},
-    summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'p(99)', 'max'],
+    summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'max'],
     discardResponseBodies: false,
 };
 
@@ -358,7 +369,6 @@ function buildTable(data) {
             n,
             med: t.values.med,
             p95: t.values['p(95)'],
-            p99: t.values['p(99)'],
             max: t.values.max,
             errRate: e ? e.values.rate : 0,
         });
@@ -369,11 +379,11 @@ function buildTable(data) {
     rows.sort((a, b) => b.p95 - a.p95);
 
     const lines = [
-        '| # | 엔드포인트 | 계열 | N | p50 | p95 | p99 | max | 에러율 |',
-        '|---:|---|---|---:|---:|---:|---:|---:|---:|',
+        '| # | 엔드포인트 | 계열 | N | p50 | p95 | max | 에러율 |',
+        '|---:|---|---|---:|---:|---:|---:|---:|',
     ];
     rows.forEach((r, i) => {
-        lines.push(`| ${i + 1} | \`${r.name}\` | ${r.kind} | ${r.n} | ${ms(r.med)} | ${ms(r.p95)} | ${ms(r.p99)} | ${ms(r.max)} | ${(r.errRate * 100).toFixed(1)}% |`);
+        lines.push(`| ${i + 1} | \`${r.name}\` | ${r.kind} | ${r.n} | ${ms(r.med)} | ${ms(r.p95)} | ${ms(r.max)} | ${(r.errRate * 100).toFixed(1)}% |`);
     });
     return { table: lines.join('\n'), rows };
 }
@@ -390,6 +400,9 @@ export function handleSummary(data) {
         '',
         '> WRITE는 표본이 작다(반복하면 UNIQUE 제약에 걸리거나 데이터를 오염시킨다).',
         '> **p95를 신뢰하지 말고 p50과 max만 참고한다.**',
+        '',
+        `> p99는 싣지 않는다 — N=${READ_ITERATIONS}에서도 상위 1%가 2개뿐이라 보간으로 지어낸 값이 되고,`,
+        '> 실측하면 항상 max 바로 밑에 붙어 max의 그림자 노릇만 한다. 꼬리는 max로 본다.',
         '',
         'p95 내림차순 정렬 — 위쪽이 개선 우선순위다.',
         '',
