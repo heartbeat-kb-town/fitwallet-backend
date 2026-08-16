@@ -71,3 +71,10 @@ out/
 # 적재 스크립트가 만드는 바이트코드 캐시 (scripts/perf-data/)
 __pycache__/
 *.pyc
+
+# k6 handleSummary가 실행 디렉터리에 떨어뜨리는 기본 이름. 보관본은 날짜를 붙여 rename한다.
+baseline-summary.md
+baseline-summary.json
+
+# k6 측정 결과. 수치와 해석의 정본은 노션이다 — 저장소에는 도구만 둔다.
+scripts/perf-k6/results/
