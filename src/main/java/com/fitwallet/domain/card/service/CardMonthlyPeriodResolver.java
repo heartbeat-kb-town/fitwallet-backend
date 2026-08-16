@@ -20,11 +20,16 @@ import java.util.List;
 @RequiredArgsConstructor
 public class CardMonthlyPeriodResolver {
 
-    private static final int AVAILABLE_MONTH_COUNT = 3;
-
     private final Clock clock;
 
     public CardMonthlyPeriod resolve(String requestedYearMonth, CardType cardType) {
+        return resolve(requestedYearMonth, cardType, null);
+    }
+
+    public CardMonthlyPeriod resolve(
+            String requestedYearMonth,
+            CardType cardType,
+            LocalDateTime oldestTransactionPaidAt) {
         LocalDate today = LocalDate.now(clock);
         YearMonth currentYearMonth = YearMonth.from(today);
         YearMonth yearMonth = resolveYearMonth(requestedYearMonth, currentYearMonth);
@@ -38,7 +43,7 @@ public class CardMonthlyPeriodResolver {
                 startAt,
                 endAt,
                 currentMonth,
-                createAvailableYearMonths(currentYearMonth));
+                createAvailableYearMonths(currentYearMonth, oldestTransactionPaidAt));
     }
 
     private YearMonth resolveYearMonth(String requestedYearMonth, YearMonth currentYearMonth) {
@@ -53,8 +58,7 @@ public class CardMonthlyPeriodResolver {
             throw new BusinessException(CardErrorCode.INVALID_YEAR_MONTH);
         }
 
-        if (yearMonth.isAfter(currentYearMonth)
-                || yearMonth.isBefore(currentYearMonth.minusMonths(AVAILABLE_MONTH_COUNT - 1L))) {
+        if (yearMonth.isAfter(currentYearMonth)) {
             throw new BusinessException(CardErrorCode.YEAR_MONTH_OUT_OF_RANGE);
         }
         return yearMonth;
@@ -74,10 +78,21 @@ public class CardMonthlyPeriodResolver {
         return today.plusDays(1).atStartOfDay();
     }
 
-    private List<String> createAvailableYearMonths(YearMonth currentYearMonth) {
-        List<String> availableYearMonths = new ArrayList<>(AVAILABLE_MONTH_COUNT);
-        for (int index = 0; index < AVAILABLE_MONTH_COUNT; index++) {
-            availableYearMonths.add(currentYearMonth.minusMonths(index).toString());
+    private List<String> createAvailableYearMonths(
+            YearMonth currentYearMonth,
+            LocalDateTime oldestTransactionPaidAt) {
+        YearMonth oldestYearMonth = oldestTransactionPaidAt == null
+                ? currentYearMonth
+                : YearMonth.from(oldestTransactionPaidAt);
+        if (oldestYearMonth.isAfter(currentYearMonth)) {
+            oldestYearMonth = currentYearMonth;
+        }
+
+        List<String> availableYearMonths = new ArrayList<>();
+        YearMonth yearMonth = currentYearMonth;
+        while (!yearMonth.isBefore(oldestYearMonth)) {
+            availableYearMonths.add(yearMonth.toString());
+            yearMonth = yearMonth.minusMonths(1);
         }
         return availableYearMonths;
     }

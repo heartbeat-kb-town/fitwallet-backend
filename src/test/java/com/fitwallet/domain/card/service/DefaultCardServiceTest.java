@@ -443,6 +443,8 @@ class DefaultCardServiceTest {
     void 현재월_신용카드는_전체_승인거래로_계산된_결제예정금액을_반환한다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
                 .willReturn(transactionCard(CardType.CREDIT, new BigDecimal("89800.00")));
+        given(cardMapper.findOldestTransactionPaidAt(1L, 10L))
+                .willReturn(LocalDateTime.of(2026, 4, 15, 10, 0));
         given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
                 .willReturn(List.of());
 
@@ -451,7 +453,7 @@ class DefaultCardServiceTest {
 
         assertThat(response.getYearMonth()).isEqualTo("2026-07");
         assertThat(response.getAvailableYearMonths())
-                .containsExactly("2026-07", "2026-06", "2026-05");
+                .containsExactly("2026-07", "2026-06", "2026-05", "2026-04");
         assertThat(response.getPaymentSummary().getSummaryType())
                 .isEqualTo(CardTransactionSummaryType.SCHEDULED_PAYMENT);
         assertThat(response.getPaymentSummary().getAmount()).isEqualByComparingTo("89800.00");
@@ -543,9 +545,11 @@ class DefaultCardServiceTest {
     }
 
     @Test
-    void 조회연월_형식과_최근3개월_범위를_검증한다() {
+    void 조회연월_형식과_미래월_범위를_검증하고_오래된월은_허용한다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
                 .willReturn(transactionCard(CardType.CREDIT, BigDecimal.ZERO));
+        given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
+                .willReturn(List.of());
 
         assertErrorCode(
                 () -> cardService.getCardTransactions(
@@ -553,12 +557,16 @@ class DefaultCardServiceTest {
                 CardErrorCode.INVALID_YEAR_MONTH);
         assertErrorCode(
                 () -> cardService.getCardTransactions(
-                        1L, 10L, searchRequest("2026-04", null, null)),
-                CardErrorCode.YEAR_MONTH_OUT_OF_RANGE);
-        assertErrorCode(
-                () -> cardService.getCardTransactions(
                         1L, 10L, searchRequest("2026-08", null, null)),
                 CardErrorCode.YEAR_MONTH_OUT_OF_RANGE);
+
+        CardTransactionDetailResponse response = cardService.getCardTransactions(
+                1L, 10L, searchRequest("2020-01", null, null));
+
+        assertThat(response.getYearMonth()).isEqualTo("2020-01");
+        assertThat(response.getTransactions().getContent()).isEmpty();
+        assertThat(response.getTransactions().getHasNext()).isFalse();
+        assertThat(response.getTransactions().getNextCursor()).isNull();
     }
 
     @Test
@@ -670,6 +678,8 @@ class DefaultCardServiceTest {
         given(cardMapper.findUsageCardInfo(1L, 5L)).willReturn(CardUsageCardInfo.builder()
                 .cardProductId(43L).cardName("KB국민 노리 체크카드")
                 .issuerName("KB국민카드").cardType(CardType.DEBIT).build());
+        given(cardMapper.findOldestTransactionPaidAt(1L, 5L))
+                .willReturn(LocalDateTime.of(2026, 4, 20, 10, 0));
         given(cardMapper.findUsageAmounts(eq(1L), eq(5L), any(CardUsagePeriodCondition.class)))
                 .willReturn(CardUsageAmountSummary.builder()
                         .recognizedAmount(new BigDecimal("100000"))
@@ -686,6 +696,8 @@ class DefaultCardServiceTest {
         assertThat(response.getCard().getCardName()).isEqualTo("KB국민 노리 체크카드");
         assertThat(response.getCard().getIssuerName()).isEqualTo("KB국민카드");
         assertThat(response.getYearMonth()).isEqualTo("2026-07");
+        assertThat(response.getAvailableYearMonths())
+                .containsExactly("2026-07", "2026-06", "2026-05", "2026-04");
         assertThat(response.getUsageSummary().getRecognizedAmount()).isEqualByComparingTo("100000");
         assertThat(response.getUsageSummary().getExcludedAmount()).isEqualByComparingTo("20000");
         assertThat(response.getTiers()).isEmpty();

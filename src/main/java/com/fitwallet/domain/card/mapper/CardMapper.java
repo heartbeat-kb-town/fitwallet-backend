@@ -25,6 +25,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 
@@ -60,6 +61,10 @@ public interface CardMapper {
      */
     CardTransactionCardInfo findTransactionCardInfo(@Param("userId") Long userId,
                                                     @Param("cardId") Long cardId);
+
+    /** 로그인 사용자가 보유한 카드에 저장된 가장 오래된 승인·승인취소 거래 시각을 조회한다. */
+    LocalDateTime findOldestTransactionPaidAt(@Param("userId") Long userId,
+                                              @Param("cardId") Long cardId);
 
     /**
      * 카드 유형별 조회 기간에 발생한 결제 완료 건의 금액을 합산한다.
