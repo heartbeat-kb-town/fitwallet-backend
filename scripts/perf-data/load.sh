@@ -39,11 +39,20 @@ if [[ "${1:-}" == "--reset" ]]; then
     # (ERROR 1701: Cannot truncate a table referenced in a foreign key constraint).
     #
     # store는 TRUNCATE하지 않는다 — V2 참조데이터 244행은 Flyway가 넣은 것이라 남겨야 한다.
+    #
+    # refresh_token(→ users)과 payment_session(→ user_card, store)도 함께 비운다.
+    # 이 둘을 남기면 참조 대상이 사라진 고아 행이 되는데, FOREIGN_KEY_CHECKS를 다시 켜도
+    # MySQL은 기존 행을 소급 검증하지 않아 **에러 없이 조용히 남는다.**
+    # 성능 DB는 두 테이블이 항상 0행이라 드러나지 않지만, 로그인·결제가 오간 DB를 적재
+    # 대상으로 삼으면 실제로 깨진다. 둘 다 버려도 무해하다 — refresh_token은 재로그인으로
+    # 복구되고, payment_session은 진행 중인 결제 세션이다.
     echo "초기화: 적재분을 비운다 (store는 245번부터만)"
     MYSQL_PWD="$DB_PASSWORD" mysql \
         --default-character-set=utf8mb4 \
         --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" "$DB_NAME" --execute="
         SET FOREIGN_KEY_CHECKS = 0;
+        TRUNCATE TABLE payment_session;
+        TRUNCATE TABLE refresh_token;
         TRUNCATE TABLE payment_transaction;
         TRUNCATE TABLE search_history;
         TRUNCATE TABLE user_card;
