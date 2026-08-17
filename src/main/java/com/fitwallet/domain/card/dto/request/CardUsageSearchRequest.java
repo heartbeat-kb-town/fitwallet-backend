@@ -11,7 +11,7 @@ import lombok.NoArgsConstructor;
 @NoArgsConstructor
 public class CardUsageSearchRequest {
 
-    @ApiModelProperty(value = "조회 연월. 미입력 시 현재 월이며 현재 월 포함 최근 3개월만 허용한다",
+    @ApiModelProperty(value = "조회 연월. 미입력 시 현재 월이며 미래 월은 허용하지 않는다",
             example = "2026-07")
     private String yearMonth;
 }

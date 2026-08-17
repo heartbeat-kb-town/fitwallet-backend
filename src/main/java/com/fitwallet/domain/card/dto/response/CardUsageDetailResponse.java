@@ -26,8 +26,8 @@ public class CardUsageDetailResponse {
     @ApiModelProperty(value = "조회 연월(yyyy-MM)", example = "2026-07")
     private String yearMonth;
 
-    @ApiModelProperty(value = "현재 월을 포함하여 조회할 수 있는 최근 3개월",
-            example = "[\"2026-08\", \"2026-07\", \"2026-06\"]")
+    @ApiModelProperty(value = "현재 월부터 최초 거래 월까지 빈 월을 포함한 최신순 연월 목록",
+            example = "[\"2026-08\", \"2026-07\", \"2026-06\", \"2026-05\"]")
     private List<String> availableYearMonths;
 
     @ApiModelProperty(value = "카드 상품의 통합 실적 구간 유형", example = "MULTIPLE_TIERS")

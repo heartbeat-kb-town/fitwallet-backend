@@ -28,13 +28,24 @@ class CardMonthlyPeriodResolverTest {
     }
 
     @Test
-    void 조회연월을_생략하면_현재월과_최근3개월을_반환한다() {
+    void 거래가_없고_조회연월을_생략하면_현재월만_반환한다() {
         CardMonthlyPeriod period = resolver.resolve(null, CardType.DEBIT);
 
         assertThat(period.getYearMonth().toString()).isEqualTo("2026-08");
         assertThat(period.getAvailableYearMonths())
-                .containsExactly("2026-08", "2026-07", "2026-06");
+                .containsExactly("2026-08");
         assertThat(period.isCurrentMonth()).isTrue();
+    }
+
+    @Test
+    void 현재월부터_최초거래월까지_빈월을_포함해_최신순으로_반환한다() {
+        CardMonthlyPeriod period = resolver.resolve(
+                null,
+                CardType.DEBIT,
+                LocalDateTime.of(2026, 4, 20, 12, 0));
+
+        assertThat(period.getAvailableYearMonths())
+                .containsExactly("2026-08", "2026-07", "2026-06", "2026-05", "2026-04");
     }
 
     @Test
@@ -82,10 +93,17 @@ class CardMonthlyPeriodResolverTest {
     }
 
     @Test
-    void 최근3개월보다_과거이면_YEAR_MONTH_OUT_OF_RANGE_예외를_던진다() {
-        assertThatThrownBy(() -> resolver.resolve("2026-05", CardType.DEBIT))
-                .isInstanceOf(BusinessException.class)
-                .extracting(exception -> ((BusinessException) exception).getErrorCode())
-                .isEqualTo(CardErrorCode.YEAR_MONTH_OUT_OF_RANGE);
+    void 최초거래월보다_과거인_월도_빈내역을_조회할수_있다() {
+        CardMonthlyPeriod period = resolver.resolve(
+                "2020-01",
+                CardType.DEBIT,
+                LocalDateTime.of(2026, 4, 20, 12, 0));
+
+        assertThat(period.getYearMonth().toString()).isEqualTo("2020-01");
+        assertThat(period.getStartAt()).isEqualTo(LocalDateTime.of(2020, 1, 1, 0, 0));
+        assertThat(period.getEndAt()).isEqualTo(LocalDateTime.of(2020, 2, 1, 0, 0));
+        assertThat(period.getAvailableYearMonths())
+                .startsWith("2026-08")
+                .endsWith("2026-04");
     }
 }

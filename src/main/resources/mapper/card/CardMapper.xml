@@ -160,6 +160,15 @@
           AND uc.is_deleted = 0
     </select>
 
+    <select id="findOldestTransactionPaidAt" resultType="java.time.LocalDateTime">
+        SELECT MIN(pt.paid_at)
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+    </select>
+
     <select id="sumTransactionAmount" resultType="java.math.BigDecimal">
         SELECT COALESCE(SUM(pt.amount), 0)
         FROM payment_transaction pt

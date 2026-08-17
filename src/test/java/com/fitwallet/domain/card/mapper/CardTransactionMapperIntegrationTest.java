@@ -83,6 +83,32 @@ class CardTransactionMapperIntegrationTest {
     }
 
     @Test
+    void 승인취소를_포함해_가장_오래된_거래시각을_조회한다() {
+        LocalDateTime oldestPaidAt = LocalDateTime.of(2000, 1, 15, 10, 0);
+        insertTransaction(
+                oldestPaidAt,
+                SEED_STORE_ID,
+                "100.00",
+                "100.00",
+                false,
+                CardTransactionStatus.CANCELED);
+        insertTransaction(
+                oldestPaidAt.plusMonths(1),
+                SEED_STORE_ID,
+                "200.00",
+                "200.00",
+                true);
+
+        assertThat(cardMapper.findOldestTransactionPaidAt(
+                SEED_USER_ID, SEED_CREDIT_CARD_ID)).isEqualTo(oldestPaidAt);
+    }
+
+    @Test
+    void 존재하지_않는_카드의_최초거래시각은_null이다() {
+        assertThat(cardMapper.findOldestTransactionPaidAt(SEED_USER_ID, 9999L)).isNull();
+    }
+
+    @Test
     void 시작시각은_포함하고_종료시각은_제외하여_amount를_합산한다() {
         LocalDateTime startAt = LocalDateTime.of(2099, 1, 1, 0, 0);
         LocalDateTime endAt = LocalDateTime.of(2099, 2, 1, 0, 0);

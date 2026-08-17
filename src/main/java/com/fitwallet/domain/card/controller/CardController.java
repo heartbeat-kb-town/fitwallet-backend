@@ -135,7 +135,8 @@ public class CardController {
     @ApiOperation(value = "카드별 세부 결제 내역 조회", notes = """
             로그인 사용자가 보유한 카드의 월별 결제 내역을 커서 방식으로 조회한다.
 
-            - `yearMonth`를 생략하면 현재 월을 조회하며, 현재 월을 포함한 최근 3개월만 조회할 수 있다.
+            - `yearMonth`를 생략하면 현재 월을 조회하며, 미래 월을 제외한 모든 과거 월을 조회할 수 있다.
+            - `availableYearMonths`는 현재 월부터 최초 거래 월까지 빈 월을 포함해 최신순으로 반환한다.
             - 정렬 기준은 `paidAt DESC`, `transactionId DESC`이며 `nextCursor`로 다음 내역을 조회한다.
             - 신용카드는 조회 월과 무관하게 전체 승인 거래의 `finalAmount` 합계를 결제예정금액으로 반환한다.
             - 체크카드는 현재 월은 오늘까지, 과거 월은 해당 월 승인 거래의 `amount` 합계를 반환한다.
@@ -146,7 +147,7 @@ public class CardController {
             | HTTP | code | message |
             |---|---|---|
             | 400 | INVALID_YEAR_MONTH | 조회 연월 형식이 올바르지 않습니다. |
-            | 400 | YEAR_MONTH_OUT_OF_RANGE | 최근 3개월의 내역만 조회할 수 있습니다. |
+            | 400 | YEAR_MONTH_OUT_OF_RANGE | 미래 월의 내역은 조회할 수 없습니다. |
             | 400 | INVALID_TRANSACTION_PAGE_SIZE | 조회 개수는 1개 이상 100개 이하여야 합니다. |
             | 400 | INVALID_TRANSACTION_CURSOR | 유효하지 않은 결제 내역 커서입니다. |
             | 404 | CARD_NOT_FOUND | 요청한 카드를 찾을 수 없습니다. |
@@ -165,7 +166,8 @@ public class CardController {
     @ApiOperation(value = "카드 이용 실적 상세 조회", notes = """
             로그인 사용자가 보유한 카드의 월별 이용 실적과 카드상품 단위 통합 혜택 구간을 조회한다.
 
-            - `yearMonth`를 생략하면 현재 월을 조회하며, 현재 월을 포함한 최근 3개월만 조회할 수 있다.
+            - `yearMonth`를 생략하면 현재 월을 조회하며, 미래 월을 제외한 모든 과거 월을 조회할 수 있다.
+            - `availableYearMonths`는 현재 월부터 최초 거래 월까지 빈 월을 포함해 최신순으로 반환한다.
             - 체크카드의 현재 월 실적은 오늘 거래까지, 신용카드는 전날 거래까지 반영한다.
             - `recognizedAmount`는 `is_eligible=true`, `excludedAmount`는 `is_eligible=false` 거래의 `amount` 합계다.
             - 실적 조건이 있는 카드는 최소금액 기준의 통합 구간과 구간별 적용 혜택을 반환한다.
@@ -175,7 +177,7 @@ public class CardController {
             | HTTP | code | message |
             |---|---|---|
             | 400 | INVALID_YEAR_MONTH | 조회 연월 형식이 올바르지 않습니다. |
-            | 400 | YEAR_MONTH_OUT_OF_RANGE | 최근 3개월의 내역만 조회할 수 있습니다. |
+            | 400 | YEAR_MONTH_OUT_OF_RANGE | 미래 월의 내역은 조회할 수 없습니다. |
             | 404 | CARD_NOT_FOUND | 요청한 카드를 찾을 수 없습니다. |
             """)
     @GetMapping("/card/{cardId}/usage")

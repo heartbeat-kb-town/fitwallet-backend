@@ -40,6 +40,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.math.BigDecimal;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
@@ -150,7 +151,7 @@ public class DefaultCardService implements CardService {
                 .cardType(card.getCardType())
                 .build();
         CardUsageDetailResponse usageDetail = createCardUsageDetail(
-                userId, cardId, null, usageCard);
+                userId, cardId, null, usageCard, null);
 
         List<CardSummaryTransactionResponse> recentTransactions =
                 cardMapper.findRecentTransactions(
@@ -202,8 +203,10 @@ public class DefaultCardService implements CardService {
             throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
         }
 
+        LocalDateTime oldestTransactionPaidAt =
+                cardMapper.findOldestTransactionPaidAt(userId, cardId);
         CardMonthlyPeriod period = monthlyPeriodResolver.resolve(
-                request.getYearMonth(), card.getCardType());
+                request.getYearMonth(), card.getCardType(), oldestTransactionPaidAt);
         CardTransactionProcessor.PreparedTransactionQuery query =
                 cardTransactionProcessor.prepareQuery(cardId, request, period);
         BigDecimal totalAmount;
@@ -233,20 +236,24 @@ public class DefaultCardService implements CardService {
             throw new BusinessException(CardErrorCode.CARD_NOT_FOUND);
         }
 
+        LocalDateTime oldestTransactionPaidAt =
+                cardMapper.findOldestTransactionPaidAt(userId, cardId);
         return createCardUsageDetail(
                 userId,
                 cardId,
                 request == null ? null : request.getYearMonth(),
-                card);
+                card,
+                oldestTransactionPaidAt);
     }
 
     private CardUsageDetailResponse createCardUsageDetail(
             Long userId,
             Long cardId,
             String requestedYearMonth,
-            CardUsageCardInfo card) {
+            CardUsageCardInfo card,
+            LocalDateTime oldestTransactionPaidAt) {
         CardMonthlyPeriod period = monthlyPeriodResolver.resolve(
-                requestedYearMonth, card.getCardType());
+                requestedYearMonth, card.getCardType(), oldestTransactionPaidAt);
         CardUsagePeriodCondition condition = CardUsagePeriodCondition.builder()
                 .startAt(period.getStartAt())
                 .endAt(period.getEndAt())
