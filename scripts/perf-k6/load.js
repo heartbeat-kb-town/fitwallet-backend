@@ -274,6 +274,56 @@ export function setup() {
     return { pool };
 }
 
-export default function () {
-    // Task 4에서 구현한다.
+/** 에러 본문 로그 상한. 100 VU가 전부 실패하면 로그가 수만 줄이 된다. */
+const ERROR_LOG_LIMIT = 20;
+let errorLogged = 0;
+
+function fire(call, u, isSteady) {
+    const headers = call.auth === false
+        ? {}
+        : { Authorization: `Bearer ${u.token}` };
+
+    // tags.name을 고정해야 URL에 userCardId가 박힌 요청들이 따로 집계되지 않는다.
+    const res = http.get(`${BASE_URL}${call.url(u)}`, {
+        headers,
+        tags: { name: call.name },
+        timeout: '60s',
+    });
+
+    if (isSteady) steadyReqs.add(1);
+
+    if (res.status >= 500) {
+        serverErrors.add(1, { name: call.name });
+        /*
+         * 본문을 남기는 이유 — 커넥션 풀(20)이 고갈되면 connectionTimeout=3000에 걸려
+         * CannotGetJdbcConnection 계열 500이 난다. 응답이 느려지는 것이 아니라 에러가
+         * 나는 형태라, 본문을 봐야 원인이 풀인지 다른 것인지 갈린다(설계 §5).
+         */
+        if (errorLogged < ERROR_LOG_LIMIT) {
+            errorLogged++;
+            console.warn(`[${call.name}] HTTP ${res.status} — ${String(res.body).slice(0, 300)}`);
+        }
+    }
+}
+
+export default function (data) {
+    // __VU는 1부터. 시나리오가 둘이라 VU 번호가 겹칠 수 있어 모듈로로 감싼다.
+    const u = data.pool[(__VU - 1) % data.pool.length];
+    const isSteady = exec.scenario.name === 'steady';
+
+    for (let i = 0; i < SCREENS.length; i++) {
+        for (const call of SCREENS[i].calls) {
+            fire(call, u, isSteady);
+        }
+        /*
+         * 마지막 화면 뒤에는 대기하지 않는다 — 세션이 거기서 끝나기 때문이다.
+         *
+         * 고정 3초가 아니라 1.5~4.5초로 흩뿌린다. 고정하면 VU 100개가 같은 박자로
+         * 묶여 파도처럼 몰려가고, 서버가 보는 순간 부하가 실제보다 뾰족해진다.
+         * 평균은 그대로 3초라 세션 길이 19.6초 가정이 유지된다.
+         */
+        if (i < SCREENS.length - 1) {
+            sleep(THINK * (0.5 + Math.random()));
+        }
+    }
 }
