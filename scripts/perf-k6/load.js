@@ -143,6 +143,11 @@ const ALL_CALLS = SCREENS.flatMap((s) => s.calls);
 const steadyReqs = new Counter('steady_reqs');
 /** 500 응답. 커넥션 풀 고갈(connectionTimeout=3000)이 이 형태로 나타난다. */
 const serverErrors = new Counter('server_errors');
+/**
+ * status가 0인 실패 — 커넥션 거부·리셋·타임아웃. **5xx와 합치지 않는다.**
+ * 5xx는 요청이 톰캣까지 도달했다는 뜻이고 status 0은 거기 닿지도 못했다는 뜻이라 원인이 갈린다.
+ */
+const transportErrors = new Counter('transport_errors');
 
 // ── 시나리오 ───────────────────────────────────────────────────────────────
 /*
@@ -167,6 +172,22 @@ export const options = {
             startVUs: 0,
             stages: [{ target: VUS, duration: RAMP }],
             gracefulRampDown: '0s',
+            /*
+             * ⚠️ gracefulRampDown만으로는 안 끊긴다. 그건 스테이지 사이 램프다운용이고
+             * **시나리오 종료에는 gracefulStop(기본 30초)이 적용된다.** 빼고 돌리면 판정 구간이
+             * 시작된 뒤에도 워밍업 VU가 최대 30초 더 돈다 — 여정 1회가 19.4초라 사실상 전부
+             * 해당하고, 초반 부하가 최대 2배(200 VU)가 된다. 그 요청 자체는 phase:warmup이라
+             * 표에서 빠지지만 **만들어내는 경합은 phase:steady 수치에 그대로 실린다.**
+             *
+             * steady에는 같은 설정을 걸지 않는다(README 함정 4) — 거기서 잘린 요청은
+             * 판정 메트릭에 실려 에러율 SLO를 잠식한다. warmup은 잘려도 태그가 phase:warmup이라
+             * 판정에 영향이 없어 대가 없이 얻는다.
+             *
+             * 부수 효과: 워밍업 VU가 제때 반납되지 않으면 steady의 __VU 번호가 1..N이 아니라
+             * 흩어진 구간으로 잡혀(실측 84~200) default()의 모듈로 매핑이 깨진다 —
+             * 일부 유저가 두 VU에 중복 배정되고 일부 CSV 유저는 아예 안 쓰인다.
+             */
+            gracefulStop: '0s',
             tags: { phase: 'warmup' },
         },
         steady: {
@@ -299,16 +320,31 @@ function fire(call, u, isSteady) {
 
     if (isSteady) steadyReqs.add(1);
 
-    if (res.status >= 500) {
-        serverErrors.add(1, { name: call.name });
+    /*
+     * ⚠️ status 0을 반드시 함께 센다. 5xx만 세면 커넥션 리셋·타임아웃이 리포트에서 통째로
+     * 사라지는데, k6는 그 실패도 http_req_duration에 표본을 남긴다 — 커넥션 에러는 0ms,
+     * 타임아웃은 타임아웃 시각으로. 즉 **실패가 늘수록 p50/p95가 빨라진다.**
+     * (실측: 50ms 응답 20건에 실패 25건을 섞으면 med 53.9ms → 10.8ms)
+     * 커넥션 풀이 고갈돼도 accept 큐가 밀리거나 EB가 끊으면 500이 아니라 이 형태로 나온다.
+     */
+    if (res.status === 0 || res.status >= 500) {
+        if (res.status === 0) {
+            transportErrors.add(1, { name: call.name });
+        } else {
+            serverErrors.add(1, { name: call.name });
+        }
         /*
          * 본문을 남기는 이유 — 커넥션 풀(20)이 고갈되면 connectionTimeout=3000에 걸려
          * CannotGetJdbcConnection 계열 500이 난다. 응답이 느려지는 것이 아니라 에러가
          * 나는 형태라, 본문을 봐야 원인이 풀인지 다른 것인지 갈린다(설계 §5).
+         * status 0은 본문이 없으므로 대신 k6의 error_code를 남긴다.
          */
         if (errorLogged < ERROR_LOG_LIMIT) {
             errorLogged++;
-            console.warn(`[${call.name}] HTTP ${res.status} — ${String(res.body).slice(0, 300)}`);
+            const detail = res.status === 0
+                ? `error_code=${res.error_code} ${res.error}`
+                : String(res.body).slice(0, 300);
+            console.warn(`[${call.name}] HTTP ${res.status} — ${detail}`);
         }
     }
 }
@@ -373,6 +409,26 @@ export function handleSummary(data) {
     const achievedTps = steadyCount / DURATION_SEC;
     const expectedTps = VUS * 0.97;   // VU 1명 ≈ 초당 1 요청 (19호출 ÷ 19.6초)
     const errCount = data.metrics.server_errors ? data.metrics.server_errors.values.count : 0;
+    const transportCount = data.metrics.transport_errors
+        ? data.metrics.transport_errors.values.count : 0;
+
+    /*
+     * 실패율은 판정의 절반인데(임계값 rate<0.01) 지금까지 산출물에 없었다. 임계값 위반은
+     * k6 stdout과 exit code에만 나오고 load-summary.md에는 안 실려서, 표만 보관하면
+     * "5xx 0건 + baseline보다 빠른 p50"으로 읽히는 상태가 만들어진다.
+     * 서브메트릭은 options.thresholds가 만들어 주므로 그대로 읽으면 된다.
+     */
+    const failedMetric = data.metrics['http_req_failed{phase:steady}'];
+    const failedRate = failedMetric ? failedMetric.values.rate : 0;
+
+    const failWarning = failedRate > 0 ? [
+        `> ⚠️ **실패한 요청이 ${(failedRate * 100).toFixed(2)}% 있어 위 p50/p95는 실제보다 낙관적이다.**`,
+        '> k6는 실패 요청도 `http_req_duration`에 표본을 남기는데 커넥션 에러는 0ms,',
+        '> 타임아웃은 타임아웃 시각으로 기록된다. 실패율이 5%를 넘으면 p95까지 성공 표본의 낮은',
+        '> 분위수를 읽기 시작한다 — **부하에서 표가 빨라졌다면 개선이 아니라 이것을 의심한다.**',
+        '> 달성 처리량도 실패 요청을 포함하므로 빠르게 실패할수록 높게 나온다.',
+        '',
+    ] : [];
 
     const lines = [
         '| # | 엔드포인트 | p50 | p95 | max | SLO | 판정 |',
@@ -395,8 +451,10 @@ export function handleSummary(data) {
         '',
         `- 달성 처리량 **${achievedTps.toFixed(1)} TPS** (예상 ${expectedTps.toFixed(0)} TPS, `
             + `달성률 ${((achievedTps / expectedTps) * 100).toFixed(0)}%)`,
-        `- 5xx 응답 ${errCount}건`,
+        `- **실패율 ${(failedRate * 100).toFixed(2)}%** (SLO 1% 미만) `
+            + `— 5xx ${errCount}건 · 커넥션 실패/타임아웃 ${transportCount}건`,
         '',
+        ...failWarning,
         '> **달성률이 낮으면 p95를 액면 그대로 믿지 않는다.** VU 고정 방식은 서버가 느려지면',
         '> 요청을 덜 보내서 느린 응답이 분포에 적게 실린다(coordinated omission).',
         '> 달성률 저하 자체가 커넥션 풀 상한(20개)에 걸렸다는 신호이기도 하다 — 설계 §5.',
@@ -420,7 +478,8 @@ export function handleSummary(data) {
         'load-summary.json': JSON.stringify({
             baseUrl: BASE_URL, vus: VUS, ramp: RAMP, duration: DURATION,
             yearMonth: YEAR_MONTH, thinkSeconds: THINK,
-            achievedTps, expectedTps, serverErrors: errCount,
+            achievedTps, expectedTps,
+            failedRate, serverErrors: errCount, transportErrors: transportCount,
             passed, total: rows.length, rows,
         }, null, 2),
     };
