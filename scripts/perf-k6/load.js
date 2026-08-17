@@ -187,8 +187,91 @@ export const options = {
     discardResponseBodies: false,
 };
 
+function authHeaders(token) {
+    return { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` };
+}
+
+function login(loginId) {
+    const res = http.post(`${BASE_URL}/api/user/login`,
+        JSON.stringify({ loginId, password: PASSWORD }),
+        { headers: { 'Content-Type': 'application/json' }, tags: { name: 'setup_login' } });
+
+    if (res.status !== 200) {
+        throw new Error(`로그인 실패 (${loginId}): HTTP ${res.status} — ${res.body}`);
+    }
+    return res.json('data.accessToken');
+}
+
 export function setup() {
-    return { pool: [] };
+    if (users.length < VUS) {
+        throw new Error(
+            `활성 유저가 ${users.length}명뿐인데 VU는 ${VUS}개다. `
+            + 'extract-active-users.sh를 LIMIT을 늘려 다시 돌려라. '
+            + '유저가 모자라면 같은 유저를 여러 VU가 공유하게 되어 버퍼 풀 적중률이 왜곡된다.');
+    }
+
+    // 가맹점 ID는 전 VU가 같은 값을 쓴다. 첫 유저의 토큰으로 한 번만 뽑는다.
+    const probeToken = login(users[0]);
+    const storeRes = http.get(
+        `${BASE_URL}/api/store/search?latitude=${LAT}&longitude=${LNG}&radiusMeters=3000`,
+        { headers: authHeaders(probeToken) });
+    const stores = storeRes.json('data.stores') || [];
+    if (stores.length === 0) {
+        throw new Error('좌표 검색이 0건이다. 좌표를 바꾸거나 반경을 넓혀야 한다.');
+    }
+    const storeId = stores[0].storeId;
+
+    const pool = [];
+    for (let i = 0; i < VUS; i++) {
+        const loginId = users[i];
+        const token = i === 0 ? probeToken : login(loginId);
+
+        /*
+         * ⚠️ 활성 유저라도 보유 카드 전부에 거래가 있는 건 아니다. 월 75건이 카드 3.9장에
+         * 흩어지므로 카드당 수십 건이고, cards[0]을 그냥 쓰면 카드 계열이 0행을 잰다
+         * (3단계 함정 3). sort=RECENTLY_USED의 첫 카드가 가장 최근 쓴 카드이므로
+         * 그 달 거래가 있을 가능성이 가장 높다.
+         *
+         * 카드마다 transactions를 조회해 최다를 고르는 방법이 더 정확하지만 유저당
+         * 3.9호출이 추가돼 setup이 4배로 길어진다. 아래 표본 검증으로 대신한다.
+         */
+        const cardsRes = http.get(`${BASE_URL}/api/user-cards?sort=RECENTLY_USED`,
+            { headers: authHeaders(token) });
+        const cards = cardsRes.json('data') || [];
+        if (cards.length === 0) {
+            throw new Error(`${loginId}에 보유 카드가 없다. CSV 추출 조건을 확인해라.`);
+        }
+
+        pool.push({ loginId, token, userCardId: cards[0].userCardId, storeId });
+    }
+
+    /*
+     * 표본 검증 — 앞 5명이 실제로 그 달 거래를 갖고 있는지 본다.
+     *
+     * 이 검사가 없으면 CSV가 잘못돼도 테스트가 초록불로 끝난다. 0행 응답도 HTTP 200이라
+     * 에러율 0%가 나오고, 집계 API가 20ms에 답한 값이 표에 그대로 실린다. 표만 보면
+     * "리포트는 부하에서도 빠르다"로 읽혀 완전히 틀린 결론이 나간다.
+     */
+    const sample = Math.min(5, pool.length);
+    for (let i = 0; i < sample; i++) {
+        const u = pool[i];
+        const r = http.get(`${BASE_URL}/api/report/benefit/summary?yearMonth=${YEAR_MONTH}`,
+            { headers: authHeaders(u.token) });
+        const categories = r.json('data.categories') || [];
+        const received = Number(r.json('data.totalReceivedBenefit') || 0);
+        if (categories.length === 0 && received === 0) {
+            throw new Error(
+                `${u.loginId}는 ${YEAR_MONTH}에 거래가 없다(리포트 요약이 비어 있다). `
+                + 'CSV를 뽑은 DB와 측정 대상 DB가 다르거나, YEAR_MONTH가 어긋났다. '
+                + '앱 시계 고정값 clock.fixed-date의 EB 환경 속성 실제 값을 확인해라.');
+        }
+    }
+
+    console.log(`[setup] BASE_URL=${BASE_URL}`);
+    console.log(`[setup] 유저 풀 ${pool.length}명 (CSV ${users.length}명 중), storeId=${storeId}`);
+    console.log(`[setup] yearMonth=${YEAR_MONTH}, think time=${THINK}초, VU=${VUS}`);
+    console.log(`[setup] 표본 ${sample}명 리포트 검증 통과`);
+    return { pool };
 }
 
 export default function () {
