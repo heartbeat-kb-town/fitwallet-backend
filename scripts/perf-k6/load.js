@@ -327,3 +327,90 @@ export default function (data) {
         }
     }
 }
+
+// ── 결과 표 ────────────────────────────────────────────────────────────────
+
+function ms(v) {
+    if (v === undefined || v === null || Number.isNaN(v)) return '—';
+    return v >= 1000 ? `**${(v / 1000).toFixed(2)}s**` : `${v.toFixed(0)}ms`;
+}
+
+function buildRows(data) {
+    const rows = [];
+    for (const c of ALL_CALLS) {
+        // 판정 구간만 본다. 태그 조합 키는 k6가 서브메트릭으로 만들어 준다.
+        const t = data.metrics[`http_req_duration{name:${c.name},phase:steady}`];
+        if (!t) continue;
+        rows.push({
+            name: c.name,
+            slo: c.slo,
+            med: t.values.med,
+            p95: t.values['p(95)'],
+            max: t.values.max,
+            pass: t.values['p(95)'] < c.slo,
+        });
+    }
+    rows.sort((a, b) => b.p95 - a.p95);
+    return rows;
+}
+
+export function handleSummary(data) {
+    const rows = buildRows(data);
+    const passed = rows.filter((r) => r.pass).length;
+
+    /*
+     * 달성 처리량을 직접 계산한다. data.metrics.http_reqs.values.rate는 램프업까지 포함한
+     * 전체 구간 평균이라 판정 구간 처리량보다 낮게 나온다.
+     */
+    const steadyCount = data.metrics.steady_reqs ? data.metrics.steady_reqs.values.count : 0;
+    const achievedTps = steadyCount / DURATION_SEC;
+    const expectedTps = VUS * 0.97;   // VU 1명 ≈ 초당 1 요청 (19호출 ÷ 19.6초)
+    const errCount = data.metrics.server_errors ? data.metrics.server_errors.values.count : 0;
+
+    const lines = [
+        '| # | 엔드포인트 | p50 | p95 | max | SLO | 판정 |',
+        '|---:|---|---:|---:|---:|---:|:---:|',
+    ];
+    rows.forEach((r, i) => {
+        lines.push(`| ${i + 1} | \`${r.name}\` | ${ms(r.med)} | ${ms(r.p95)} | ${ms(r.max)} `
+            + `| ${r.slo}ms | ${r.pass ? '✅' : '❌'} |`);
+    });
+
+    const md = [
+        `# 4단계 — 1차 부하 테스트 (동시 사용자 ${VUS}명)`,
+        '',
+        `- 대상: \`${BASE_URL}\``,
+        `- 부하: VU ${VUS} 고정 · 램프업 ${RAMP}(집계 제외) + 판정 ${DURATION}`,
+        `- think time: 평균 ${THINK}초 (${(THINK * 0.5).toFixed(1)}~${(THINK * 1.5).toFixed(1)}초 무작위)`,
+        `- 측정 월: \`${YEAR_MONTH}\` · 유저: 활성 ${VUS}명을 VU마다 배정`,
+        '',
+        `**SLO 충족 ${passed} / ${rows.length}**`,
+        '',
+        `- 달성 처리량 **${achievedTps.toFixed(1)} TPS** (예상 ${expectedTps.toFixed(0)} TPS, `
+            + `달성률 ${((achievedTps / expectedTps) * 100).toFixed(0)}%)`,
+        `- 5xx 응답 ${errCount}건`,
+        '',
+        '> **달성률이 낮으면 p95를 액면 그대로 믿지 않는다.** VU 고정 방식은 서버가 느려지면',
+        '> 요청을 덜 보내서 느린 응답이 분포에 적게 실린다(coordinated omission).',
+        '> 달성률 저하 자체가 커넥션 풀 상한(20개)에 걸렸다는 신호이기도 하다 — 설계 §5.',
+        '',
+        '> 1 VU baseline에서 이미 SLO를 어기던 `store_search_coords`와 `user_cards_recent`가',
+        '> 여기서도 실패하는 것은 새 정보가 아니다. **부하 때문에 새로 실패한 항목**을 본다.',
+        '',
+        'p95 내림차순 정렬.',
+        '',
+        lines.join('\n'),
+        '',
+    ].join('\n');
+
+    return {
+        stdout: `\n${md}\n`,
+        'load-summary.md': md,
+        'load-summary.json': JSON.stringify({
+            baseUrl: BASE_URL, vus: VUS, ramp: RAMP, duration: DURATION,
+            yearMonth: YEAR_MONTH, thinkSeconds: THINK,
+            achievedTps, expectedTps, serverErrors: errCount,
+            passed, total: rows.length, rows,
+        }, null, 2),
+    };
+}
