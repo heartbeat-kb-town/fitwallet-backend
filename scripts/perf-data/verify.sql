@@ -11,9 +11,12 @@ SELECT '=== 1. 테이블별 행수 ===' AS ``;
 SELECT t AS 테이블, n AS 실측, want AS 기대, IF(n = want, 'OK', 'MISMATCH') AS 판정
 FROM (
     SELECT 'store' t, COUNT(*) n, 2725562 want FROM store
-    UNION ALL SELECT 'users', COUNT(*), 100000 FROM users
-    UNION ALL SELECT 'user_card', COUNT(*), 300000 FROM user_card
-    UNION ALL SELECT 'payment_transaction', COUNT(*), 5400000 FROM payment_transaction
+    UNION ALL SELECT 'users', COUNT(*), 50000 FROM users
+    UNION ALL SELECT 'user_card', COUNT(*), 195000 FROM user_card
+    -- 유저당 건수를 로그정규로 뽑으므로 총합이 시드마다 조금씩 다르다. 목표는 2,700만이고
+    -- 정확히 일치할 수 없어 ±2% 범위로 본다.
+    UNION ALL SELECT 'payment_transaction', COUNT(*),
+        IF(ABS(COUNT(*) - 27000000) <= 540000, COUNT(*), 27000000) FROM payment_transaction
     UNION ALL SELECT 'search_history', COUNT(*), 800000 FROM search_history
 ) x;
 
@@ -107,10 +110,17 @@ FROM (
     LIMIT 20000
 ) x;
 
-SELECT '=== 10. 유저당 거래 수 (한 명에게 몰리지 않았는가) ===' AS ``;
+SELECT '=== 10. 유저당 거래 수 (꼬리가 있는가) ===' AS ``;
 
+-- ⚠️ 이 판정은 한때 정반대였다. `MIN = MAX`를 'OK — 균등'으로 찍었고, 그래서 활성 유저
+-- 전원이 정확히 180건인 데이터가 검증을 통과했다. 그 데이터로 잰 3단계 baseline에서
+-- 리포트·카드 계열이 p95 12ms로 나왔는데, 쿼리가 빨라서가 아니라 어떤 유저를 골라도
+-- 훑을 행이 수십 개뿐이었기 때문이다. 측정이 쿼리가 아니라 데이터를 쟀다.
+--
+-- 유저 스코프 쿼리의 부하는 평균이 아니라 **꼬리**가 결정한다. 균등이 곧 실패다.
 SELECT MIN(n) AS 최소, ROUND(AVG(n), 1) AS 평균, MAX(n) AS 최대, COUNT(*) AS 활성유저수,
-       IF(MIN(n) = MAX(n), 'OK — 균등', 'CHECK') AS 판정
+       ROUND(MAX(n) / AVG(n), 1) AS `max/평균`,
+       IF(MAX(n) >= AVG(n) * 3, 'OK — 꼬리 있음', 'MISMATCH — 분포가 평평하다') AS 판정
 FROM (
     SELECT uc.user_id, COUNT(*) n
     FROM payment_transaction pt JOIN user_card uc ON uc.user_card_id = pt.user_card_id
@@ -122,11 +132,21 @@ SELECT '=== 11. paid_at 월별 분포 (12개월에 고른가) ===' AS ``;
 SELECT DATE_FORMAT(paid_at, '%Y-%m') AS 월, COUNT(*) AS 건수
 FROM payment_transaction GROUP BY 월 ORDER BY 월;
 
-SELECT '=== 12. search_history 최근 7일 비중 ===' AS ``;
+SELECT '=== 12. search_history 최근 7일 비중 (기대 약 28%) ===' AS ``;
 
+-- ⚠️ **이 값은 날이 갈수록 저절로 줄어든다.** 생성기는 기준일(--reference-date)에서 거슬러
+-- 7일 안에 25%를 놓는데, `StoreMapper.findPopularKeywords`는 DB의 NOW()를 본다. 기준일과
+-- 측정일이 벌어질수록 두 창이 어긋나 대상 행이 빠진다(기준일 +3일이면 약 13%).
+--
+-- 인기 검색어 API가 정확히 이 행들을 집계하므로, **가만히 둬도 그 엔드포인트가 빨라진다.**
+-- 다른 날 잰 두 측정을 비교하면 개선이 아닌 차이를 개선으로 읽게 된다.
+-- → 측정 당일을 --reference-date로 주고 search_history만 다시 적재한다.
+--    PERF_TABLES="search_history" scripts/perf-data/load.sh   (--reset 없이)
 SELECT SUM(searched_at >= NOW() - INTERVAL 7 DAY) AS 최근7일,
        COUNT(*) AS 전체,
-       ROUND(100 * SUM(searched_at >= NOW() - INTERVAL 7 DAY) / COUNT(*), 1) AS `%`
+       ROUND(100 * SUM(searched_at >= NOW() - INTERVAL 7 DAY) / COUNT(*), 1) AS `%`,
+       DATEDIFF(NOW(), MAX(searched_at)) AS `기준일과 벌어진 일수`,
+       IF(DATEDIFF(NOW(), MAX(searched_at)) <= 1, 'OK', 'CHECK — 기준일을 갱신하고 재적재') AS 판정
 FROM search_history;
 
 SELECT '=== 13. 금액 분포 (category별 중앙값 근사) ===' AS ``;
