@@ -249,21 +249,44 @@ export function setup() {
 
         /*
          * ⚠️ 활성 유저라도 보유 카드 전부에 거래가 있는 건 아니다. 월 75건이 카드 3.9장에
-         * 흩어지므로 카드당 수십 건이고, cards[0]을 그냥 쓰면 카드 계열이 0행을 잰다
-         * (3단계 함정 3). sort=RECENTLY_USED의 첫 카드가 가장 최근 쓴 카드이므로
-         * 그 달 거래가 있을 가능성이 가장 높다.
+         * 흩어지므로 cards[0]을 그냥 쓰면 카드 계열이 0행을 잰다(3단계 함정 3).
+         * **그 달 거래가 가장 많은 카드**를 고른다 — 설계 §3이 정한 규칙이고
+         * `baseline.js`도 같은 규칙이라, 이래야 3단계 표와 4단계 표가 같은 데이터 양을 잰다.
          *
-         * 카드마다 transactions를 조회해 최다를 고르는 방법이 더 정확하지만 유저당
-         * 3.9호출이 추가돼 setup이 4배로 길어진다. 아래 표본 검증으로 대신한다.
+         * 카드마다 한 번씩 조회하는 게 비싸 보이지만 실제로는 setup이 **빨라진다.**
+         * 유저당 3.9회 × 13ms ≈ 50ms가 늘고, 대신 전 구간을 집계하던
+         * `user-cards?sort=RECENTLY_USED`(379ms)를 여기서 안 써도 되기 때문이다.
+         * (그 엔드포인트는 여정에 그대로 남아 있으므로 측정 대상에서 빠지지 않는다.)
+         *
+         * size=100은 선정 정확도용이다. 기본 페이지 크기에서 여러 카드가 상한에 몰려
+         * 동률이 되면 "최다"가 사실상 임의 선택이 된다.
          */
-        const cardsRes = http.get(`${BASE_URL}/api/user-cards?sort=RECENTLY_USED`,
-            { headers: authHeaders(token) });
+        const cardsRes = http.get(`${BASE_URL}/api/user-cards`, { headers: authHeaders(token) });
         const cards = cardsRes.json('data') || [];
         if (cards.length === 0) {
             throw new Error(`${loginId}에 보유 카드가 없다. CSV 추출 조건을 확인해라.`);
         }
 
-        pool.push({ loginId, token, userCardId: cards[0].userCardId, storeId });
+        let bestCard = cards[0];
+        let bestCount = -1;
+        for (const c of cards) {
+            const r = http.get(
+                `${BASE_URL}/api/card/${c.userCardId}/transactions?yearMonth=${YEAR_MONTH}&size=100`,
+                { headers: authHeaders(token) });
+            const n = (r.json('data.transactions.content') || []).length;
+            if (n > bestCount) {
+                bestCount = n;
+                bestCard = c;
+            }
+        }
+        if (bestCount <= 0) {
+            throw new Error(
+                `${loginId}의 보유 카드 ${cards.length}장 어디에도 ${YEAR_MONTH} 거래가 없다. `
+                + 'CSV를 뽑은 DB와 측정 대상 DB가 다르거나, extract-active-users.sh가 '
+                + 'is_deleted=1인 카드의 거래까지 세어 이 유저를 골랐을 수 있다.');
+        }
+
+        pool.push({ loginId, token, userCardId: bestCard.userCardId, cardTxCount: bestCount, storeId });
     }
 
     /*
@@ -288,10 +311,21 @@ export function setup() {
         }
     }
 
+    /*
+     * 측정 카드가 실제로 몇 행을 재는지 리포트에 남긴다. 카드 계열이 빠르게 나왔을 때
+     * "정말 빠른 것"과 "0행을 잰 것"을 사후에 가를 수 있는 유일한 근거다.
+     */
+    const txCounts = pool.map((u) => u.cardTxCount).sort((a, b) => a - b);
+    const minTx = txCounts[0];
+    const medTx = txCounts[Math.floor(txCounts.length / 2)];
+    const maxTx = txCounts[txCounts.length - 1];
+
     console.log(`[setup] BASE_URL=${BASE_URL}`);
     console.log(`[setup] 유저 풀 ${pool.length}명 (CSV ${users.length}명 중), storeId=${storeId}`);
     console.log(`[setup] yearMonth=${YEAR_MONTH}, think time=${THINK}초, VU=${VUS}`);
     console.log(`[setup] 표본 ${sample}명 리포트 검증 통과`);
+    console.log(`[setup] 측정 카드의 ${YEAR_MONTH} 거래 건수 — `
+        + `최소 ${minTx} / 중앙 ${medTx} / 최대 ${maxTx} (size=100 상한)`);
     return { pool };
 }
 
