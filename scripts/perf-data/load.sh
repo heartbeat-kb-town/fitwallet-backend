@@ -22,7 +22,13 @@ DB_NAME="${PERF_DB_NAME:-fitwallet}"
 
 # FK 순서대로 적재한다. FOREIGN_KEY_CHECKS를 꺼도 순서를 지켜 두면, 켠 뒤 검증할 때
 # 무엇이 깨졌는지 바로 드러난다.
-TABLES=(users user_card store payment_transaction search_history)
+#
+# PERF_TABLES로 좁힐 수 있다. store는 공공데이터라 합성 데이터를 다시 만들어도 바뀌지 않는데,
+# 전량 적재하면 272만 행을 지웠다가 293MB를 다시 올린다 — 원격 RDS 상대로는 이게 대부분의
+# 시간을 먹는다. 순서는 위 FK 순서를 그대로 지켜서 적는다.
+#
+#   PERF_TABLES="users user_card payment_transaction search_history" load.sh --reset
+read -r -a TABLES <<< "${PERF_TABLES:-users user_card store payment_transaction search_history}"
 
 # 3308이 아닌 곳에 붙는 사고를 막는다. 개발 DB에 540만 행이 들어가면 되돌리기 어렵다.
 if [[ "$DB_PORT" == "3306" || "$DB_PORT" == "3307" ]]; then
@@ -46,7 +52,20 @@ if [[ "${1:-}" == "--reset" ]]; then
     # 성능 DB는 두 테이블이 항상 0행이라 드러나지 않지만, 로그인·결제가 오간 DB를 적재
     # 대상으로 삼으면 실제로 깨진다. 둘 다 버려도 무해하다 — refresh_token은 재로그인으로
     # 복구되고, payment_session은 진행 중인 결제 세션이다.
-    echo "초기화: 적재분을 비운다 (store는 245번부터만)"
+    #
+    # store를 다시 넣지 않을 때는 지우지도 않는다. 지워 두고 적재를 건너뛰면 결제 내역의
+    # store_id가 통째로 고아가 되는데, FOREIGN_KEY_CHECKS를 다시 켜도 MySQL은 기존 행을
+    # 소급 검증하지 않아 **에러 없이 조용히 깨진 상태로 남는다.**
+    store_reset=""
+    for t in "${TABLES[@]}"; do
+        [[ "$t" == "store" ]] && store_reset="DELETE FROM store WHERE store_id > 244;"
+    done
+
+    if [[ -n "$store_reset" ]]; then
+        echo "초기화: 적재분을 비운다 (store는 245번부터만)"
+    else
+        echo "초기화: 적재분을 비운다 (store는 건드리지 않는다 — PERF_TABLES에서 빠졌다)"
+    fi
     MYSQL_PWD="$DB_PASSWORD" mysql \
         --default-character-set=utf8mb4 \
         --host="$DB_HOST" --port="$DB_PORT" --user="$DB_USER" "$DB_NAME" --execute="
@@ -58,7 +77,7 @@ if [[ "${1:-}" == "--reset" ]]; then
         TRUNCATE TABLE user_card;
         TRUNCATE TABLE users;
         SET FOREIGN_KEY_CHECKS = 1;
-        DELETE FROM store WHERE store_id > 244;"
+        $store_reset"
     echo
 fi
 

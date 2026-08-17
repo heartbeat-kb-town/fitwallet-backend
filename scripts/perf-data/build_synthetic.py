@@ -32,12 +32,16 @@ from build_store import NULL, data_dir, query, write_columns  # noqa: E402
 
 SEED = 20260814
 
-TARGET_USERS = 100_000
-TARGET_CARDS = 300_000
-ACTIVE_USERS = 30_000
-TX_PER_ACTIVE = 180  # 월 15건 × 12개월
-TARGET_TX = ACTIVE_USERS * TX_PER_ACTIVE  # 5,400,000
-KEYWORDS_PER_USER = 8
+TARGET_USERS = 50_000
+TARGET_CARDS = 195_000  # 1인 평균 3.9장
+ACTIVE_USERS = 30_000  # 가입자의 60%
+# 활성 유저 1명의 연간 결제 건수. 상수가 아니라 로그정규 분포로 뽑는다 — 아래 참고.
+TX_MEAN_PER_ACTIVE = 900  # 월 75건 × 12개월
+TX_SIGMA = 0.55
+TX_MU = math.log(TX_MEAN_PER_ACTIVE) - TX_SIGMA**2 / 2
+TX_MIN, TX_MAX = 30, 12_000
+TARGET_TX = ACTIVE_USERS * TX_MEAN_PER_ACTIVE  # 약 27,000,000 (분포라 정확히 일치하진 않는다)
+KEYWORDS_PER_USER = 16
 
 # 거래를 store 세 구간에 나누는 비율. 브랜드 45%는 benefit_service의 스코프 구성비
 # (BRAND 75 : INDUSTRY 90)를 반영한 값이며 실제 결제 빈도의 추정치가 아니다.
@@ -57,7 +61,13 @@ APP_SHARE = 0.45  # is_used_app = 1 비율 (데모 실측 175/391)
 # 재생성은 6분이면 끝난다 — 미리 만들어 두는 것보다 그때 만드는 편이 안전하다.
 TRANSACTION_STATUS = "APPROVED"
 
-CARDS_PER_USER = ((1, 18), (2, 22), (3, 24), (4, 18), (5, 11), (6, 7))  # (장수, 가중치%)
+# (장수, 가중치%). 평균 약 3.97장 — 발급 장수 1억 1천만 / 성인 인구 기준 1인당 3.9장에 맞췄다.
+# 12장까지 꼬리를 둔 것이 핵심이다. 6장에서 자르면 '카드가 많은 유저'가 모집단에 존재하지
+# 않게 되어, benefit/expected의 카드별 N+1이 상한을 못 드러낸다.
+CARDS_PER_USER = (
+    (1, 12), (2, 16), (3, 19), (4, 17), (5, 13), (6, 10),
+    (7, 6), (8, 4), (9, 1.5), (10, 1), (11, 0.3), (12, 0.2),
+)
 
 # category별 결제금액 중앙값(원). 실측이 아니라 상식에 기반한 판단이다.
 # 데모 실측(min 2,500 / avg 22,039 / max 90,000)을 앵커로 삼았다.
@@ -194,7 +204,7 @@ class BenefitIndex:
 
 
 def write_users(out_dir, rng):
-    """users 10만 행. user_id는 1부터 — 성능 DB에는 seed-local이 없어 이 테이블이 비어 있다."""
+    """users 5만 행. user_id는 1부터 — 성능 DB에는 seed-local이 없어 이 테이블이 비어 있다."""
     write_columns(out_dir, "users")
     path = os.path.join(out_dir, "users.tsv")
     with open(path, "w", encoding="utf-8") as fh:
@@ -243,7 +253,7 @@ def draw_card_counts(rng):
 
 
 def write_user_cards(out_dir, rng, product_ids):
-    """user_card 30만 행. UNIQUE(user_id, card_product_id)라 유저별로 비복원 추출한다.
+    """user_card 약 19.5만 행. UNIQUE(user_id, card_product_id)라 유저별로 비복원 추출한다.
 
     돌려주는 값은 결제 생성에 쓸 인덱스다. user_card_id가 1부터 순번이라 유저별 시작 위치만
     알면 카드 목록이 정해진다 — 30만 개짜리 리스트를 유저별로 쪼개 들 필요가 없다.
@@ -324,21 +334,38 @@ def pick_benefit(benefits, product_id, brand_id, category_id, amount, rng):
 
 
 def write_transactions(out_dir, rng, stores, benefits, card_start, card_product, reference):
-    """payment_transaction 540만 행. 활성 3만명이 12개월 동안 월 15건씩 결제한 모양이다."""
+    """payment_transaction 약 2,700만 행. 활성 3만명이 12개월 동안 결제한 모양이다.
+
+    **유저당 건수를 상수로 두지 않는다.** 예전에는 전원이 정확히 같은 건수였는데, 그러면
+    유저 스코프 쿼리(리포트·카드 계열)의 부하가 모든 유저에게 동일해져 꼬리가 사라진다.
+    실제로 3단계 baseline에서 리포트 계열이 p95 12ms로 나온 원인이 이것이었다 — 어떤 유저를
+    골라도 그 달 거래가 수십 건뿐이라, 측정이 '쿼리의 성질'이 아니라 '데이터의 성질'을 쟀다.
+
+    평균 TX_MEAN_PER_ACTIVE를 유지하면서 로그정규로 뽑아 꼬리를 만든다. 꼬리 끝의 유저가
+    그대로 '최악 케이스'가 되므로 무거운 유저를 인위적으로 심을 필요가 없다.
+    """
     write_columns(out_dir, "payment_transaction")
     path = os.path.join(out_dir, "payment_transaction.tsv")
     active = rng.sample(range(1, TARGET_USERS + 1), ACTIVE_USERS)
+
+    # 유저별 연간 결제 건수. 평균은 TX_MEAN_PER_ACTIVE이고 오른쪽에 긴 꼬리가 생긴다.
+    tx_counts = {}
+    for user_id in active:
+        drawn = round(rng.lognormvariate(TX_MU, TX_SIGMA))
+        tx_counts[user_id] = min(TX_MAX, max(TX_MIN, drawn))
 
     window_seconds = 365 * 24 * 3600
     start = reference - datetime.timedelta(seconds=window_seconds)
 
     # 카드가 1장인 유저는 '더 좋은 카드'가 존재할 수 없다. 전체에 BETTER_SHARE를 그대로 걸면
-    # 그만큼 비율이 깎여 나간다(1장 유저가 18%라 0.30 × 0.82 = 24.6%가 된다).
+    # 그만큼 비율이 깎여 나간다(1장 유저가 12%라 0.30 × 0.88 = 26.4%가 된다).
     # 대안이 있는 거래에만 확률을 몰아 전체 비율이 BETTER_SHARE가 되게 맞춘다.
     multi_card_tx = sum(
-        TX_PER_ACTIVE for user_id in active if card_start[user_id] - card_start[user_id - 1] > 1
+        tx_counts[user_id]
+        for user_id in active
+        if card_start[user_id] - card_start[user_id - 1] > 1
     )
-    total_tx = len(active) * TX_PER_ACTIVE
+    total_tx = sum(tx_counts.values())
     better_rate = min(1.0, BETTER_SHARE * total_tx / multi_card_tx) if multi_card_tx else 0.0
 
     brand_store, brand_of, brand_category = stores.brand_store, stores.brand_of, stores.brand_category
@@ -357,7 +384,7 @@ def write_transactions(out_dir, rng, stores, benefits, card_start, card_product,
             last = card_start[user_id]
             card_count = last - first
 
-            for _ in range(TX_PER_ACTIVE):
+            for _ in range(tx_counts[user_id]):
                 transaction_id += 1
 
                 roll = rng.random()
@@ -434,11 +461,19 @@ def write_transactions(out_dir, rng, stores, benefits, card_start, card_product,
         if buffer:
             fh.write("\n".join(buffer) + "\n")
 
+    # 꼬리가 실제로 생겼는지는 문서에 적을 근거이므로 여기서 바로 뽑는다.
+    counts = sorted(tx_counts.values())
+    stats["tx_p10"] = counts[len(counts) // 10]
+    stats["tx_p50"] = counts[len(counts) // 2]
+    stats["tx_p90"] = counts[len(counts) * 9 // 10]
+    stats["tx_p99"] = counts[len(counts) * 99 // 100]
+    stats["tx_max"] = counts[-1]
+    stats["tx_mean"] = round(sum(counts) / len(counts))
     return path, stats
 
 
 def write_search_history(out_dir, rng, keywords, reference):
-    """search_history 80만 행. UNIQUE(user_id, keyword)라 유저별로 비복원 추출한다."""
+    """search_history 80만 행 (5만 명 × 16개). UNIQUE(user_id, keyword)라 유저별로 비복원 추출한다."""
     write_columns(out_dir, "search_history")
     path = os.path.join(out_dir, "search_history.tsv")
     recent_cut = reference - datetime.timedelta(days=7)
@@ -520,6 +555,10 @@ def main():
     print(f"  기타 cat7           {stats['etc']:>9,}  ({stats['etc'] / total * 100:.1f}%)")
     print(f"  혜택이 붙은 건      {stats['benefit']:>9,}  ({stats['benefit'] / total * 100:.1f}%)")
     print(f"  better_user_card    {stats['better']:>9,}  ({stats['better'] / total * 100:.1f}%)")
+
+    print("\n활성 유저당 연간 거래 수 (꼬리가 있어야 한다)")
+    print(f"  p10 {stats['tx_p10']:>6,}   p50 {stats['tx_p50']:>6,}   평균 {stats['tx_mean']:>6,}")
+    print(f"  p90 {stats['tx_p90']:>6,}   p99 {stats['tx_p99']:>6,}   max  {stats['tx_max']:>6,}")
 
 
 if __name__ == "__main__":
