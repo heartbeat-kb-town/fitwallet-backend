@@ -1,7 +1,10 @@
 package com.fitwallet.domain.report.service;
 
+import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.service.CardService;
 import com.fitwallet.domain.report.dto.response.*;
 import com.fitwallet.domain.report.mapper.BenefitReportMapper;
+import com.fitwallet.domain.report.mapper.MissedBenefitMapper;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -12,8 +15,10 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -24,27 +29,62 @@ class DefaultBenefitReportServiceTest {
     @Mock
     private BenefitReportMapper benefitReportMapper;
 
+    @Mock
+    private MissedBenefitMapper missedBenefitMapper;
+
+    @Mock
+    private CardService cardService;
+
     @InjectMocks
     private DefaultBenefitReportService benefitReportService;
 
-    @Test
-    void 받은_혜택과_놓친_혜택_총액을_함께_조회한다() {
-        Long userId = 1L;
-        String yearMonth = "2026-04";
+    /** 받은/놓친 혜택·카드 목록의 값이 무의미한(추천만 검증하는) 테스트용 0값 스텁. */
+    private void stubSummaryBoilerplate() {
+        when(benefitReportMapper.getReceivedBenefitSummary(anyLong(), anyString()))
+                .thenReturn(ReceivedBenefitSummaryResponse.builder()
+                        .totalReceivedBenefit(BigDecimal.ZERO)
+                        .totalDiscountAmount(BigDecimal.ZERO)
+                        .totalPoint(BigDecimal.ZERO)
+                        .build());
+        when(missedBenefitMapper.getMissedSummary(anyLong(), anyString()))
+                .thenReturn(MissedSummaryResponse.builder()
+                        .appUnusedAmount(BigDecimal.ZERO)
+                        .cardMismatchAmount(BigDecimal.ZERO)
+                        .build());
+        when(cardService.findMyCards(anyLong(), any())).thenReturn(List.of());
+    }
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth))
-                .thenReturn(BigDecimal.valueOf(24500));
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth))
-                .thenReturn(BigDecimal.valueOf(6200));
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth))
-                .thenReturn(List.of());
-        when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
-                .thenReturn(List.of());
+    @Test
+    void 받은_혜택과_놓친_혜택_요약을_카드목록과_함께_조립한다() {
+        Long userId = 1L;
+        String yearMonth = "2026-07";
+
+        when(benefitReportMapper.getReceivedBenefitSummary(userId, yearMonth))
+                .thenReturn(ReceivedBenefitSummaryResponse.builder()
+                        .totalReceivedBenefit(BigDecimal.valueOf(36451))
+                        .totalDiscountAmount(BigDecimal.valueOf(16132))
+                        .totalPoint(BigDecimal.valueOf(20319))
+                        .build());
+        when(missedBenefitMapper.getMissedSummary(userId, yearMonth))
+                .thenReturn(MissedSummaryResponse.builder()
+                        .appUnusedAmount(BigDecimal.valueOf(16132))
+                        .cardMismatchAmount(BigDecimal.valueOf(20319))
+                        .build());
+        List<CardListResponse> cards = List.of(
+                CardListResponse.builder().userCardId(1L).cardName("KB Gold & More").build());
+        when(cardService.findMyCards(anyLong(), any())).thenReturn(cards);
+        when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
-        assertThat(response.getTotalReceivedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(24500));
-        assertThat(response.getTotalMissedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(6200));
+        assertThat(response.getTotalReceivedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(36451));
+        assertThat(response.getTotalDiscountAmount()).isEqualByComparingTo(BigDecimal.valueOf(16132));
+        assertThat(response.getTotalPoint()).isEqualByComparingTo(BigDecimal.valueOf(20319));
+        // 총 놓친 혜택은 앱 미사용 손실 + 카드 선택 손실의 합이다
+        assertThat(response.getTotalMissedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(36451));
+        assertThat(response.getAppUnusedAmount()).isEqualByComparingTo(BigDecimal.valueOf(16132));
+        assertThat(response.getCardMismatchAmount()).isEqualByComparingTo(BigDecimal.valueOf(20319));
+        assertThat(response.getCards()).isEqualTo(cards);
     }
 
     @Test
@@ -52,9 +92,7 @@ class DefaultBenefitReportServiceTest {
         Long userId = 1L;
         String yearMonth = "2026-04";
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        stubSummaryBoilerplate();
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
@@ -86,9 +124,7 @@ class DefaultBenefitReportServiceTest {
                 .minPrevMonthSpend(null)
                 .build();
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        stubSummaryBoilerplate();
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
         when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
@@ -125,9 +161,7 @@ class DefaultBenefitReportServiceTest {
                 .limitBasis("AMOUNT")
                 .build();
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        stubSummaryBoilerplate();
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
         when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
@@ -161,9 +195,7 @@ class DefaultBenefitReportServiceTest {
                 .limitBasis("AMOUNT")
                 .build();
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        stubSummaryBoilerplate();
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
         when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
@@ -200,9 +232,7 @@ class DefaultBenefitReportServiceTest {
                 .minPrevMonthSpend(BigDecimal.valueOf(0))
                 .build();
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        stubSummaryBoilerplate();
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
         when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
@@ -236,9 +266,7 @@ class DefaultBenefitReportServiceTest {
                 .minPrevMonthSpend(BigDecimal.valueOf(0))
                 .build();
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        stubSummaryBoilerplate();
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
         when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
@@ -278,9 +306,7 @@ class DefaultBenefitReportServiceTest {
                 .limitBasis("POINT")
                 .build();
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        stubSummaryBoilerplate();
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
         when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
@@ -320,9 +346,7 @@ class DefaultBenefitReportServiceTest {
                 .limitBasis("AMOUNT")
                 .build();
 
-        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
-        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        stubSummaryBoilerplate();
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
         when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
