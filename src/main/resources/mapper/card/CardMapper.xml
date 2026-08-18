@@ -426,26 +426,29 @@
                  s.brand_id
     </select>
 
+    <!--
+        RECENTLY_USED 정렬의 최근 결제 시각은 전체 payment_transaction을 카드별로 집계하는
+        비상관 파생 테이블 대신, uc.user_card_id에 상관된 스칼라 서브쿼리로 조회한다.
+        idx_pt_card_paid_at(user_card_id, paid_at)를 활용해 카드별 최근 결제 시각을 효율적으로
+        조회할 수 있다 — 조회 범위는 이 사용자가 가진 카드로 제한되어 다른 사용자의 거래량과 무관하다.
+    -->
     <select id="findByUserId" resultType="com.fitwallet.domain.card.dto.response.CardListResponse">
         SELECT
         <include refid="cardListColumns"/>
+        <if test="sortType != null and sortType.name() == 'RECENTLY_USED'">
+            , (SELECT MAX(pt.paid_at)
+                 FROM payment_transaction pt
+                WHERE pt.user_card_id = uc.user_card_id) AS last_paid_at
+        </if>
         FROM user_card uc
                  JOIN card_product cp ON cp.card_product_id = uc.card_product_id
                  JOIN issuer i ON i.issuer_id = cp.issuer_id
-        <if test="sortType != null and sortType.name() == 'RECENTLY_USED'">
-                 LEFT JOIN (
-                     SELECT user_card_id,
-                            MAX(paid_at) AS last_paid_at
-                     FROM payment_transaction
-                     GROUP BY user_card_id
-                 ) recent_payment ON recent_payment.user_card_id = uc.user_card_id
-        </if>
         WHERE uc.user_id = #{userId}
           AND uc.is_deleted = 0
         <choose>
             <when test="sortType != null and sortType.name() == 'RECENTLY_USED'">
-                ORDER BY CASE WHEN recent_payment.last_paid_at IS NULL THEN 1 ELSE 0 END,
-                         recent_payment.last_paid_at DESC,
+                ORDER BY CASE WHEN last_paid_at IS NULL THEN 1 ELSE 0 END,
+                         last_paid_at DESC,
                          uc.display_order ASC,
                          uc.user_card_id ASC
             </when>
