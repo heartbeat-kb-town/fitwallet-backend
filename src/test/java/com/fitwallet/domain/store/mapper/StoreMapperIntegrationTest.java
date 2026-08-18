@@ -45,6 +45,13 @@ class StoreMapperIntegrationTest {
     private static final double BASE_LATITUDE = 37.5481;
     private static final double BASE_LONGITUDE = 127.0731;
 
+    /**
+     * 시드 매장이 하나도 없는 좌표(충청 내륙). 사각형 경계 검증용 매장을 여기 심으면
+     * 시드 244건에 밀려 LIMIT 5에서 잘리는 일이 없어 단언이 결정적이 된다.
+     */
+    private static final double FAR_LATITUDE = 36.5000;
+    private static final double FAR_LONGITUDE = 127.5000;
+
     /** 시드 데모 페르소나. {@code is_location_agreed = 1}. */
     private static final Long SEED_USER_ID = 1L;
 
@@ -494,6 +501,119 @@ class StoreMapperIntegrationTest {
     private int countSearchHistory() {
         return jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM search_history WHERE user_id = ?", Integer.class, SEED_USER_ID);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // bounding box 선필터 (V11 인덱스와 짝)
+    //
+    // 여기서 확인하는 것은 성능이 아니라 정확성이다. 로컬 dev DB는 store가 244건이라
+    // 실행계획이 어차피 풀스캔이고 시간도 의미가 없다. 성능은 272만 행 perf DB에서 잰다.
+    //
+    // 사각형은 원을 완전히 덮어야 한다. 크면 무해하지만(HAVING이 잘라낸다) 조금이라도 작으면
+    // 반경 경계의 가맹점이 조용히 사라져 "결과가 안 바뀐다"는 이 최적화의 전제가 깨진다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    /**
+     * 사각형의 위도폭이 반경에 정확히 닿는지 본다. 가맹점을 기준 좌표 <b>정북</b>으로 정확히
+     * 3,000m 떨어진 곳에 심는다 — 위도만 어긋나므로 사각형의 위도폭이 조금이라도 모자라면
+     * 이 매장이 HAVING까지 가지 못하고 사라진다.
+     * <p>
+     * 상수를 흔히 쓰이는 111,320(WGS84 적도 반지름 6,378,137에서 나온 값)으로 바꾸면
+     * 사각형이 3.37m 작아져 <b>이 테스트가 깨진다.</b> 매퍼는 거리 계산과 같은 평균 반지름
+     * 6,371,000을 써야 한다.
+     */
+    @Test
+    void 반경_경계에_정확히_걸친_매장도_사각형에_들어온다() {
+        double latitudeDegreesPerMeter = 1 / (6371000 * Math.PI / 180);
+        double exactlyThreeKmNorth = FAR_LATITUDE + 3000 * latitudeDegreesPerMeter;
+        Long storeId = insertStore(exactlyThreeKmNorth, FAR_LONGITUDE);
+
+        List<StoreSummaryResponse> stores = storeMapper.findStores(
+                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000));
+
+        assertThat(stores).extracting(StoreSummaryResponse::getStoreId).containsExactly(storeId);
+        assertThat(stores.get(0).getDistanceMeters()).isEqualTo(3000);
+    }
+
+    /**
+     * 경도 쪽도 같이 본다. 정동은 자오선 간격이 위도에 따라 좁아지므로
+     * {@code COS(RADIANS(위도))}로 나눠야 사각형이 원에 닿는다. 나눗셈을 빠뜨리면
+     * 사각형이 위도 37도에서 약 20% 좁아져 이 매장이 사라진다.
+     */
+    @Test
+    void 정동으로_반경_경계에_걸친_매장도_사각형에_들어온다() {
+        double longitudeDegreesPerMeter =
+                1 / (6371000 * Math.PI / 180 * Math.cos(Math.toRadians(FAR_LATITUDE)));
+        double exactlyThreeKmEast = FAR_LONGITUDE + 3000 * longitudeDegreesPerMeter;
+        Long storeId = insertStore(FAR_LATITUDE, exactlyThreeKmEast);
+
+        List<StoreSummaryResponse> stores = storeMapper.findStores(
+                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000));
+
+        assertThat(stores).extracting(StoreSummaryResponse::getStoreId).containsExactly(storeId);
+    }
+
+    /** 사각형 밖으로 나간 매장은 여전히 제외된다. 사각형이 크기만 하고 안 자르면 그것도 버그다. */
+    @Test
+    void 반경을_넘은_매장은_사각형을_넓혀도_제외된다() {
+        double latitudeDegreesPerMeter = 1 / (6371000 * Math.PI / 180);
+        insertStore(FAR_LATITUDE + 3100 * latitudeDegreesPerMeter, FAR_LONGITUDE);
+
+        List<StoreSummaryResponse> stores = storeMapper.findStores(
+                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000));
+
+        assertThat(stores).isEmpty();
+    }
+
+    /**
+     * 사각형을 붙여도 결과가 바뀌지 않는지 본다. 시드 244건이 전부 반경 1km 안에 있으므로,
+     * 반경을 주지 않은(= 사각형이 없는) 조회의 상위 5건과 반경 1km 조회의 상위 5건이 같아야 한다.
+     */
+    @Test
+    void 사각형을_거쳐도_반경_안_상위_5건이_달라지지_않는다() {
+        List<StoreSummaryResponse> withoutBox = storeMapper.findStores(condition(null, null, null));
+        List<StoreSummaryResponse> withBox = storeMapper.findStores(condition(null, null, 1000));
+
+        assertThat(withoutBox).allSatisfy(store ->
+                assertThat(store.getDistanceMeters()).isLessThanOrEqualTo(1000));
+        assertThat(withBox).extracting(StoreSummaryResponse::getStoreId)
+                .isEqualTo(withoutBox.stream().map(StoreSummaryResponse::getStoreId).toList());
+    }
+
+    /** 좌표가 NULL인 매장은 반경을 주지 않은 조회에서도 나오면 안 된다. 사각형이 없는 갈래다. */
+    @Test
+    void 좌표가_없는_매장은_반경_없는_조회에서도_제외된다() {
+        insertStore(null, null);
+
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null));
+
+        assertThat(stores).allSatisfy(store ->
+                assertThat(store.getDistanceMeters()).isNotNull());
+    }
+
+    /**
+     * 검증용 매장을 심는다. 클래스 레벨 {@code @Transactional}이 롤백하므로 시드가 더러워지지 않는다.
+     * 좌표가 {@code null}이면 그대로 넣는다 — DDL이 허용한다.
+     */
+    private Long insertStore(Double latitude, Double longitude) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement ps = connection.prepareStatement(
+                    "INSERT INTO store (category_id, store_name, latitude, longitude, address) "
+                            + "VALUES (?, ?, ?, ?, '검증용 주소')",
+                    Statement.RETURN_GENERATED_KEYS);
+            ps.setLong(1, CAFE_CATEGORY_ID);
+            ps.setString(2, "bbox 검증용 매장");
+            if (latitude == null) {
+                ps.setNull(3, java.sql.Types.DECIMAL);
+                ps.setNull(4, java.sql.Types.DECIMAL);
+            } else {
+                ps.setBigDecimal(3, java.math.BigDecimal.valueOf(latitude));
+                ps.setBigDecimal(4, java.math.BigDecimal.valueOf(longitude));
+            }
+            return ps;
+        }, keyHolder);
+        return keyHolder.getKey().longValue();
     }
 
     /** 기준 좌표(군자동) + 주어진 필터. Request DTO에 @Setter가 없으므로 리플렉션으로 채운다. */
