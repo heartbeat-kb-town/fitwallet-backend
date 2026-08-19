@@ -219,16 +219,19 @@ class DefaultStoreServiceTest {
     }
 
     @Test
-    void 키워드_모드에서_반경_미전달시_null이_적용되고_매퍼와_응답_모두_null이다() {
+    void 키워드_모드에서_반경_미전달시_전국_단계와_응답_모두_null이다() {
+        // 계단은 같은 답을 싸게 얻으려는 내부 구현이라 응답에 드러나면 안 된다. 300m에서 멈췄다고
+        // 300을 내리면 클라이언트가 그 값으로 지도 반경을 그릴 때 화면이 요청마다 달라진다.
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("커피").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.countByFulltext(anyString())).willReturn(10);
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
-        then(storeMapper).should().findStores(captor.capture());
+        then(storeMapper).should().findStoresByFulltext(captor.capture(), any());
         assertThat(captor.getValue().getRadiusMeters()).isNull();
         assertThat(response.getRadiusMeters()).isNull();
     }
@@ -296,6 +299,10 @@ class DefaultStoreServiceTest {
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         List<StoreSummaryResponse> expected = List.of(store(1L));
         given(storeMapper.findStores(any())).willReturn(expected);
+        // 1건이라 300m에서 안 멈추고 전국 단계까지 간다. 이 테스트의 관심사는
+        // 기록 실패가 조회 결과를 막지 않는다는 것이므로 두 경로 모두 같은 답을 주게 둔다.
+        given(storeMapper.countByFulltext(anyString())).willReturn(10);
+        given(storeMapper.findStoresByFulltext(any(), any())).willReturn(expected);
         willThrow(new DataIntegrityViolationException("fk 위반"))
                 .given(searchHistoryService).record(anyLong(), anyString());
 
@@ -312,6 +319,10 @@ class DefaultStoreServiceTest {
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         List<StoreSummaryResponse> expected = List.of(store(1L));
         given(storeMapper.findStores(any())).willReturn(expected);
+        // 1건이라 300m에서 안 멈추고 전국 단계까지 간다. 이 테스트의 관심사는
+        // 기록 실패가 조회 결과를 막지 않는다는 것이므로 두 경로 모두 같은 답을 주게 둔다.
+        given(storeMapper.countByFulltext(anyString())).willReturn(10);
+        given(storeMapper.findStoresByFulltext(any(), any())).willReturn(expected);
         // search_history.keyword가 VARCHAR(100)이라 실제로는 DB 에러 1406(Data too long)이 나지만,
         // 서비스 계층에서는 DataIntegrityViolationException으로 관측된다. 명세에 길이 제한이 없어
         // 별도 검증을 추가하지 않고 기존 try-catch로 흡수되는 동작을 고정한다.
@@ -445,6 +456,120 @@ class DefaultStoreServiceTest {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
+    // ─────────────────────────────────────────────────────────────────────────
+    // 검색어 갈래 — 사다리와 라우팅
+    //
+    // 여기 테스트가 확인하는 것도 속도가 아니라 계약이다. 어느 경로로 가든 답은 같아야 하고,
+    // 경로 선택은 비용만 고른다. 실제 소요 시간은 272만 행 perf DB에서만 의미가 있다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void 검색어가_한_글자면_KEYWORD_TOO_SHORT_예외를_던진다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword("역").build();
+
+        assertThatThrownBy(() -> storeService.searchStores(1L, cond))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(StoreErrorCode.KEYWORD_TOO_SHORT);
+    }
+
+    @Test
+    void 공백까지_세면_세_글자여도_trim_후_한_글자면_거부한다() {
+        // 검증을 DTO 어노테이션이 아니라 서비스의 trim 직후에 두는 이유가 이 케이스다.
+        // @Size는 trim 전 원본을 보므로 " 역 "이 3자로 통과한다.
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword(" 역 ").build();
+
+        assertThatThrownBy(() -> storeService.searchStores(1L, cond))
+                .isInstanceOf(BusinessException.class)
+                .extracting("errorCode")
+                .isEqualTo(StoreErrorCode.KEYWORD_TOO_SHORT);
+    }
+
+    @Test
+    void 검색어_검색이_첫_단계에서_다섯건을_채우면_라우팅도_전국도_묻지_않는다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword("커피").build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(storesAtDistances(50, 60, 70, 80, 90));
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(times(1)).findStores(any());
+        then(storeMapper).should(never()).countByFulltext(anyString());
+        then(storeMapper).should(never()).findStoresByFulltext(any(), any());
+    }
+
+    @Test
+    void 전국_매칭이_임계값_이하면_계단을_더_밟지_않고_전국으로_간다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword("파리바게뜨").build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.countByFulltext(anyString())).willReturn(2_601);
+
+        storeService.searchStores(1L, cond);
+
+        // 300m 한 번만 밟고 곧장 전국으로 간다. 매칭이 적은 검색어는 전국 단계가
+        // 사각형 한 칸보다도 싸기 때문이다.
+        then(storeMapper).should(times(1)).findStores(any());
+        then(storeMapper).should(times(1)).findStoresByFulltext(any(), any());
+    }
+
+    @Test
+    void 전국_매칭이_임계값을_넘으면_계단을_끝까지_밟고_전국으로_간다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword("식당").build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.countByFulltext(anyString())).willReturn(43_722);
+        ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(times(4)).findStores(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(StoreSearchCondition::getRadiusMeters)
+                .containsExactly(300, 1000, 3000, 10000);
+        // 마지막 계단에서도 못 채웠으면 반드시 전국으로 간다. 생략하면 5건 미만을 반환해
+        // 응답이 바뀐다 — 계단은 검색 범위의 축소가 아니다.
+        then(storeMapper).should(times(1)).findStoresByFulltext(any(), any());
+    }
+
+    @Test
+    void MATCH_식은_구분자로_쪼갠_두_글자_이상_조각만_AND로_묶는다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword("일식 회/초밥").build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.countByFulltext(anyString())).willReturn(3);
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+
+        storeService.searchStores(1L, cond);
+
+        // '회'는 한 글자라 빠진다. 조건이 느슨해질 뿐이라 상위집합은 유지된다.
+        then(storeMapper).should().findStoresByFulltext(any(), captor.capture());
+        assertThat(captor.getValue()).isEqualTo("+\"일식\" +\"초밥\"");
+    }
+
+    @Test
+    void 쓸_조각이_없으면_MATCH_식이_null이고_라우팅도_묻지_않는다() {
+        // '(주)'는 구분자와 한 글자만 남아 조각을 만들 수 없다. 빈 식을 넘기면 0건이 나와
+        // 결과가 바뀌므로 null이어야 하고, 셀 것이 없으니 라우팅 질의도 하지 않는다.
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword("(주)").build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(never()).countByFulltext(anyString());
+        then(storeMapper).should().findStoresByFulltext(any(), captor.capture());
+        assertThat(captor.getValue()).isNull();
+    }
+
     // 계단식 반경
     //
     // 계단식은 "같은 답을 더 싸게" 얻으려는 최적화다. 그래서 여기 테스트가 확인하는 것은
@@ -566,8 +691,13 @@ class DefaultStoreServiceTest {
     }
 
     @Test
-    void 키워드_모드에서는_계단식을_쓰지_않고_한_번만_조회한다() {
-        // 검색어가 있으면 LIKE가 먼저 대부분을 쳐내므로 단계를 늘리는 만큼 그대로 손해다.
+    void 검색어와_반경이_함께_오면_그_반경_안에서만_계단식으로_조회한다() {
+        // 예전에는 검색어가 있으면 계단을 아예 걸지 않았다("LIKE가 먼저 쳐내니 단계를 늘리는 만큼
+        // 손해"). 사각형이 인덱스를 못 타던 시절의 판단이고, V11·V14 인덱스가 들어온 지금은
+        // 뒤집혔다(DefaultStoreService 주석 참고).
+        //
+        // 반경이 명시됐으면 전국 단계로 넘어가지 않는 것이 핵심이다. 넘어가면 반경 밖 가맹점이
+        // 응답에 실려 사용자가 요청한 범위를 어긴다.
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("스타벅스").radiusMeters(3000).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
@@ -576,8 +706,11 @@ class DefaultStoreServiceTest {
 
         storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(1)).findStores(captor.capture());
-        assertThat(captor.getValue().getRadiusMeters()).isEqualTo(3000);
+        then(storeMapper).should(times(3)).findStores(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(StoreSearchCondition::getRadiusMeters)
+                .containsExactly(300, 1000, 3000);
+        then(storeMapper).should(never()).findStoresByFulltext(any(), any());
     }
 
     /** 거리만 다른 결과 목록. 계단식의 종료 판단이 5번째 거리를 보므로 그 값만 의미가 있다. */

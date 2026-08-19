@@ -49,6 +49,58 @@ public class DefaultStoreService implements StoreService {
      */
     private static final int[] CASCADE_STEPS_METERS = {300, 1000};
 
+    /**
+     * 검색어 갈래의 계단식 반경(m). 마지막에 전국 단계가 이어지므로 여기 상한이 곧 사다리의 끝이다.
+     * <p>
+     * 주변 조회의 {@link #CASCADE_STEPS_METERS}와 달리 10km까지 올라간다. 밀집 지역은 300m에서
+     * 끝나므로 이 상한이 비용이 되지 않고, <b>희소 지역에서만 실제로 올라가는데 거기서는 넓혀도
+     * 싸기 때문이다</b>(사각형이 넓어져도 읽을 행이 없다). 272만 행 perf DB, 1km 안 매장이 0건인
+     * 좌표(지리산) × '식당' 실측:
+     * <pre>
+     *   300m  0.7ms(0건)   1km  1.3ms(0건)   3km  3.9ms(0건)   10km  11.8ms(5건)
+     *   전국 FULLTEXT 122.6ms
+     * </pre>
+     * 10km 사각형이 전국 폴백의 10분의 1이다. 1km에서 끊고 전국으로 떨어뜨리면 이 좌표가
+     * 운영 환산 267ms가 된다.
+     */
+    private static final int[] KEYWORD_CASCADE_STEPS_METERS = {300, 1000, 3000, 10000};
+
+    /**
+     * 계단을 더 밟을지, 전국 단계로 바로 갈지 가르는 전국 매칭 수 기준.
+     * <p>
+     * <b>어느 쪽으로 가도 응답은 같다.</b> 이 값은 비용에만 영향을 준다.
+     * <p>
+     * 두 경로의 비용이 서로 다른 것에 비례하기 때문에 교차점이 생긴다 — 전국 단계는 <b>매칭
+     * 행수</b>에(약 2.9ms/1,000행), 사각형 단계는 <b>좌표 주변 밀도</b>에 비례한다. 그래서 가장
+     * 밀집한 좌표(강남역, 1km 안 18,772행 → 23ms)를 기준으로 잡는다. 그보다 희소한 좌표에서는
+     * 사각형이 더 싸지므로 이 기준이 항상 안전한 쪽으로 기운다.
+     * <p>
+     * 강남역 실측으로 경계를 좁혔다(왕복 합계, 운영 환산):
+     * <pre>
+     *   '부산'  10,237건 → 전국 88ms  · 계단 178ms(1km에서 4건이라 3km까지 올라간다)
+     *   '미용'  16,905건 → 전국 137ms · 계단  87ms
+     *   '치킨'  20,793건 → 전국 158ms · 계단  90ms
+     * </pre>
+     * 교차점이 1.0만~1.7만 사이다. 13,000은 그 가운데다.
+     * <p>
+     * ⚠️ 이 값을 <b>"남은 예산에 전국 단계가 들어가는가"로 정하면 안 된다.</b> 처음에 그렇게
+     * 5,000을 잡았다가 '제주'(9,710)·'부산'(10,237)이 불필요하게 계단을 타 SLO를 넘겼다.
+     * 올바른 질문은 "전국이 계단보다 싼가"다.
+     */
+    private static final int FULLTEXT_ROUTING_THRESHOLD = 13_000;
+
+    /**
+     * 검색어 최소 길이. 이보다 짧으면 {@link StoreErrorCode#KEYWORD_TOO_SHORT}로 거부한다.
+     * <p>
+     * <b>ngram 인덱스의 {@code ngram_token_size = 2}와 묶여 있다.</b> 1글자는 구조적으로
+     * 색인되지 않아 전국 단계가 인덱스를 못 타고 풀스캔으로 떨어진다(로컬 795ms). 검색으로서도
+     * 의미가 없다 — '주' 한 글자가 132,196건에 매칭된다. 부하 데이터의 검색어 80만 건 중
+     * 1글자는 0건이라 실사용에서 잃는 것도 없다.
+     * <p>
+     * {@code ngram_token_size}를 올리면 이 값도 함께 올려야 한다. 내리는 것은 안전하지 않다.
+     */
+    private static final int KEYWORD_MIN_LENGTH = 2;
+
     /** DB에서 오지 않는 서비스 정책값. {@code StoreMapper.insertPopularKeywords}의 집계 기간과 맞춘다. */
     private static final int POPULAR_PERIOD_DAYS = 7;
 
@@ -76,6 +128,11 @@ public class DefaultStoreService implements StoreService {
         }
 
         String keyword = normalizeKeyword(cond.getKeyword());
+        // trim 뒤에 잰다. DTO에 @Size를 달면 원본을 보므로 " 역 "이 3자로 통과하고, 애초에
+        // @ModelAttribute에 @Valid가 없어 실행조차 되지 않는다(StoreSearchCondition 참고).
+        if (keyword != null && keyword.length() < KEYWORD_MIN_LENGTH) {
+            throw new BusinessException(StoreErrorCode.KEYWORD_TOO_SHORT);
+        }
         Long categoryId = cond.getCategoryId();
 
         // 키워드가 없으면 주변 조회 모드다. 카테고리도 없는(= 좌표만 온) 요청도 여기 포함된다 —
@@ -111,11 +168,16 @@ public class DefaultStoreService implements StoreService {
                 .longitude(longitude)
                 .radiusMeters(confirmedRadius)
                 .build();
-        // 계단식 반경은 주변 조회 모드에만 건다. 검색어가 있으면 LIKE가 먼저 대부분을 쳐내
-        // 단계를 늘리는 만큼 그대로 손해다(강남역 '스타벅스' 실측: 0.05 + 0.12 + 0.49s).
-        List<StoreSummaryResponse> stores = nearbyMode
+        // 반경이 확정됐으면(주변 조회, 또는 검색어와 반경이 함께 온 요청) 그 반경 안에서 계단식으로
+        // 좁힌다. 반경이 없으면(= 검색어만 온 전국 검색) 계단을 밟다가 전국 단계로 넘어간다.
+        //
+        // 예전에는 검색어가 있으면 계단을 아예 안 걸었다. "LIKE가 먼저 대부분을 쳐내니 단계를
+        // 늘리는 만큼 손해"라는 판단이었는데(강남역 '스타벅스' 0.05 + 0.12 + 0.49s), 그건 사각형이
+        // 인덱스를 못 타던 시절의 측정이다. V11의 좌표 인덱스와 V14의 커버링 인덱스가 들어온 지금은
+        // 뒤집혔다 — 같은 좌표에서 300m 단계가 6ms다.
+        List<StoreSummaryResponse> stores = confirmedRadius != null
                 ? findStoresByCascadingRadius(confirmedCondition)
-                : storeMapper.findStores(confirmedCondition);
+                : findStoresByKeyword(confirmedCondition);
 
         if (keyword != null) {
             recordSearchHistory(userId, keyword);
@@ -289,6 +351,92 @@ public class DefaultStoreService implements StoreService {
                 .longitude(cond.getLongitude())
                 .radiusMeters(radiusMeters)
                 .build();
+    }
+
+    /**
+     * 검색어만 온(= 반경이 없는) 전국 검색. 계단식 사각형으로 좁혀 보고, 안 되면 전국을 훑는다.
+     *
+     * <h2>왜 계단이 먼저인가</h2>
+     * 정렬 첫 키가 거리이므로 <b>300m 안에서 5건이 차면 그게 곧 전국의 정답</b>이다. 그리고
+     * 사각형은 좌표 인덱스를, 전국은 FULLTEXT를 타는데 <b>둘의 비용이 서로 다른 것에 비례한다</b> —
+     * 사각형은 좌표 주변 밀도에, 전국은 매칭 행수에 비례한다. 밀집 지역은 300m에서 끝나고
+     * (강남역 '식당' 6.4ms), 희소 지역은 계단을 올라가지만 거기서는 넓혀도 싸다.
+     *
+     * <h2>왜 중간에 한 번 갈라지나</h2>
+     * 계단이 항상 이기지는 않는다. 매칭이 적은 검색어는 전국 단계가 사각형 한 칸보다도 싸다 —
+     * 강남역에서 '파리바게뜨'(전국 2,601건)의 전국 단계가 15.3ms인데 1km 사각형은 23ms다.
+     * 그런 검색어를 계단에 태우면 손해라, 300m가 실패한 시점에 {@link StoreMapper#countByFulltext}로
+     * 한 번 물어보고 {@link #FULLTEXT_ROUTING_THRESHOLD} 기준으로 가른다.
+     * <p>
+     * <b>어느 쪽으로 가도 결과는 같다.</b> 이 분기는 비용만 고른다.
+     *
+     * <h2>전국 단계는 성능이 아니라 정확성 요건이다</h2>
+     * 마지막 계단까지 5건을 못 채웠으면 반드시 전국으로 가야 한다. 생략하면 5건 미만을 반환해
+     * 응답이 바뀐다 — 계단은 같은 답을 싸게 얻으려는 내부 구현이지 검색 범위의 축소가 아니다.
+     *
+     * @param cond 반경이 {@code null}인 확정 조건. {@code keyword}는 {@code null}이 아니다
+     */
+    private List<StoreSummaryResponse> findStoresByKeyword(StoreSearchCondition cond) {
+        String matchExpression = buildMatchExpression(cond.getKeyword());
+
+        int firstStep = KEYWORD_CASCADE_STEPS_METERS[0];
+        List<StoreSummaryResponse> found = storeMapper.findStores(withRadius(cond, firstStep));
+        if (isSettled(found, firstStep)) {
+            return found;
+        }
+
+        // 조각이 없으면 셀 것도 없다. 그때는 전국 단계가 LIKE 풀스캔이라 비싸므로 계단을 끝까지 밟는다.
+        boolean climb = matchExpression == null
+                || storeMapper.countByFulltext(matchExpression) > FULLTEXT_ROUTING_THRESHOLD;
+
+        if (climb) {
+            for (int i = 1; i < KEYWORD_CASCADE_STEPS_METERS.length; i++) {
+                int step = KEYWORD_CASCADE_STEPS_METERS[i];
+                found = storeMapper.findStores(withRadius(cond, step));
+                if (isSettled(found, step)) {
+                    return found;
+                }
+            }
+        }
+        return storeMapper.findStoresByFulltext(cond, matchExpression);
+    }
+
+    /**
+     * 전국 단계에서 쓸 {@code MATCH ... AGAINST} 불리언 모드 식을 만든다.
+     * 예: {@code 호텔/리조트} → {@code +"호텔" +"리조트"}
+     *
+     * <h2>이 메서드가 지켜야 하는 것 — MATCH는 LIKE의 상위집합이어야 한다</h2>
+     * MATCH는 판정자가 아니라 <b>가속기</b>다. 판정은 SQL에 남아 있는 {@code LIKE}가 한다.
+     * 그래서 MATCH가 걸러낸 집합이 LIKE의 답을 <b>빠짐없이 포함</b>하기만 하면 응답이 보존된다.
+     * <p>
+     * 키워드를 문자·숫자가 아닌 문자로 쪼개 조각을 AND로 묶는 것이 그 보장이다 — 어떤 상호명이
+     * 키워드 전체를 포함하면 그 조각도 전부 포함하기 때문이다. <b>조각을 더 잘게 쪼개는 것은
+     * 언제나 안전하다</b>(조건이 느슨해질 뿐이다). 반대로 ngram이 구분자로 보는 문자를 조각에
+     * 남기면 거짓 음성이 난다.
+     *
+     * <h2>왜 조각으로 쪼개야만 하나</h2>
+     * ngram은 구분자로 잘린 조각이 2글자 미만이면 토큰을 만들지 않는다. 키워드를 통째로 넘기면
+     * <b>쿼리는 성공하고 결과만 조용히 0건이 된다</b>. 실측: {@code (주)}(LIKE 1,307건) ·
+     * {@code e-편한}(50건) · {@code X-TOP}(1건)이 전부 0건이었다. 부하 데이터의 검색어 80만 건 중
+     * <b>63%가 공백이나 기호를 포함</b>하므로 "한글 두 글자면 되겠지"로 넘기면 대부분이 0건이 된다.
+     *
+     * @return 불리언 모드 식. <b>쓸 조각이 하나도 없으면 {@code null}</b>이고, 그때 매퍼는
+     *         MATCH를 붙이지 않는다({@code (주)}, {@code a b} 같은 키워드). 빈 문자열을 넘기면
+     *         0건이 나와 결과가 바뀌므로 {@code null}이어야 한다
+     */
+    private String buildMatchExpression(String keyword) {
+        StringBuilder expression = new StringBuilder();
+        for (String fragment : keyword.split("[^\\p{IsAlphabetic}\\p{IsDigit}]+")) {
+            if (fragment.length() < KEYWORD_MIN_LENGTH) {
+                continue;
+            }
+            if (expression.length() > 0) {
+                expression.append(' ');
+            }
+            // 조각에는 문자·숫자만 남아 있어 따옴표가 섞일 수 없다. 이스케이프가 필요 없는 이유다.
+            expression.append("+\"").append(fragment).append('"');
+        }
+        return expression.length() == 0 ? null : expression.toString();
     }
 
     private String normalizeKeyword(String keyword) {
