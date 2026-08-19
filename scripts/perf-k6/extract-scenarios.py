@@ -106,6 +106,79 @@ def keyword_selectivity():
     return sel
 
 
+GRID = 0.01  # 약 1.1km(위도). 밀도 단계와 앵커 탐색의 해상도다.
+
+
+def grid_counts():
+    """0.01° 격자별 매장 수. 매장이 0인 격자는 애초에 결과에 없다 — 앵커 탐색이 그 성질을 쓴다."""
+    rows = run_sql(
+        "SELECT ROUND(latitude, 2), ROUND(longitude, 2), COUNT(*) "
+        "FROM store WHERE latitude IS NOT NULL GROUP BY 1, 2;")
+    return {(float(a), float(b)): int(c) for a, b, c in rows}
+
+
+def tier_bounds(grid):
+    """격자 매장 수의 7분위수 경계. 단계 1(가장 희소)~7(가장 밀집)."""
+    counts = sorted(grid.values())
+    return [counts[int(len(counts) * i / 7)] for i in range(1, 7)]
+
+
+def density_tier(bounds, lat, lng, grid):
+    """좌표가 속한 격자의 매장 수로 1~7 부여."""
+    n = grid.get((round(lat, 2), round(lng, 2)), 0)
+    tier = 1
+    for b in bounds:
+        if n >= b:
+            tier += 1
+    return tier
+
+
+# 1km 사각형 반변. 37.5°N 기준 위도 0.00899° · 경도 0.01133°.
+LAT_1KM, LNG_1KM = 0.00899, 0.01133
+
+# 5단계 재측정에서 이미 1km 안 0건으로 확인된 좌표(지리산). 시드 앵커로 반드시 포함한다.
+SEED_ANCHOR = (35.3370, 127.7306)
+
+
+def sparse_anchors(grid, want):
+    """1km 안에 매장이 0건인 좌표를 want개 찾는다.
+
+    **매장이 있는 격자의 빈 이웃**을 후보로 삼는다. 인접 격자에 가맹점이 있다는 것은 사람이
+    사는 곳이라는 뜻이라, 바다나 국토 밖으로 새지 않는 land proxy가 된다. 무작위 좌표를
+    뿌리면 대부분 바다에 떨어져 "사용자가 거기 있나"라는 반론을 받는다.
+
+    후보마다 1km 사각형 count를 **실제로 검증**한다 — 격자는 근사라 0이라고 단정할 수 없다.
+    """
+    populated = set(grid)
+    candidates = []
+    for (gla, glo) in populated:
+        for dla in (-2, -1, 0, 1, 2):
+            for dlo in (-2, -1, 0, 1, 2):
+                cell = (round(gla + dla * GRID, 2), round(glo + dlo * GRID, 2))
+                if cell not in populated:
+                    candidates.append(cell)
+    # 한 지역에 몰리지 않게 섞고, 검증 비용을 아끼려 넉넉히만 본다.
+    rnd = random.Random(20260819)
+    candidates = sorted(set(candidates))
+    rnd.shuffle(candidates)
+
+    found = [SEED_ANCHOR]
+    for (la, lo) in candidates:
+        if len(found) >= want:
+            break
+        # 이미 고른 앵커와 5km 안에 붙어 있으면 건너뛴다 — 지리적으로 흩는다.
+        if any(abs(la - a) < 0.05 and abs(lo - b) < 0.05 for a, b in found):
+            continue
+        n = int(run_sql(
+            f"SELECT COUNT(*) FROM store WHERE latitude BETWEEN {la - LAT_1KM} AND {la + LAT_1KM} "
+            f"AND longitude BETWEEN {lo - LNG_1KM} AND {lo + LNG_1KM};")[0][0])
+        if n == 0:
+            found.append((la, lo))
+    if len(found) < want:
+        sys.exit(f"희소 앵커를 {want}개 못 찾았다({len(found)}개). 격자 반경을 넓혀라.")
+    return found
+
+
 def main():
     only = sys.argv[1] if len(sys.argv) > 1 else ""
     sel = keyword_selectivity()
