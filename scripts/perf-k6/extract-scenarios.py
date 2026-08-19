@@ -118,9 +118,26 @@ def grid_counts():
 
 
 def tier_bounds(grid):
-    """격자 매장 수의 7분위수 경계. 단계 1(가장 희소)~7(가장 밀집)."""
+    """격자 매장 수의 **매장 가중** 7분위수 경계. 단계 1(가장 희소)~7(가장 밀집).
+
+    ⚠️ 격자 **수**로 나누면 안 된다. 실측하면 경계가 [1, 2, 3, 5, 11, 40]이 나오고
+    매장의 91.3%가 최상위 단계 하나에 몰린다 — 격자 대부분이 시골이기 때문이다.
+    판정용 좌표는 store에서 뽑혀 밀도 가중이므로, 그 경계를 쓰면 좌표의 93%가 같은
+    버킷으로 태깅돼 밀도별 분해가 아무것도 구분하지 못한다. 태그를 다는 이유가 사라진다.
+
+    매장 수로 가중하면 각 단계가 매장의 1/7(14.3%)씩 담는다 — 각 단계가 실제 트래픽의
+    1/7을 대표한다는 뜻이라, 밀도별 표가 "어느 구간의 사용자가 어떤 응답을 받나"를 답한다.
+    """
     counts = sorted(grid.values())
-    return [counts[int(len(counts) * i / 7)] for i in range(1, 7)]
+    total = sum(counts)
+    target = total / 7
+    bounds, cum, t = [], 0, 1
+    for n in counts:
+        cum += n
+        while t < 7 and cum >= target * t:
+            bounds.append(n)
+            t += 1
+    return bounds
 
 
 def density_tier(bounds, lat, lng, grid):
