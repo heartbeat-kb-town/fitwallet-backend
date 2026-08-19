@@ -256,7 +256,9 @@ export const options = {
     // setup()이 VU 수만큼 로그인하고 카드를 조회한다. 100명이면 1분 가까이 걸려
     // 기본값 60초로는 모자란다.
     setupTimeout: '5m',
-    summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'max'],
+    // 'count'가 빠지면 Trend의 values에 count가 안 담겨 buildDensityTable의 !t.values.count가
+    // 항상 참이 된다 — 에러 없이 밀도 표가 통째로 빈다(2026-08-19 스모크에서 실측).
+    summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'max', 'count'],
     // 응답 본문을 남긴다. 500이 났을 때 CannotGetJdbcConnection인지 봐야
     // 커넥션 풀 고갈을 확인할 수 있다(§설계 5). 응답이 작아 메모리 부담이 없다.
     discardResponseBodies: false,

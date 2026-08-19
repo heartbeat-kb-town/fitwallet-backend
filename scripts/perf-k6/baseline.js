@@ -258,7 +258,9 @@ export const options = {
     // baseline은 판정이 아니라 관측이다. 전부 통과하는 값이라 느린 엔드포인트에서도 테스트가
     // 중단되지 않는다 — 그래도 선언이 필요한 이유는 densityThresholds 주석을 본다.
     thresholds: densityThresholds,
-    summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'max'],
+    // 'count'가 빠지면 Trend의 values에 count가 안 담겨 buildDensityTable의 !t.values.count가
+    // 항상 참이 된다 — 에러 없이 밀도 표가 통째로 빈다(2026-08-19 스모크에서 실측).
+    summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'max', 'count'],
     discardResponseBodies: false,
 };
 
