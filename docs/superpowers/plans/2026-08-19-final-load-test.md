@@ -1411,7 +1411,7 @@ gh pr create --repo heartbeat-kb-town/fitwallet-backend --base main \
 
 ---
 
-## Task 10: 검색어 풀 재생성 (실행 순서상 Task 3보다 앞)
+### Task 10: 검색어 풀 재생성 (실행 순서상 Task 3보다 앞)
 
 **Files:**
 - Modify: `scripts/perf-data/build_store.py`
