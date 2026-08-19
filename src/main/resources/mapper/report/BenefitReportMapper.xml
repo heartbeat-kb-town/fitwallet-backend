@@ -3,54 +3,37 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.fitwallet.domain.report.mapper.BenefitReportMapper">
-    <select id="getTotalReceivedBenefit" resultType="java.math.BigDecimal">
-        SELECT COALESCE(SUM(
-        CASE WHEN bs.point_currency_id IS NOT NULL
-        THEN pt.discount_amount * pc.krw_per_point
-        ELSE pt.discount_amount
-        END
-        ), 0)
-        FROM payment_transaction pt
-        JOIN user_card uc ON pt.user_card_id = uc.user_card_id
-        LEFT JOIN benefit_service bs ON pt.applied_benefit_service_id = bs.service_id
-        LEFT JOIN point_currency pc ON bs.point_currency_id = pc.point_currency_id
-        WHERE uc.user_id = #{userId}
-        AND pt.transaction_status = 'APPROVED'
-        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
-    </select>
-
-    <select id="getTotalMissedBenefit" resultType="java.math.BigDecimal">
-        SELECT COALESCE(SUM(pt.missed_amount), 0)
-        FROM payment_transaction pt
-        JOIN user_card uc ON pt.user_card_id = uc.user_card_id
-        WHERE uc.user_id = #{userId}
-        AND pt.transaction_status = 'APPROVED'
-        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
-    </select>
-
-    <select id="getCategoryBenefits" resultType="com.fitwallet.domain.report.dto.response.CategoryBenefitResponse">
+    <!-- 받은 혜택 요약. discount_amount는 네이티브 단위라(원화 할인 or 포인트 개수)
+         point_currency_id 유무로 갈라 집계한다.
+         - totalReceivedBenefit: 포인트는 krw_per_point로 환산해 원화로 합산한 총 혜택
+         - totalDiscountAmount : 포인트가 아닌 원화 혜택만 합산
+         - totalPoint          : 포인트 개수 그대로 합산(환산 전) -->
+    <select id="getReceivedBenefitSummary"
+            resultType="com.fitwallet.domain.report.dto.response.ReceivedBenefitSummaryResponse">
         SELECT
-        c.category_id ,
-        c.category_name ,
         COALESCE(SUM(
         CASE WHEN bs.point_currency_id IS NOT NULL
         THEN pt.discount_amount * pc.krw_per_point
         ELSE pt.discount_amount
         END
-        ), 0) AS benefitAmount,
-        COALESCE(SUM(pt.amount), 0)           AS spendAmount
+        ), 0) AS totalReceivedBenefit,
+        COALESCE(SUM(
+        CASE WHEN bs.point_currency_id IS NULL
+        THEN pt.discount_amount ELSE 0
+        END
+        ), 0) AS totalDiscountAmount,
+        COALESCE(SUM(
+        CASE WHEN bs.point_currency_id IS NOT NULL
+        THEN pt.discount_amount ELSE 0
+        END
+        ), 0) AS totalPoint
         FROM payment_transaction pt
         JOIN user_card uc ON pt.user_card_id = uc.user_card_id
-        JOIN store s ON pt.store_id = s.store_id
-        JOIN category c ON s.category_id = c.category_id
         LEFT JOIN benefit_service bs ON pt.applied_benefit_service_id = bs.service_id
         LEFT JOIN point_currency pc ON bs.point_currency_id = pc.point_currency_id
         WHERE uc.user_id = #{userId}
         AND pt.transaction_status = 'APPROVED'
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
-        GROUP BY c.category_id, c.category_name
-        ORDER BY benefitAmount DESC
-        LIMIT 5
     </select>
 
     <!-- 1) 이번 달 지출 상위 카테고리 추출 (카테고리별 지출액 포함) -->

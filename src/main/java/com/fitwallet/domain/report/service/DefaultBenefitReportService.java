@@ -1,7 +1,11 @@
 package com.fitwallet.domain.report.service;
 
+import com.fitwallet.domain.card.dto.request.CardListSearchRequest;
+import com.fitwallet.domain.card.dto.response.CardListResponse;
+import com.fitwallet.domain.card.service.CardService;
 import com.fitwallet.domain.report.dto.response.*;
 import com.fitwallet.domain.report.mapper.BenefitReportMapper;
+import com.fitwallet.domain.report.mapper.MissedBenefitMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -20,20 +24,29 @@ public class DefaultBenefitReportService implements BenefitReportService {
     private static final int RECOMMENDATION_COUNT = 2;
 
     private final BenefitReportMapper benefitReportMapper;
+    // 놓친 혜택 분해(앱 미사용/카드 선택 손실)는 놓친 혜택 상세와 같은 집계라 매퍼를 재사용한다.
+    private final MissedBenefitMapper missedBenefitMapper;
+    // 카드 혜택 현황 캐러셀의 보유 카드 목록(앞면)은 카드 도메인 조회를 그대로 재사용한다.
+    private final CardService cardService;
 
     @Override
     @Transactional(readOnly = true)
     public BenefitSummaryResponse getBenefitSummary(Long userId, String yearMonth) {
-        BigDecimal totalReceived = benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth);
-        BigDecimal totalMissed = benefitReportMapper.getTotalMissedBenefit(userId, yearMonth);
-        List<CategoryBenefitResponse> categories = benefitReportMapper.getCategoryBenefits(userId, yearMonth);
+        ReceivedBenefitSummaryResponse received = benefitReportMapper.getReceivedBenefitSummary(userId, yearMonth);
+        MissedSummaryResponse missed = missedBenefitMapper.getMissedSummary(userId, yearMonth);
+        BigDecimal totalMissed = missed.getAppUnusedAmount().add(missed.getCardMismatchAmount());
 
+        List<CardListResponse> cards = cardService.findMyCards(userId, new CardListSearchRequest());
         List<CardRecommendationResponse> recommendations = getRecommendations(userId, yearMonth);
 
         return BenefitSummaryResponse.builder()
-                .totalReceivedBenefit(totalReceived)
+                .totalReceivedBenefit(received.getTotalReceivedBenefit())
+                .totalDiscountAmount(received.getTotalDiscountAmount())
+                .totalPoint(received.getTotalPoint())
                 .totalMissedBenefit(totalMissed)
-                .categories(categories)
+                .appUnusedAmount(missed.getAppUnusedAmount())
+                .cardMismatchAmount(missed.getCardMismatchAmount())
+                .cards(cards)
                 .recommendations(recommendations)
                 .build();
     }

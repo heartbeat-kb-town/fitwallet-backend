@@ -34,8 +34,12 @@ class BenefitReportControllerTest {
         when(benefitReportService.getBenefitSummary(1L, "2026-04"))
                 .thenReturn(BenefitSummaryResponse.builder()
                         .totalReceivedBenefit(BigDecimal.ZERO)
+                        .totalDiscountAmount(BigDecimal.ZERO)
+                        .totalPoint(BigDecimal.ZERO)
                         .totalMissedBenefit(BigDecimal.ZERO)
-                        .categories(List.of())
+                        .appUnusedAmount(BigDecimal.ZERO)
+                        .cardMismatchAmount(BigDecimal.ZERO)
+                        .cards(List.of())
                         .recommendations(List.of())
                         .build());
 

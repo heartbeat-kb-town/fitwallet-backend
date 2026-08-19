@@ -12,6 +12,8 @@ import java.util.List;
 
 import com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse;
 import com.fitwallet.domain.report.dto.response.CategorySpendResponse;
+import com.fitwallet.domain.report.dto.response.MissedSummaryResponse;
+import com.fitwallet.domain.report.dto.response.ReceivedBenefitSummaryResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -23,6 +25,9 @@ class BenefitReportMapperIntegrationTest {
     private BenefitReportMapper benefitReportMapper;
 
     @Autowired
+    private MissedBenefitMapper missedBenefitMapper;
+
+    @Autowired
     private DataSource dataSource;
 
     private JdbcTemplate jdbcTemplate() {
@@ -30,18 +35,13 @@ class BenefitReportMapperIntegrationTest {
     }
 
     @Test
-    void 시드_유저의_받은_혜택_총액을_조회한다() {
-        BigDecimal result = benefitReportMapper.getTotalReceivedBenefit(1L, "2026-04");
+    void 시드_유저의_받은_혜택_요약을_조회한다() {
+        ReceivedBenefitSummaryResponse result = benefitReportMapper.getReceivedBenefitSummary(1L, "2026-04");
 
         assertThat(result).isNotNull();
-        assertThat(result).isGreaterThanOrEqualTo(BigDecimal.ZERO);
-    }
-
-    @Test
-    void 시드_유저의_카테고리별_받은_혜택은_5개_이하로_조회된다() {
-        var result = benefitReportMapper.getCategoryBenefits(1L, "2026-04");
-
-        assertThat(result.size()).isLessThanOrEqualTo(5);
+        assertThat(result.getTotalReceivedBenefit()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
+        assertThat(result.getTotalDiscountAmount()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
+        assertThat(result.getTotalPoint()).isGreaterThanOrEqualTo(BigDecimal.ZERO);
     }
 
     @Test
@@ -55,9 +55,15 @@ class BenefitReportMapperIntegrationTest {
                         0, 1, 2, 1500, 500, 'CANCELED')
                 """);
 
-        assertThat(benefitReportMapper.getTotalReceivedBenefit(1L, "2099-01")).isZero();
-        assertThat(benefitReportMapper.getTotalMissedBenefit(1L, "2099-01")).isZero();
-        assertThat(benefitReportMapper.getCategoryBenefits(1L, "2099-01")).isEmpty();
+        ReceivedBenefitSummaryResponse received = benefitReportMapper.getReceivedBenefitSummary(1L, "2099-01");
+        assertThat(received.getTotalReceivedBenefit()).isZero();
+        assertThat(received.getTotalDiscountAmount()).isZero();
+        assertThat(received.getTotalPoint()).isZero();
+
+        MissedSummaryResponse missed = missedBenefitMapper.getMissedSummary(1L, "2099-01");
+        assertThat(missed.getAppUnusedAmount()).isZero();
+        assertThat(missed.getCardMismatchAmount()).isZero();
+
         assertThat(benefitReportMapper.getTopSpendingCategories(1L, "2099-01", 5)).isEmpty();
     }
 
@@ -67,7 +73,7 @@ class BenefitReportMapperIntegrationTest {
      * 그래서 krw_per_point가 1이 아닌 테스트 전용 포인트 화폐/혜택/결제 건을 직접 만들어,
      * 전/후 총액 차이로 환산 로직 자체를 검증한다. (@Transactional이라 테스트 후 롤백됨)
      *
-     * 주의: getTotalReceivedBenefit()을 이 테스트 안에서 두 번 호출하면 안 된다.
+     * 주의: getReceivedBenefitSummary()를 이 테스트 안에서 두 번 호출하면 안 된다.
      * @Transactional 테스트는 같은 SqlSession(=1차 캐시)을 공유해서, 같은 파라미터로
      * 두 번째 호출하면 JdbcTemplate으로 바꾼 데이터를 반영 못 하고 캐시된 첫 호출 결과를
      * 그대로 돌려준다(stale read). 그래서 "before"는 JdbcTemplate 원본 쿼리로 직접 재고,
@@ -128,6 +134,16 @@ class BenefitReportMapperIntegrationTest {
                         "WHERE uc.user_id = ? AND DATE_FORMAT(pt.paid_at, '%Y-%m') = ?",
                 BigDecimal.class, userId, yearMonth
         );
+        // 총 포인트(환산 전 개수) before도 세션 캐시 우회를 위해 직접 조회
+        BigDecimal beforePoint = jdbc.queryForObject(
+                "SELECT COALESCE(SUM(CASE WHEN bs.point_currency_id IS NOT NULL" +
+                        "       THEN pt.discount_amount ELSE 0 END), 0) " +
+                        "FROM payment_transaction pt " +
+                        "JOIN user_card uc ON pt.user_card_id = uc.user_card_id " +
+                        "LEFT JOIN benefit_service bs ON pt.applied_benefit_service_id = bs.service_id " +
+                        "WHERE uc.user_id = ? AND DATE_FORMAT(pt.paid_at, '%Y-%m') = ?",
+                BigDecimal.class, userId, yearMonth
+        );
 
         // 1) krw_per_point = 2.5000인 테스트 전용 포인트 화폐 생성
         jdbc.update(
@@ -157,9 +173,11 @@ class BenefitReportMapperIntegrationTest {
         assertThat(inserted).isEqualTo(1);
 
         // mapper 호출은 insert 이후 이 한 번뿐 (같은 세션에서 두 번째 호출이 아니므로 캐시 영향 없음)
-        BigDecimal after = benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth);
+        ReceivedBenefitSummaryResponse after = benefitReportMapper.getReceivedBenefitSummary(userId, yearMonth);
 
-        // 100포인트 × 2.5원/포인트 = 250원이 총액에 더해져야 함 (100원 그대로 더해지면 버그)
-        assertThat(after.subtract(before)).isEqualByComparingTo(new BigDecimal("250.00"));
+        // 총 받은 혜택: 100포인트 × 2.5원/포인트 = 250원이 더해져야 함 (100원 그대로 더해지면 버그)
+        assertThat(after.getTotalReceivedBenefit().subtract(before)).isEqualByComparingTo(new BigDecimal("250.00"));
+        // 총 포인트: 환산 전 개수 100이 그대로 더해져야 함 (환산액 250이 섞이면 버그)
+        assertThat(after.getTotalPoint().subtract(beforePoint)).isEqualByComparingTo(new BigDecimal("100.00"));
     }
 }
