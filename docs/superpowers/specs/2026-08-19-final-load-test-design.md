@@ -209,14 +209,23 @@ http_req_duration{name:store_search_coords, density:sparse}
 
 ### Phase 0 — 준비 (배포 없음)
 
+> ✅ **사전 확인 완료 (2026-08-19)** — 운영 RDS 실측: `store` 2,725,562행 · `search_history`
+> 800,063행 · 고유 검색어 305 · **1글자 검색어 0건** · 카테고리 7종. Flyway 이력은 V13까지
+> 적용됐고 `idx_search_history_searched_at_keyword`(V12)와 V11 인덱스 2종이 살아 있으며
+> FULLTEXT는 아직 없다. 로컬 perf DB(3308)와 수치가 일치해 추출을 어느 쪽에서 해도 같지만,
+> 스펙대로 운영에서 뽑는다.
+
 1. 추출 스크립트 작성 → 운영 RDS에서 두 CSV 생성 → 커밋
 2. `load.js` · `baseline.js` 개조 → 커밋
 3. **하네스 스모크** — 현재 배포된 버전 그대로 운영에 `baseline.js`를 N=5로 쏜다.
    확인할 것 셋: 조합이 실제로 갈리는가 · 밀도 태그가 요약에 실리는가 · `storeId` 인과가 도는가.
    로컬에 perf 데이터가 없어 로컬 재현이 더 비싸고, 실사용자 0명이라 운영에 30초 쏘는 게 무해하다
 4. k6 EC2(`i-05eb81746a575ca47`)에 스크립트·CSV를 SSM heredoc으로 배포
-5. **RDS에 SQL을 실행할 경로 확보** — V12 DROP/재생성에 필요하다.
-   Phase 1에서 처음 발견하면 되돌리기가 중간에 멈춘다
+5. ~~RDS에 SQL을 실행할 경로 확보~~ — **2026-08-19 확인 완료.** 경로가 둘 다 살아 있다:
+   RDS 보안그룹(`sg-0e33f166239f7a1ea`)이 3306을 **k6 EC2가 쓰는 `fitwallet-eb-sg`**와
+   **개발자 IP 3개**에 열어 두었고, 그중 하나가 현재 작업 IP다. 자격증명은 저장소의
+   `load.sh` 기본값이 아니라 **EB 환경 속성 `DB_USERNAME`/`DB_PASSWORD`**이며,
+   그 계정(`fitwallet`)은 `INDEX`·`ALTER`·`DROP`을 가져 V12 DROP/재생성이 가능하다
 
 ### Phase 1 — 개선 전 만들기
 
