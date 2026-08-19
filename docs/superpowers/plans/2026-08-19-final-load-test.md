@@ -17,7 +17,8 @@
 - **측정 대상은 운영 EB `fitwallet-prod`** — 별도 스테이징이 없다. 실사용자 0명이라 무해하다
 - **운영 RDS 접속**: 호스트 `fitwallet-db.c1g6w2em8fdg.ap-northeast-2.rds.amazonaws.com:3306`, DB `fitwallet`. 자격증명은 **EB 환경 속성 `DB_USERNAME`/`DB_PASSWORD`**에만 있다(저장소 `load.sh` 기본값은 로컬용이라 운영에서 거절된다). 자격증명을 파일·로그·커밋에 남기지 않는다
 - **`scripts/perf-k6/results/`는 gitignore다.** 측정 결과를 커밋하지 않는다. 수치의 정본은 노션
-- **CSV 두 개(`scenarios-load.csv` · `scenarios-baseline.csv`)는 커밋한다** — 두 측정이 같은 표본을 봤다는 근거가 파일로 남아야 한다
+- **CSV 세 개(`scenarios-load.csv` · `scenarios-baseline.csv` · `keyword-selectivity.csv`)는 커밋한다** — 두 측정이 같은 표본을 봤다는 근거가 파일로 남아야 한다.
+  ⚠️ `.gitignore`에 `*.csv`가 있다(`active-users.csv`는 추적되지 않는다). **`git add -f`를 쓰지 말고 `.gitignore`에 파일별 `!` 예외를 명시**한다 — 시나리오 CSV는 측정 결과가 아니라 실험을 정의하는 입력이고, 그 판단이 저장소에 드러나야 한다
 - **Phase B(측정) 진행 중에는 어떤 PR도 머지하지 않는다**(4단계 설계 §8). PR #270 머지는 Task 8의 계획된 단계라 예외
 - **앱 시계가 `clock.fixed-date=2026-07-24`로 고정**돼 있다. `YEAR_MONTH`는 `2026-07`을 유지한다
 
@@ -1342,13 +1343,26 @@ Expected: `OK`
 
 절 구성과 명시할 한계 여섯은 스펙 §4를 그대로 따른다.
 
-- [ ] **Step 2: 서술 규칙을 지킨다**
+- [ ] **Step 2: 데이터셋의 성질을 반드시 공개한다**
+
+`keyword-selectivity.csv` 실측(2026-08-19): 검색어 305개 중
+
+- **174개(57%)가 매장 0건에 매칭된다** — 시드 검색어가 `가전제품 수리업`·`복권 발행/판매업` 같은
+  업종명이라 상호명과 겹치지 않는다. 즉 실빈도 표본의 절반 이상이 **빈 결과 검색**이다
+- **라우팅 임계값 13,000을 넘는 것은 4개(1.3%)뿐**이다(`카페` 35,759 · `약국` 24,862 ·
+  `치킨` 20,793 · `미용실` 15,305). #270이 만든 계단 경로는 실트래픽의 1.3%에서만 발동한다
+
+**이것을 숨기면 보고서가 거짓이 된다.** 100 VU 표의 검색어 갈래 수치가 좋게 나오는 이유의
+상당 부분이 "찾을 게 없어서"이기 때문이다. 흥미로운 경로의 판정은 1 VU 층화 표본이 담당한다는
+역할 분담을 함께 적는다.
+
+- [ ] **Step 3: 서술 규칙을 지킨다**
 
 **"N배 빨라졌다"는 1 VU 표에서만 쓴다.** 100 VU의 before는 커넥션 풀 고갈을 잰 것이라
 19개가 전부 3.00초에 붙어 있고 손대지도 않은 `health_db`까지 74배 빨라진 것처럼 나온다.
 100 VU는 SLO 충족 수 · 에러율 · 달성 처리량으로만 말한다.
 
-- [ ] **Step 3: 이슈를 등록하고 PR을 올린다**
+- [ ] **Step 4: 이슈를 등록하고 PR을 올린다**
 
 ```bash
 ISSUE=$(gh issue create --repo heartbeat-kb-town/fitwallet-backend \
@@ -1384,7 +1398,7 @@ gh pr create --repo heartbeat-kb-town/fitwallet-backend --base main \
   --body "closes #$ISSUE"
 ```
 
-- [ ] **Step 4: 메모리를 갱신한다**
+- [ ] **Step 5: 메모리를 갱신한다**
 
 `perf-test-runs-on-prod`의 진행 위치를 7단계 완료로 고치고, `store-search-pr2-fulltext`를
 머지 완료 상태로 고친다.
