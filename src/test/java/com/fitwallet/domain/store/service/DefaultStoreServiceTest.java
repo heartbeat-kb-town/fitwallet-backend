@@ -19,6 +19,8 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.dao.DataIntegrityViolationException;
 
 import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -29,6 +31,7 @@ import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 
 /**
  * Service 단위 테스트. Mapper·SearchHistoryService를 목킹하므로 DB가 필요 없다.
@@ -108,7 +111,8 @@ class DefaultStoreServiceTest {
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
-        then(storeMapper).should().findStores(captor.capture());
+        // 스텁이 매번 1건만 주므로 계단이 끝까지 간다. 확정 반경은 마지막 단계에 나타난다.
+        then(storeMapper).should(times(3)).findStores(captor.capture());
         assertThat(captor.getValue().getKeyword()).isNull();
         assertThat(captor.getValue().getCategoryId()).isNull();
         assertThat(captor.getValue().getRadiusMeters()).isEqualTo(3000);
@@ -238,7 +242,7 @@ class DefaultStoreServiceTest {
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
-        then(storeMapper).should().findStores(captor.capture());
+        then(storeMapper).should(times(3)).findStores(captor.capture());
         assertThat(captor.getValue().getRadiusMeters()).isEqualTo(3000);
         assertThat(response.getRadiusMeters()).isEqualTo(3000);
     }
@@ -401,6 +405,153 @@ class DefaultStoreServiceTest {
         storeService.deleteAllKeywords(1L);
 
         then(storeMapper).should().deleteAllSearchHistory(1L);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // 계단식 반경
+    //
+    // 계단식은 "같은 답을 더 싸게" 얻으려는 최적화다. 그래서 여기 테스트가 확인하는 것은
+    // 속도가 아니라 계약이다 — 요청한 반경을 넘겨 뒤지지 않는가, 조기 종료해도 답이 같은가.
+    // 실제 소요 시간은 272만 행 perf DB에서만 의미가 있어 단위 테스트로 재지 않는다.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    @Test
+    void 주변_조회_모드는_300m_1km_확정반경_순으로_넓혀가며_조회한다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(times(3)).findStores(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(StoreSearchCondition::getRadiusMeters)
+                .containsExactly(300, 1000, 3000);
+    }
+
+    @Test
+    void 좁은_단계에서_다섯건이_차면_더_넓히지_않는다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(storesAtDistances(50, 60, 70, 80, 90));
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(times(1)).findStores(any());
+    }
+
+    @Test
+    void 다섯번째_거리가_단계_반경과_같으면_조기_종료하지_않는다() {
+        // 5번째가 단계 반경에 정확히 걸치면 조기 종료하지 않는다. 사각형과 HAVING의 경계가
+        // 어긋나면 그 행과 거리가 같은 다른 가맹점이 넓은 단계에서만 살아나 store_rank·store_name
+        // 타이브레이크로 5번째를 밀어낼 수 있기 때문이다(매퍼 주석의 +1m 여유 참고).
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(storesAtDistances(50, 60, 70, 80, 300));
+        ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
+
+        storeService.searchStores(1L, cond);
+
+        // 300m에서 멈추지 않고 1km로 넓혀 다시 확인한다. 1km에서는 5번째(300m)가 경계에
+        // 걸치지 않으므로 거기서 끝난다.
+        then(storeMapper).should(times(2)).findStores(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(StoreSearchCondition::getRadiusMeters)
+                .containsExactly(300, 1000);
+    }
+
+    @Test
+    void 요청_반경이_첫_단계보다_좁으면_그_반경_하나만_조회한다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).radiusMeters(100).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
+
+        storeService.searchStores(1L, cond);
+
+        // 클램프가 없으면 [300, 1000, 100]을 돌아 100m 밖 가맹점이 응답에 실린다.
+        then(storeMapper).should(times(1)).findStores(captor.capture());
+        assertThat(captor.getValue().getRadiusMeters()).isEqualTo(100);
+    }
+
+    @Test
+    void 요청_반경이_중간_단계와_겹치면_같은_반경을_두_번_조회하지_않는다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).radiusMeters(1000).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(times(2)).findStores(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(StoreSearchCondition::getRadiusMeters)
+                .containsExactly(300, 1000);
+    }
+
+    @Test
+    void 어떤_단계에서도_요청_반경을_넘는_조회를_하지_않는다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).radiusMeters(500).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(times(2)).findStores(captor.capture());
+        assertThat(captor.getAllValues())
+                .extracting(StoreSearchCondition::getRadiusMeters)
+                .containsExactly(300, 500)
+                .allSatisfy(radius -> assertThat(radius).isLessThanOrEqualTo(500));
+    }
+
+    @Test
+    void 최대_반경에서도_다섯건을_못_채우면_마지막_단계의_결과를_그대로_반환한다() {
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        List<StoreSummaryResponse> widest = storesAtDistances(2500, 2800);
+        given(storeMapper.findStores(any()))
+                .willReturn(List.of())
+                .willReturn(storesAtDistances(900))
+                .willReturn(widest);
+
+        StoreSearchResponse response = storeService.searchStores(1L, cond);
+
+        assertThat(response.getStores()).isEqualTo(widest);
+    }
+
+    @Test
+    void 키워드_모드에서는_계단식을_쓰지_않고_한_번만_조회한다() {
+        // 검색어가 있으면 LIKE가 먼저 대부분을 쳐내므로 단계를 늘리는 만큼 그대로 손해다.
+        StoreSearchCondition cond = StoreSearchCondition.builder()
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword("스타벅스").radiusMeters(3000).build();
+        given(storeMapper.findLocationAgreed(1L)).willReturn(true);
+        given(storeMapper.findStores(any())).willReturn(List.of());
+        ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
+
+        storeService.searchStores(1L, cond);
+
+        then(storeMapper).should(times(1)).findStores(captor.capture());
+        assertThat(captor.getValue().getRadiusMeters()).isEqualTo(3000);
+    }
+
+    /** 거리만 다른 결과 목록. 계단식의 종료 판단이 5번째 거리를 보므로 그 값만 의미가 있다. */
+    private List<StoreSummaryResponse> storesAtDistances(int... distanceMeters) {
+        return IntStream.range(0, distanceMeters.length)
+                .mapToObj(i -> StoreSummaryResponse.builder()
+                        .storeId((long) (i + 1))
+                        .storeName("가맹점 " + (i + 1))
+                        .distanceMeters(distanceMeters[i])
+                        .build())
+                .collect(Collectors.toList());
     }
 
     private StoreSummaryResponse store(Long storeId) {

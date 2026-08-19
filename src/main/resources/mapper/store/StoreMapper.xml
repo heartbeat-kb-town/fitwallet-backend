@@ -38,9 +38,84 @@
         자기 좌표와 비교했을 때 1.0000000000000002가 된다 — 클램프가 없으면 사용자가 가맹점에
         서 있을 때 그 매장의 distanceMeters가 null로 내려간다.
 
-        키워드/카테고리/반경은 NULL 허용 바인딩으로 키워드 검색과 주변 조회를 한 쿼리로 처리한다.
+        키워드/카테고리는 NULL 허용 바인딩으로 키워드 검색과 주변 조회를 한 쿼리로 처리한다.
         파라미터가 NULL이면 "X IS NULL"이 TRUE가 되어 조건 자체가 사라진다. 키워드와 카테고리가
         둘 다 NULL이면(= 좌표만 보낸 주변 조회) 반경 안에서 가까운 순 5건이 그대로 나온다.
+
+        ─────────────────────────────────────────────────────────────────────────────
+        반경만은 이 트릭을 쓰지 않는다. <choose>로 SQL 자체를 갈라 낸다.
+
+        HAVING의 거리 필터는 인덱스를 못 탄다. 인덱스는 컬럼 원본값의 순서로 만들어지는데
+        조건이 그 값을 ACOS에 넣은 결과를 보고 있어 옵티마이저가 범위를 좁힐 근거가 없기
+        때문이다. 그래서 아래 <when>이 원의 외접 사각형을 latitude/longitude 원본값에 대한
+        BETWEEN으로 먼저 건다. 이 조건이 V11의 idx_store_lat_lng / idx_store_cat_lat_lng를
+        타서 272만 행 풀스캔을 사각형 안 몇 만 행으로 줄인다. 정확한 원 판정은 아래 HAVING이
+        그대로 하므로 결과는 개선 전과 같다 — 사각형이 원을 완전히 덮기 때문이다.
+
+        ⚠️ 이걸 위쪽 NULL 가드 트릭 위에 얹으면 안 된다.
+
+            AND (#{cond.radiusMeters} IS NULL OR s.latitude BETWEEN ... )   ← 이렇게 하면 안 된다
+
+        이 형태는 옵티마이저가 "3000 IS NULL"을 FALSE로 접어 주기를 기대한다. 접히면 인덱스를
+        타고 안 접히면 풀스캔인데 어느 쪽이든 결과는 똑같이 맞다. 즉 테스트로는 절대 안 잡히고
+        성능만 조용히 죽는다. 접히느냐가 드라이버 설정(useServerPrepStmts)과 옵티마이저 버전에
+        달려 있어 우리가 통제할 수도 없다. <choose>로 가르면 SQL 문자열에 조건이 아예 없다.
+
+        조건을 nearbyMode가 아니라 radiusMeters != null로 거는 이유는, 검색어와 반경이 같이
+        오는 요청도 사각형의 이득을 봐야 하기 때문이다.
+
+        ⚠️ 반경에 +1m 여유를 준다. 사각형과 HAVING이 보는 거리가 서로 다르기 때문이다.
+        distance_meters는 ROUND된 정수라 HAVING은 실제 거리 R + 0.5m 미만까지 통과시키는데,
+        사각형을 정확히 R로 그리면 그 0.5m 구간의 가맹점이 HAVING에 닿기도 전에 사라진다.
+        개선 전에는 통과하던 행이라 결과가 바뀐다 — 겨우 몇십 cm지만 "결과가 안 바뀐다"는 전제가
+        참이려면 사각형이 HAVING이 받아들이는 영역을 완전히 덮어야 한다. 반대 방향의 여유는
+        무해하다. 사각형이 커져 봐야 HAVING이 다시 잘라내므로 결과는 그대로고, 3,000m에 1m면
+        훑는 행도 사실상 늘지 않는다.
+
+        ⚠️ 상수 111320을 쓰면 안 된다. 흔히 쓰이는 "위도 1도 = 111,320m"는 WGS84 적도 반지름
+        6,378,137에서 나온 값인데 위 ACOS 식은 평균 반지름 6,371,000을 쓴다. 기준이 어긋나면
+        반경 3000m일 때 사각형의 위도폭이 2,996.63m까지만 닿아 3.37m 모자란다. 사각형은 커도
+        무해하지만(HAVING이 자른다) 작으면 버그다 — 경계에 있는 가맹점이 HAVING까지 도달하지
+        못하고 사라져 "결과가 안 바뀐다"는 이 최적화의 전제가 깨진다. 그래서 6371000 * PI() / 180
+        을 그대로 적어 위 ACOS의 반지름과 같은 값임을 눈으로 확인할 수 있게 둔다.
+
+        경도폭을 COS(RADIANS(위도))로 나누는 것은 자오선 간격이 고위도로 갈수록 좁아지기
+        때문이다. 극점에서는 이 값이 0에 수렴해 사각형이 지구를 한 바퀴 감싸는데, 커지는
+        방향이라 결과는 여전히 옳다(느려질 뿐이고 서비스 지역과 무관하다).
+
+        ⚠️ FORCE INDEX가 필요하다. 인덱스를 만들어도 옵티마이저가 가장 넓은 단계에서 그것을 버린다.
+        272만 행 perf DB · 강남역 실측(계단식 없이 단발로 쟀을 때):
+
+            케이스                    옵티마이저가 고른 것        시간      강제하면
+            위치만 300m               idx_store_lat_lng          14.5ms      -
+            위치만 3km                풀스캔 2,690,016행         807.7ms   235.5ms
+            카테고리1 3km             idx_store_cat_lat_lng      15.5ms      -
+            카테고리7(기타) 3km       idx_store_category_id    1,417.9ms   132.0ms
+
+        원인은 옵티마이저의 비용 모델이 HAVING + LIMIT 5의 의미를 모른다는 데 있다. 사각형 안
+        8.4만 행을 세컨더리 인덱스로 찾은 뒤 PK로 랜덤 접근하는 비용을 실제보다 크게 잡아,
+        270만 행을 순차로 읽는 편이 싸다고 판단한다. 실제로는 정반대다. 카테고리 갈래에서는
+        한술 더 떠 위경도를 전혀 모르는 기존 idx_store_category_id를 골라 개선 전보다도 느려진다.
+
+        계단식 반경(DefaultStoreService)이 이 구간을 대부분 가려 준다 — 밀집 지역은 300m에서
+        5건이 차 3km까지 가지 않고, 희소 지역은 3km까지 가지만 거기선 위도 밴드가 작아 옵티마이저가
+        제대로 고른다(평창 3km 15.8ms). 남는 위험은 "밀집 위도 밴드인데 주변만 희소한 좌표"뿐인데,
+        하필 그때 최악값을 맞는 것이라 힌트로 막는다.
+
+        힌트를 keyword == null && radiusMeters != null 로만 거는 이유는 그 구간에서만 안전이
+        보장되기 때문이다. 서비스가 주변 조회 모드에서만 반경을 3km로 상한 검증하므로(RADIUS_EXCEEDED),
+        사각형이 테이블 대부분을 덮어 풀스캔이 실제로 유리해지는 상황이 생기지 않는다. 검색어가 있으면
+        반경 상한이 없어 그 보장이 깨지고, 어차피 LIKE가 먼저 대부분을 쳐낸다.
+
+        인덱스가 없으면 FORCE INDEX는 조용히 무시되는 게 아니라 에러(1176)다. Flyway가
+        sqlSessionFactory보다 먼저 뜨도록 depends-on이 걸려 있어(§11) 이 쿼리가 실행되는 시점에는
+        V11이 항상 적용돼 있다. 인덱스 이름은 파라미터가 아니라 XML에 박힌 리터럴이라 ${} 금지와도 무관하다.
+
+        latitude IS NOT NULL은 <otherwise>에만 있다. BETWEEN이 NULL을 배제하므로 <when> 쪽에서는
+        중복이지만, 반경이 없는 검색어 갈래에서는 지우면 안 된다 — DDL이 latitude NULL을 허용해
+        (V1) 좌표 없는 매장의 distance_meters가 NULL이 되고, HAVING이 없는 그 갈래에서는
+        걸러지지 않은 채 ORDER BY 맨 앞으로 올라온다(MySQL은 ASC에서 NULL을 앞에 놓는다).
+        ─────────────────────────────────────────────────────────────────────────────
 
         HAVING을 쓰는 이유는 distance_meters가 SELECT 목록의 별칭이라서다. WHERE는 SELECT보다
         먼저 평가되므로 별칭을 볼 수 없다(Unknown column 에러). MySQL은 집계 함수가 없으면
@@ -55,9 +130,10 @@
 
         LIMIT 5만 쓰고 OFFSET은 쓰지 않는다. 전체 건수를 내리지 않으므로 COUNT(*) 조회도 없다.
 
-        성능: LIKE '%키워드%'는 선행 와일드카드라, HAVING의 거리 필터는 계산식이라 둘 다 인덱스를
-        못 탄다. 키워드 검색은 store 전체를 훑으며 거리를 계산한다. 시드 244행에서는 무관하고,
-        규모가 커지면 FULLTEXT 또는 SPATIAL 인덱스 도입을 검토한다(이번 범위에서는 추가하지 않는다).
+        성능: LIKE '%키워드%'는 선행 와일드카드라 여전히 인덱스를 못 탄다. 검색어 갈래는 반경이
+        NULL로 와서 사각형도 만들 수 없어 이 최적화의 효과가 0이고, store 전체를 훑는다.
+        그쪽은 FULLTEXT ngram 인덱스로 따로 다룬다 — 1글자 검색어의 동작이 바뀌는 변경이라
+        검색 스펙 결정이 선행되어야 해서 이번 범위에 넣지 않았다.
     -->
     <select id="findStores" resultMap="storeSummary">
         SELECT s.store_id,
@@ -71,12 +147,31 @@
                    * COS(RADIANS(s.longitude) - RADIANS(#{cond.longitude}))
                    + SIN(RADIANS(#{cond.latitude})) * SIN(RADIANS(s.latitude))))) AS distance_meters
         FROM store s
+        <if test="cond.keyword == null and cond.radiusMeters != null">
+            <choose>
+                <when test="cond.categoryId != null">FORCE INDEX (idx_store_cat_lat_lng)</when>
+                <otherwise>FORCE INDEX (idx_store_lat_lng)</otherwise>
+            </choose>
+        </if>
                  JOIN category c ON c.category_id = s.category_id
-        WHERE s.latitude IS NOT NULL
-          AND s.longitude IS NOT NULL
+        WHERE
+        <choose>
+            <when test="cond.radiusMeters != null">
+                s.latitude  BETWEEN #{cond.latitude}  - (#{cond.radiusMeters} + 1) / (6371000 * PI() / 180)
+                                AND #{cond.latitude}  + (#{cond.radiusMeters} + 1) / (6371000 * PI() / 180)
+                AND s.longitude BETWEEN #{cond.longitude} - (#{cond.radiusMeters} + 1) / (6371000 * PI() / 180 * COS(RADIANS(#{cond.latitude})))
+                                    AND #{cond.longitude} + (#{cond.radiusMeters} + 1) / (6371000 * PI() / 180 * COS(RADIANS(#{cond.latitude})))
+            </when>
+            <otherwise>
+                s.latitude IS NOT NULL
+                AND s.longitude IS NOT NULL
+            </otherwise>
+        </choose>
           AND (#{cond.keyword} IS NULL OR s.store_name LIKE CONCAT('%', #{cond.keyword}, '%'))
           AND (#{cond.categoryId} IS NULL OR s.category_id = #{cond.categoryId})
-        HAVING (#{cond.radiusMeters} IS NULL OR distance_meters &lt;= #{cond.radiusMeters})
+        <if test="cond.radiusMeters != null">
+            HAVING distance_meters &lt;= #{cond.radiusMeters}
+        </if>
         ORDER BY distance_meters, (s.store_rank IS NULL), s.store_rank, s.store_name
         LIMIT 5
     </select>
