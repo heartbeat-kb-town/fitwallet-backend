@@ -14,11 +14,14 @@ BUCKET=elasticbeanstalk-ap-northeast-2-715975222399
 PREFIX=perf-k6
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
+# ⚠️ --timeout-seconds는 "명령이 인스턴스에 도달해 시작되기까지"의 상한이지 실행 시간이 아니다.
+#    실행 시간은 AWS-RunShellScript의 executionTimeout(기본 3600초)이 정한다. 개선 전 baseline은
+#    느린 요청 760건이라 1시간 근처까지 가고, 넘기면 명령이 죽어 결과가 통째로 날아간다.
 ssm_run() {  # $1=설명 $2=쉘 명령
   local cid
   cid=$(aws ssm send-command --instance-ids "$INSTANCE" --region "$REGION" \
         --document-name AWS-RunShellScript --comment "$1" \
-        --parameters "commands=[\"$2\"]" --timeout-seconds 3600 \
+        --parameters "commands=[\"$2\"],executionTimeout=[\"14400\"]" --timeout-seconds 3600 \
         --query 'Command.CommandId' --output text)
   echo "  SSM $cid — $1" >&2
   while :; do
