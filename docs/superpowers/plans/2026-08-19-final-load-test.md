@@ -48,6 +48,11 @@
 
 ## Phase A — 하네스 (코드)
 
+> **실행 순서: 1 → 2 → 10 → 3 → 4 → 5 → 6.** Task 10(검색어 풀 재생성)은 문서 끝에 있지만
+> **Task 3보다 먼저 돌려야 한다** — Task 3이 만드는 CSV의 검색어가 Task 10의 결과에서 나온다.
+> 번호를 다시 매기면 계획 곳곳의 상호참조가 깨져서, 번호 대신 이 줄로 순서를 고정한다.
+> Task 4·5는 CSV의 *형식*만 알면 되므로 이 의존과 무관하게 진행할 수 있다.
+
 ### Task 1: 추출 스크립트 — 접속과 검색어 선택도
 
 **Files:**
@@ -1402,3 +1407,241 @@ gh pr create --repo heartbeat-kb-town/fitwallet-backend --base main \
 
 `perf-test-runs-on-prod`의 진행 위치를 7단계 완료로 고치고, `store-search-pr2-fulltext`를
 머지 완료 상태로 고친다.
+
+
+---
+
+## Task 10: 검색어 풀 재생성 (실행 순서상 Task 3보다 앞)
+
+**Files:**
+- Modify: `scripts/perf-data/build_store.py`
+- Modify: `scripts/perf-data/build_synthetic.py`
+- Regenerate: `$PERF_DATA_DIR/out/keywords.tsv` · `search_history.tsv`
+- Reload: 운영 RDS `search_history` (**파괴적 — 사용자 승인 완료 2026-08-19**)
+- Regenerate: `scripts/perf-k6/keyword-selectivity.csv`
+
+**Interfaces:**
+- Produces: `keywords.tsv` — `키워드<TAB>매장수` 2열 TSV (기존 1열에서 바뀐다)
+- Produces: `keyword-selectivity.csv` — Task 3의 층화가 소비한다. **내용이 통째로 바뀐다**
+
+### 왜 필요한가
+
+현재 시드 검색어 305개의 실측 성질이 부하 테스트를 무의미하게 만든다.
+
+| 성질 | 값 | 원인 |
+|---|---|---|
+| 매장 0건에 매칭 | **174개(57%)** | `build_store.py`가 소분류명을 전부 넣는데, 기타(7) 업종의 `건물 및 토목 엔지니어링 서비스업` 류는 상호명에 안 나타난다 |
+| 빈도 편중 | **없음**(2,479~2,792, 1.13배) | `write_search_history`가 `rng.sample()` 균등 비복원 추출을 쓴다 |
+| 임계값 13,000 초과 | **4개(1.3%)** | 위 둘의 결과 |
+
+**이 서비스에서는 가장 많이 검색되는 말이 곧 가장 무거운 쿼리다** — `카페`가 상호명 35,759건에
+매칭된다. 균등하게 뽑으면 부하 테스트가 그 구간을 거의 밟지 않아 p95가 낙관적으로 나온다.
+
+> **상호명 토큰화는 답이 아니다(실측).** 120,000개 상호명을 문자·숫자 아닌 문자로 쪼개 세면
+> 빈출 토큰이 `코리아(616)` · `본점(276)` · `2호점(148)` · `업소명없음(152)`이고 `카페`는 47회뿐이다.
+> `LIKE '%카페%'`는 35,759건인데 — `카페베네`가 한 토큰이라 그렇다. **한국어 상호명은 검색어로
+> 쪼개지지 않고, 사용자는 부분문자열을 검색한다.** ngram FULLTEXT를 쓰는 이유와 같다.
+> 그래서 풀을 새로 만들지 않고 **기존 풀의 구성과 가중치만 고친다.**
+
+- [ ] **Step 1: `build_store.py` — 기타 업종 소분류명을 풀에서 뺀다**
+
+`category_mapping`에서 `ETC`를 함께 임포트한다(지금은 `to_category_id`만 가져온다).
+
+`keywords = set()`를 카운터로 바꾼다:
+
+```python
+    # 소분류명을 검색 키워드 풀로 쓴다. '치킨' '약국' '주유소'처럼 사람이 실제로 검색하는
+    # 말이고, 지어내지 않아도 데이터에서 그대로 나온다. build_synthetic.py가 읽는다.
+    # 값은 그 소분류의 매장 수다 — 검색 빈도의 Zipf 순위로 쓰인다.
+    keyword_counts = collections.Counter()
+```
+
+`keywords.add(...)` 한 줄을 아래로 교체한다. `category_id`는 바로 윗줄에서 이미 계산돼 있다:
+
+```python
+                    # 기타(7) 업종의 소분류명은 풀에 넣지 않는다. `건물 및 토목 엔지니어링
+                    # 서비스업` 같은 업종 용어라 상호명에 나타나지 않고(실측 305개 중 174개가
+                    # 0건 매칭), 프론트 카테고리 칩에도 없어 사용자가 칠 일이 없다.
+                    if category_id != ETC:
+                        sub = record["상권업종소분류명"].strip()
+                        if sub:
+                            keyword_counts[sub] += 1
+```
+
+출력을 2열로 바꾼다:
+
+```python
+    keyword_path = os.path.join(out_dir, "keywords.tsv")
+    with open(keyword_path, "w", encoding="utf-8") as fh:
+        # 두 번째 열은 그 소분류의 매장 수다. build_synthetic.py가 검색 빈도의 Zipf 순위로 쓴다 —
+        # "사람은 많은 업종을 더 검색한다"는 가정이고, 지어낸 값이 아니라 공공데이터에서 나온다.
+        for word, n in sorted(keyword_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+            fh.write(f"{word}\t{n}\n")
+
+    print(f"\n→ {out_path}")
+    print(f"→ {keyword_path} ({len(keyword_counts)}개 소분류명 — 기타 제외, 매장 수 내림차순)")
+```
+
+- [ ] **Step 2: `build_store.py`를 돌려 풀을 다시 뽑는다**
+
+Run: `python3 scripts/perf-data/build_store.py`
+
+Expected: `keywords.tsv`가 2열이 되고 개수가 247개보다 줄어든다. **`store.tsv`도 다시 쓰이지만
+입력과 로직이 같아 내용이 같다 — 운영에 재적재하지 않는다.**
+
+검증(2열 아닌 행이 0이어야 한다):
+
+    head -5 "$HOME/fitwallet-perf-data/out/keywords.tsv"
+    wc -l < "$HOME/fitwallet-perf-data/out/keywords.tsv"
+    awk -F'\t' 'NF!=2 {bad++} END {print "2열 아닌 행:", bad+0}' "$HOME/fitwallet-perf-data/out/keywords.tsv"
+
+- [ ] **Step 3: `build_synthetic.py` — 가중치를 읽고 Zipf로 뽑는다**
+
+`main()`의 키워드 로딩을 교체한다:
+
+```python
+    keyword_path = os.path.join(out_dir, "keywords.tsv")
+    weights = {}
+    for line in open(keyword_path, encoding="utf-8"):
+        if not line.strip():
+            continue
+        word, _, count = line.rstrip("\n").partition("\t")
+        weights[word] = int(count) if count else 1
+
+    # 브랜드명도 검색어다. 가중치는 그 브랜드의 매장 수 — 소분류와 같은 척도라 함께 정렬된다.
+    brand_stores = {int(b): int(n) for b, n in
+                    query("SELECT brand_id, COUNT(*) FROM store "
+                          "WHERE brand_id IS NOT NULL GROUP BY brand_id")}
+    for brand_id, name in query("SELECT brand_id, brand_name FROM brand"):
+        name = name.strip()
+        if name:
+            weights[name] = max(weights.get(name, 0), brand_stores.get(int(brand_id), 1))
+
+    keywords = sorted(weights)
+    print(f"키워드 {len(keywords)}개 (기타 제외 소분류명 + 브랜드명, 매장 수 가중)\n")
+```
+
+`write_search_history`의 시그니처와 본문을 교체한다:
+
+```python
+def write_search_history(out_dir, rng, keywords, weights, reference, seed):
+    """search_history 80만 행 (5만 명 × 16개). UNIQUE(user_id, keyword)라 유저별로 비복원 추출한다.
+
+    **균등 추출을 쓰지 않는다.** 예전에는 `rng.sample()`이라 검색어 빈도가 2,479~2,792로
+    평평했는데(최대/최소 1.13배), 실제 검색은 소수 검색어에 몰린다. 그리고 이 서비스에서는
+    **가장 많이 검색되는 말이 곧 가장 무거운 쿼리**다 — `카페`가 상호명 35,759건에 매칭된다.
+    균등하게 뽑으면 부하 테스트가 그 구간을 거의 밟지 않아 p95가 낙관적으로 나온다.
+
+    가중치는 그 업종·브랜드의 매장 수이고, 그 순위에 Zipf(1/r)를 씌운다.
+
+    비복원 가중 추출은 **Gumbel top-k**로 한다 — 후보마다 log(w) + Gumbel 잡음을 주고 상위 k개를
+    고르면 가중 비복원 추출과 같아진다. UNIQUE(user_id, keyword) 제약을 그대로 지킨다.
+
+    ⚠️ 전용 RNG를 쓴다. main의 rng를 쓰면 앞선 writer들이 소비한 양에 따라 결과가 달라져
+    --only-search-history로 뽑은 파일이 전체 실행 결과와 달라진다.
+    """
+    write_columns(out_dir, "search_history")
+    path = os.path.join(out_dir, "search_history.tsv")
+    recent_cut = reference - datetime.timedelta(days=7)
+    window_seconds = 180 * 24 * 3600
+    start = reference - datetime.timedelta(seconds=window_seconds)
+
+    sh_rng = random.Random(seed ^ 0x5EA2C4)
+    ranked = sorted(keywords, key=lambda k: (-weights.get(k, 1), k))
+    log_w = [math.log(1.0 / (i + 1)) for i in range(len(ranked))]
+
+    row_id = 0
+    with open(path, "w", encoding="utf-8") as fh:
+        for user_id in range(1, TARGET_USERS + 1):
+            gumbel = [(log_w[i] - math.log(-math.log(sh_rng.random())), i)
+                      for i in range(len(ranked))]
+            gumbel.sort(reverse=True)
+            for _, i in gumbel[:KEYWORDS_PER_USER]:
+                keyword = ranked[i]
+                row_id += 1
+                # 1/4은 최근 7일 이내. 검색 이력 조회가 최신순 상위 N을 본다.
+                if sh_rng.random() < 0.25:
+                    searched = recent_cut + datetime.timedelta(seconds=sh_rng.randrange(7 * 24 * 3600))
+                else:
+                    searched = start + datetime.timedelta(seconds=sh_rng.randrange(window_seconds))
+                fh.write(
+                    f"{row_id}\t{user_id}\t{keyword}\t{searched.strftime('%Y-%m-%d %H:%M:%S')}\n"
+                )
+    return path, row_id
+```
+
+호출부도 새 인자에 맞춘다: `write_search_history(out_dir, rng, keywords, weights, reference, args.seed)`
+
+- [ ] **Step 4: `--only-search-history` 플래그를 더한다**
+
+전체 실행은 `payment_transaction` 2.7GB를 다시 쓴다. 검색어만 바뀌었을 때 그 비용을 치를 이유가 없다.
+
+```python
+    parser.add_argument(
+        "--only-search-history", action="store_true",
+        help="search_history.tsv만 다시 만든다. 검색어 풀을 바꿨을 때 쓴다 — "
+             "전용 RNG를 쓰므로 전체 실행과 같은 결과가 나온다.")
+```
+
+`main()`에서 이 플래그가 켜지면 `StoreIndex`·`BenefitIndex` 로드와 `write_users`·`write_user_cards`·
+`write_transactions`를 건너뛰고 `write_search_history`만 부른다. 키워드·가중치 로딩은 건너뛰지 않는다.
+
+- [ ] **Step 5: 검색어만 다시 만든다**
+
+Run: `python3 scripts/perf-data/build_synthetic.py --only-search-history`
+
+Expected: `search_history.tsv` 800,000행. 분포가 실제로 기울었는지 확인한다:
+
+    awk -F'\t' '{c[$3]++} END {n=0; for (k in c) {n++; if (c[k]>mx) {mx=c[k]; mk=k}} print "고유:", n; print "최다:", mk, mx; print "최다 비중(%):", mx*100/NR}' "$HOME/fitwallet-perf-data/out/search_history.tsv"
+
+Expected: 최다 비중이 **3% 이상**(예전엔 0.35%). 1% 미만이면 가중이 안 걸린 것이다
+
+- [ ] **Step 6: 운영 RDS에 `search_history`만 재적재한다 — 파괴적**
+
+⚠️ **`search_history` 800,063행이 지워지고 다시 채워진다.** 합성 데이터라 재생성 가능하고
+실사용 검색 기록은 없다. `store`·`users`·`user_card`·`payment_transaction`은 건드리지 않는다.
+**`PERF_TABLES`를 반드시 지정해라 — 빼면 전 테이블을 재적재한다.**
+
+    CFG=$(aws elasticbeanstalk describe-configuration-settings --application-name fitwallet-backend --environment-name fitwallet-prod --region ap-northeast-2 --query "ConfigurationSettings[0].OptionSettings[?Namespace=='aws:elasticbeanstalk:application:environment']" --output json)
+    export PERF_DB_USER=$(echo "$CFG" | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(o.get('Value','') for o in d if o['OptionName']=='DB_USERNAME'))")
+    export PERF_DB_PASSWORD=$(echo "$CFG" | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(o.get('Value','') for o in d if o['OptionName']=='DB_PASSWORD'))")
+    export PERF_DB_HOST=fitwallet-db.c1g6w2em8fdg.ap-northeast-2.rds.amazonaws.com
+    export PERF_DB_PORT=3306
+    export PERF_ALLOW_DEV_PORT=1
+    PERF_TABLES="search_history" scripts/perf-data/load.sh --reset
+
+검증 — 행 800,000 · 최근 7일 15만 이상 · 상위 검색어 n이 24,000 이상(3%):
+
+    scripts/perf-k6/prod-sql.sh -t -e "SELECT COUNT(*) 행, COUNT(DISTINCT keyword) 고유, SUM(searched_at >= NOW() - INTERVAL 7 DAY) 최근7일 FROM search_history; SELECT keyword, COUNT(*) n FROM search_history GROUP BY keyword ORDER BY n DESC LIMIT 5;"
+
+- [ ] **Step 7: `keyword-selectivity.csv`를 다시 뽑는다**
+
+검색어 풀이 바뀌었으므로 Task 1의 캐시는 낡았다. 지우고 다시 잰다(3~4분).
+
+    rm scripts/perf-k6/keyword-selectivity.csv
+    python3 scripts/perf-k6/extract-scenarios.py --only-selectivity
+
+새 분포를 확인한다 — **0건 비중이 30% 미만**이어야 하고 고 구간이 비면 안 된다:
+
+    python3 -c "
+    import csv
+    rows = list(csv.DictReader(open('scripts/perf-k6/keyword-selectivity.csv', encoding='utf-8')))
+    n = [int(r['matchCount']) for r in rows]
+    z = sum(1 for x in n if x == 0)
+    print('검색어', len(n), '개 — 0건', z, '(%.0f%%)' % (z/len(n)*100),
+          '· 저', sum(1 for x in n if 0 < x < 1000),
+          '· 중', sum(1 for x in n if 1000 <= x <= 13000),
+          '· 고', sum(1 for x in n if x > 13000), '· 최대', max(n))
+    assert z / len(n) < 0.30, '0건 매칭이 여전히 30%를 넘는다 — 기타 제외가 안 먹었다'
+    assert sum(1 for x in n if x > 13000) >= 1, '고 구간이 비었다 — 층화 불가'
+    print('OK')
+    "
+
+- [ ] **Step 8: 커밋**
+
+    git add scripts/perf-data/build_store.py scripts/perf-data/build_synthetic.py scripts/perf-k6/keyword-selectivity.csv
+    git commit -m "perf: 검색어 풀에서 기타 업종을 빼고 실빈도로 뽑는다
+
+    Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>"
+
+> `$PERF_DATA_DIR`의 TSV는 저장소 밖이라 커밋 대상이 아니다.
