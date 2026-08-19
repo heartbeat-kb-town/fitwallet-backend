@@ -61,7 +61,7 @@ const USER_FILE = __ENV.USER_FILE || './active-users.csv';
 const PASSWORD = __ENV.PERF_PASSWORD || '11112222';
 const YEAR_MONTH = __ENV.YEAR_MONTH || '2026-07';
 
-/** 서울 강남역. 272만 건 중 밀도가 높아 거리 계산 후 남는 행이 많다. */
+/** setup()의 폴백 프로브 전용 좌표(강남역). 세션 좌표는 scenarios-load.csv에서 온다. */
 const LAT = 37.4979;
 const LNG = 127.0276;
 
@@ -77,6 +77,44 @@ const SLO_AGG = 500;
 const users = new SharedArray('active users', function () {
     return open(USER_FILE).split('\n').map((s) => s.trim()).filter(Boolean);
 });
+
+const SCENARIO_FILE = __ENV.SCENARIO_FILE || './scenarios-load.csv';
+
+/**
+ * 시나리오 조합. 좌표·검색어·카테고리가 여기서 온다 — 예전에는 전부 상수였다.
+ * SharedArray라 VU 전체가 메모리 한 벌을 공유한다.
+ */
+const scenarios = new SharedArray('scenarios', function () {
+    const lines = open(SCENARIO_FILE).split('\n').map((s) => s.trim()).filter(Boolean);
+    return lines.slice(1).map(function (line) {
+        const c = line.split(',');
+        return { lat: c[0], lng: c[1], tier: Number(c[2]), keyword: c[3], categoryId: c[4] };
+    });
+});
+
+/** 밀도 단계(0~7)를 태그 버킷으로 줄인다. 태그 카디널리티를 낮게 유지한다. */
+function densityBucket(tier) {
+    if (tier === 0) return 'empty';   // 1km 안 0건 — 사다리를 10km까지 올리는 유일한 경로
+    if (tier <= 2) return 'sparse';
+    if (tier <= 5) return 'mid';
+    return 'dense';
+}
+
+/**
+ * 세션마다 조합을 갈아 끼운다. **난수를 쓰지 않는다** — 개선 전과 후가 같은 순서를 밟는 것이
+ * 비교의 전제이고, 결정적 순회면 시드를 맞췄는지 확인할 필요조차 없다.
+ *
+ * VU 100개가 매 반복 서로 다른 100칸씩 전진한다. 2,000행이면 20반복까지 겹침이 없고
+ * 판정 구간은 약 15반복이라 한 번도 재사용되지 않는다.
+ *
+ * 워밍업에 N/2 오프셋을 주는 이유: 같은 조합을 밟으면 판정 구간이 자기가 쓸 페이지를
+ * 미리 캐시에 올린 상태로 시작한다.
+ */
+function pickScenario(isSteady) {
+    const offset = isSteady ? 0 : Math.floor(scenarios.length / 2);
+    const i = (offset + (__VU - 1) + exec.scenario.iterationInInstance * VUS) % scenarios.length;
+    return scenarios[i];
+}
 
 // ── 여정 정의 ──────────────────────────────────────────────────────────────
 // 화면 그룹 사이에만 think time을 넣으므로 평탄한 배열이 아니라 화면 단위로 중첩한다.
@@ -116,16 +154,21 @@ const SCREENS = [
         screen: '검색',
         calls: [
             { name: 'store_keywords',        slo: SLO_SEARCH, url: () => '/api/store/keywords' },
-            // 1 VU에서 이미 SLO의 7.3배다. 부하에서 실패하는 것은 새 정보가 아니다.
-            { name: 'store_search_coords',   slo: SLO_SEARCH, url: () => `/api/store/search?latitude=${LAT}&longitude=${LNG}&radiusMeters=3000` },
-            { name: 'store_search_keyword',  slo: SLO_SEARCH, url: () => `/api/store/search?keyword=%EC%8A%A4%ED%83%80%EB%B2%85%EC%8A%A4&latitude=${LAT}&longitude=${LNG}` },
-            { name: 'store_search_category', slo: SLO_SEARCH, url: () => `/api/store/search?categoryId=1&latitude=${LAT}&longitude=${LNG}&radiusMeters=3000` },
+            { name: 'store_search_coords',   slo: SLO_SEARCH, geo: true,
+              url: (u, sc) => `/api/store/search?latitude=${sc.lat}&longitude=${sc.lng}&radiusMeters=3000` },
+            { name: 'store_search_keyword',  slo: SLO_SEARCH, geo: true,
+              url: (u, sc) => `/api/store/search?keyword=${encodeURIComponent(sc.keyword)}&latitude=${sc.lat}&longitude=${sc.lng}` },
+            { name: 'store_search_category', slo: SLO_SEARCH, geo: true,
+              url: (u, sc) => `/api/store/search?categoryId=${sc.categoryId}&latitude=${sc.lat}&longitude=${sc.lng}&radiusMeters=3000` },
         ],
     },
     {
         screen: '결제 전',
         calls: [
-            { name: 'benefit_expected', slo: SLO_AGG, url: (u) => `/api/benefit/expected?storeId=${u.storeId}&amount=15000` },
+            // storeId는 같은 세션의 좌표 검색 응답에서 이어받는다(fire()가 채운다).
+            // 사용자의 실제 동선(검색 → 가맹점 선택 → 결제 전 혜택 조회)과 인과가 맞는다.
+            { name: 'benefit_expected', slo: SLO_AGG,
+              url: (u, sc) => `/api/benefit/expected?storeId=${sc.storeId || u.storeId}&amount=15000` },
         ],
     },
     {
@@ -161,8 +204,19 @@ const transportErrors = new Counter('transport_errors');
 const thresholds = {
     'http_req_failed{phase:steady}': ['rate<0.01'],
 };
+/*
+ * ⚠️ k6는 임계값에 선언되지 않은 태그 조합의 서브메트릭을 만들지 않는다.
+ * handleSummary에서 밀도별 수치를 읽으려면 통과가 보장되는 임계값이라도 걸어야 한다.
+ * 빠뜨리면 에러 없이 밀도 표가 통째로 비어 나온다.
+ */
+const DENSITY_BUCKETS = ['empty', 'sparse', 'mid', 'dense'];
 for (const c of ALL_CALLS) {
     thresholds[`http_req_duration{name:${c.name},phase:steady}`] = [`p(95)<${c.slo}`];
+    if (c.geo) {
+        for (const b of DENSITY_BUCKETS) {
+            thresholds[`http_req_duration{name:${c.name},phase:steady,density:${b}}`] = ['p(95)<999999'];
+        }
+    }
 }
 
 export const options = {
@@ -238,7 +292,9 @@ export function setup() {
         { headers: authHeaders(probeToken) });
     const stores = storeRes.json('data.stores') || [];
     if (stores.length === 0) {
-        throw new Error('좌표 검색이 0건이다. 좌표를 바꾸거나 반경을 넓혀야 한다.');
+        throw new Error(
+            '폴백 프로브 좌표(강남역)의 검색이 0건이다. 세션 좌표는 희소해도 정상이지만 '
+            + '이 프로브는 benefit_expected의 폴백 storeId를 만드는 자리라 비면 안 된다.');
     }
     const storeId = stores[0].storeId;
 
@@ -340,17 +396,27 @@ export function setup() {
 const ERROR_LOG_LIMIT = 20;
 let errorLogged = 0;
 
-function fire(call, u, isSteady) {
+function fire(call, u, sc, isSteady) {
     const headers = call.auth === false
         ? {}
         : { Authorization: `Bearer ${u.token}` };
 
     // tags.name을 고정해야 URL에 userCardId가 박힌 요청들이 따로 집계되지 않는다.
-    const res = http.get(`${BASE_URL}${call.url(u)}`, {
+    const tags = { name: call.name };
+    if (call.geo) tags.density = densityBucket(sc.tier);
+
+    const res = http.get(`${BASE_URL}${call.url(u, sc)}`, {
         headers,
-        tags: { name: call.name },
+        tags,
         timeout: '60s',
     });
+
+    // 좌표 검색이 성공하면 그 결과의 첫 가맹점을 세션에 담는다. 뒤따르는 benefit_expected가 쓴다.
+    // 0건이면 손대지 않아 setup()의 전역 폴백이 그대로 남는다 — 희소 좌표에서는 0건이 정상이다.
+    if (call.name === 'store_search_coords' && res.status === 200) {
+        const stores = res.json('data.stores') || [];
+        if (stores.length > 0) sc.storeId = stores[0].storeId;
+    }
 
     if (isSteady) steadyReqs.add(1);
 
@@ -387,10 +453,15 @@ export default function (data) {
     // __VU는 1부터. 시나리오가 둘이라 VU 번호가 겹칠 수 있어 모듈로로 감싼다.
     const u = data.pool[(__VU - 1) % data.pool.length];
     const isSteady = exec.scenario.name === 'steady';
+    // 조합은 세션당 하나다. 한 세션 안에서 좌표가 바뀌면 사용자가 순간이동하고
+    // storeId 인과가 깨진다. SharedArray 원소는 읽기 전용이라 복사해서 쓴다.
+    const base = pickScenario(isSteady);
+    const sc = { lat: base.lat, lng: base.lng, tier: base.tier,
+                 keyword: base.keyword, categoryId: base.categoryId, storeId: null };
 
     for (let i = 0; i < SCREENS.length; i++) {
         for (const call of SCREENS[i].calls) {
-            fire(call, u, isSteady);
+            fire(call, u, sc, isSteady);
         }
         /*
          * 마지막 화면 뒤에는 대기하지 않는다 — 세션이 거기서 끝나기 때문이다.
@@ -428,6 +499,20 @@ function buildRows(data) {
         });
     }
     rows.sort((a, b) => b.p95 - a.p95);
+    return rows;
+}
+
+function buildDensityRows(data) {
+    const rows = [];
+    for (const c of ALL_CALLS) {
+        if (!c.geo) continue;
+        for (const b of DENSITY_BUCKETS) {
+            const t = data.metrics[`http_req_duration{name:${c.name},phase:steady,density:${b}}`];
+            if (!t || !t.values.count) continue;
+            rows.push({ name: c.name, density: b, n: t.values.count,
+                        med: t.values.med, p95: t.values['p(95)'], max: t.values.max });
+        }
+    }
     return rows;
 }
 
@@ -504,6 +589,16 @@ export function handleSummary(data) {
         '',
         lines.join('\n'),
         '',
+        '## 밀도별 분해 (좌표 스코프 3종)',
+        '',
+        '> `empty`는 1km 안에 매장이 0건인 주입 좌표다(전체의 3%). 표본이 얇아 **p95를 말하지 않고**',
+        '> 중앙값과 max로 읽는다. 정밀 판정은 1 VU 층화 표본이 담당한다.',
+        '',
+        '| 엔드포인트 | 밀도 | N | p50 | p95 | max |',
+        '|---|---|---:|---:|---:|---:|',
+        ...buildDensityRows(data).map((r) =>
+            `| \`${r.name}\` | ${r.density} | ${r.n} | ${ms(r.med)} | ${ms(r.p95)} | ${ms(r.max)} |`),
+        '',
     ].join('\n');
 
     return {
@@ -515,6 +610,7 @@ export function handleSummary(data) {
             achievedTps, expectedTps,
             failedRate, serverErrors: errCount, transportErrors: transportCount,
             passed, total: rows.length, rows,
+            densityRows: buildDensityRows(data),
         }, null, 2),
     };
 }
