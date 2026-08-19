@@ -36,6 +36,39 @@ public interface StoreMapper {
      */
     List<StoreSummaryResponse> findStores(@Param("cond") StoreSearchCondition cond);
 
+    /**
+     * 검색어 갈래의 <b>전국 단계</b>. 계단식 사각형이 5건을 못 채웠을 때만 호출된다.
+     * <p>
+     * {@link #findStores}와 같은 답을 내되 반경이 없다 — 전국에서 가까운 순 <b>최대 5건</b>이다.
+     * {@code cond}의 {@code radiusMeters}는 보지 않는다.
+     * <p>
+     * {@code matchExpression}은 {@code MATCH ... AGAINST}에 그대로 들어가는 불리언 모드 식이다
+     * (예: {@code +"호텔" +"리조트"}). <b>판정자가 아니라 가속기</b>이고 확정은 SQL에 남아 있는
+     * {@code LIKE}가 한다 — 이 식이 {@code LIKE}의 상위집합이기만 하면 응답이 보존된다.
+     * 그 보장은 {@code DefaultStoreService}가 만든다.
+     * <p>
+     * <b>{@code null}이면 {@code MATCH}를 아예 붙이지 않는다.</b> 쓸 조각이 하나도 안 나오는
+     * 키워드({@code (주)}처럼 구분자와 1글자만으로 된 경우)가 있기 때문이다. 그때는 개선 전과
+     * 같이 {@code LIKE} 풀스캔으로 돈다 — 느리지만 결과는 맞다.
+     */
+    List<StoreSummaryResponse> findStoresByFulltext(@Param("cond") StoreSearchCondition cond,
+                                                    @Param("matchExpression") String matchExpression);
+
+    /**
+     * 라우팅 신호 — 이 검색어가 전국에 몇 건 매칭되는가.
+     * <p>
+     * 서비스가 "계단을 더 밟을지 전국으로 바로 갈지"를 이 값으로 가른다. <b>어느 쪽으로 가도
+     * 응답은 같으므로</b> 이 값은 정확성이 아니라 비용에만 영향을 준다.
+     * <p>
+     * FT 인덱스만 읽어 싸다(2.4~22.5ms, {@code rows_examined = 1}). {@code categoryId}는 조건에
+     * 넣지 않는다 — 넣으면 그 최적화가 깨진다. 카테고리가 함께 오면 실제 매칭 수의 상한이 되는데,
+     * 라우팅이 계단 쪽으로 기울 뿐이라 안전한 방향의 오차다.
+     *
+     * @param matchExpression 불리언 모드 식. {@code null}이면 호출하지 않는다(조각이 없으면
+     *                        셀 수 있는 것이 없다)
+     */
+    int countByFulltext(@Param("matchExpression") String matchExpression);
+
     /** 카테고리 존재 여부. 서비스가 {@code categoryId} 검증에 쓴다. */
     boolean existsCategory(@Param("categoryId") Long categoryId);
 

@@ -22,6 +22,7 @@ import java.sql.Statement;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -126,6 +127,66 @@ class StoreMapperIntegrationTest {
                 .isNotEmpty()
                 .extracting(StoreSummaryResponse::getStoreName)
                 .allSatisfy(name -> assertThat(name).contains("커피"));
+    }
+
+    @Test
+    void FULLTEXT_전국_조회가_LIKE_조회와_같은_결과를_낸다() {
+        // MATCH는 가속기일 뿐이고 판정은 LIKE가 한다. 두 경로의 답이 다르면 그 전제가 깨진 것이다.
+        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("커피", null, null));
+
+        List<StoreSummaryResponse> byFulltext =
+                storeMapper.findStoresByFulltext(condition("커피", null, null), "+\"커피\"");
+
+        assertThat(byFulltext)
+                .isNotEmpty()
+                .extracting(StoreSummaryResponse::getStoreId)
+                .isEqualTo(byLike.stream().map(StoreSummaryResponse::getStoreId).collect(Collectors.toList()));
+    }
+
+    @Test
+    void stopword가_섞인_영문_검색어도_FULLTEXT가_찾는다() {
+        // 이 테스트가 V14의 빈 stopword 테이블을 지킨다.
+        //
+        // ngram은 토큰이 stopword를 '포함만 해도' 색인에서 뺀다. 기본 목록에 a와 i가 있어
+        // 'AI'는 두 글자가 모두 stopword라 통째로 사라진다 — 빈 stopword 테이블을 가리키지 않은
+        // 상태에서 인덱스를 만들면 여기서 0건이 나온다. 실패가 예외가 아니라 '조용한 0건'이라
+        // 이 테스트가 없으면 배포 후에도 눈치채기 어렵다(perf DB 실측: bar·lab·nail·ca·A1이 전부 0건).
+        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("AI", null, null));
+        assertThat(byLike).as("시드에 AI가 들어간 상호명이 있어야 이 테스트가 의미를 가진다").isNotEmpty();
+
+        List<StoreSummaryResponse> byFulltext =
+                storeMapper.findStoresByFulltext(condition("AI", null, null), "+\"AI\"");
+
+        assertThat(byFulltext)
+                .extracting(StoreSummaryResponse::getStoreId)
+                .isEqualTo(byLike.stream().map(StoreSummaryResponse::getStoreId).collect(Collectors.toList()));
+    }
+
+    @Test
+    void 쓸_조각이_없는_검색어는_MATCH_없이_LIKE로만_조회된다() {
+        // '(주)'처럼 구분자와 1글자만으로 된 키워드는 MATCH 식을 만들 수 없다. 그때 서비스가
+        // matchExpression을 null로 넘기고, 매퍼는 MATCH를 붙이지 않은 채 LIKE로만 돌아야 한다.
+        // 빈 MATCH 식을 넘기면 0건이 나와 결과가 바뀐다.
+        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("커피", null, null));
+
+        List<StoreSummaryResponse> withoutMatch =
+                storeMapper.findStoresByFulltext(condition("커피", null, null), null);
+
+        assertThat(withoutMatch)
+                .isNotEmpty()
+                .extracting(StoreSummaryResponse::getStoreId)
+                .isEqualTo(byLike.stream().map(StoreSummaryResponse::getStoreId).collect(Collectors.toList()));
+    }
+
+    @Test
+    void 라우팅_신호는_LIKE_매칭_수_이상을_센다() {
+        // MATCH는 LIKE의 상위집합이므로 이 값은 실제 매칭 수보다 작을 수 없다.
+        // 작게 나오면 상위집합 전제가 깨진 것이고, 그러면 라우팅이 아니라 결과가 틀어진다.
+        int likeCount = storeMapper.findStores(condition("커피", null, null)).size();
+
+        int matchCount = storeMapper.countByFulltext("+\"커피\"");
+
+        assertThat(matchCount).isGreaterThanOrEqualTo(likeCount);
     }
 
     @Test
