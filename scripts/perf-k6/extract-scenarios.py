@@ -88,13 +88,16 @@ def keyword_selectivity():
 
     # 305개를 한 문장으로 묶으면 3~4분짜리 쿼리가 되어 net_write_timeout(기본 60초)에 걸린다.
     # 25개씩 끊으면 배치 하나가 20초 안쪽이다.
+    # ⚠️ 되받는 키는 검색어 문자열이 아니라 배치 안의 순번(인덱스)이다. esc()를 거친 리터럴을
+    #    MySQL이 그대로 돌려주지 않을 수 있어(예: %/_가 든 값은 \%처럼 백슬래시째 온다),
+    #    문자열로 되받으면 원래 검색어와 키가 안 맞아 그 검색어가 조용히 0건으로 기록된다.
     sel = {}
     for i in range(0, len(keywords), 25):
         batch = keywords[i:i + 25]
-        parts = [f"SELECT '{esc(k)}' k, COUNT(*) n FROM store "
-                 f"WHERE store_name LIKE '%{esc(k)}%'" for k in batch]
+        parts = [f"SELECT {j} i, COUNT(*) n FROM store "
+                 f"WHERE store_name LIKE '%{esc(k)}%'" for j, k in enumerate(batch)]
         for r in run_sql(" UNION ALL ".join(parts) + ";"):
-            sel[r[0]] = int(r[1])
+            sel[batch[int(r[0])]] = int(r[1])
         print(f"  {len(sel)}/{len(keywords)}", flush=True)
 
     with cache.open("w", encoding="utf-8", newline="") as f:
@@ -196,13 +199,119 @@ def sparse_anchors(grid, want):
     return found
 
 
+LOAD_ROWS = 2000
+SPARSE_SHARE = 0.03   # p95(상위 5%)보다 낮춰야 주입 비율이 SLO 판정을 결정하지 않는다
+JITTER = 0.0045       # 약 500m. 사용자가 가맹점 위에 서 있어 300m가 항상 차는 것만 푼다
+
+
+def build_load_csv(grid, bounds, anchors):
+    rnd = random.Random(20260819)
+
+    coords = [(float(a), float(b)) for a, b in run_sql(
+        f"SELECT latitude, longitude FROM store WHERE latitude IS NOT NULL "
+        f"ORDER BY RAND() LIMIT {LOAD_ROWS};")]
+    # 카테고리는 좌표와 독립이다 — 사용자는 자기 위치와 무관하게 칩을 누른다.
+    cats = [int(r[0]) for r in run_sql(
+        f"SELECT category_id FROM store WHERE category_id <> 7 "
+        f"ORDER BY RAND() LIMIT {LOAD_ROWS};")]
+    keywords = [r[0] for r in run_sql(
+        f"SELECT keyword FROM search_history WHERE CHAR_LENGTH(keyword) >= 2 "
+        f"ORDER BY RAND() LIMIT {LOAD_ROWS};")]
+
+    n_sparse = round(LOAD_ROWS * SPARSE_SHARE)
+    rows = []
+    for i in range(LOAD_ROWS):
+        if i < n_sparse:
+            la, lo = anchors[i % len(anchors)]
+            tier = 0
+        else:
+            la, lo = coords[i]
+            tier = density_tier(bounds, la, lo, grid)
+        la += rnd.uniform(-JITTER, JITTER)
+        lo += rnd.uniform(-JITTER, JITTER)
+        rows.append([f"{la:.6f}", f"{lo:.6f}", tier, keywords[i], cats[i]])
+
+    # 희소 앵커가 앞 60행에 몰려 있으면 VU 1~60이 5분 내내 희소만 밟는다.
+    # 결정적 인덱스 순회와 맞물려 특정 VU에 편향이 고정되므로 반드시 섞는다.
+    rnd.shuffle(rows)
+    write_csv(HERE / "scenarios-load.csv", rows)
+
+
+def write_csv(path, rows):
+    with path.open("w", encoding="utf-8", newline="") as f:
+        w = csv.writer(f)
+        w.writerow(["lat", "lng", "densityTier", "keyword", "categoryId"])
+        w.writerows(rows)
+    print(f"저장: {path} — {len(rows)}행")
+
+
+BASELINE_WARMUP = 10
+BASELINE_ROWS = 30
+
+
+def selectivity_band(n):
+    """#270 라우팅 임계값 13,000의 양쪽이 표본에 반드시 들어가게 하는 구간."""
+    if n < 1000:
+        return "lo"
+    if n <= 13000:
+        return "mid"
+    return "hi"
+
+
+def build_baseline_csv(grid, bounds, anchors, sel):
+    """밀도 8단계(0=희소 앵커, 1~7) × 선택도 3구간에서 고르게 뽑는다.
+
+    예열 10행과 측정 30행을 나누는 이유는, 같은 행으로 예열하면 그 조합만 버퍼 풀에
+    올라간 채 측정에 들어가기 때문이다.
+    """
+    rnd = random.Random(20260819)
+    by_band = {"lo": [], "mid": [], "hi": []}
+    for k, n in sel.items():
+        by_band[selectivity_band(n)].append(k)
+    for v in by_band.values():
+        rnd.shuffle(v)
+
+    # ⚠️ 좌표를 store에서 뽑으면 밀집 격자에만 몰려 희소 단계(1~2)가 빈다 — store 표본 자체가
+    #    밀도 가중이기 때문이다. **격자를 단계별로 나눠 셀 중심을 쓴다.** 분위수의 정의상
+    #    모든 단계에 셀이 존재하는 것이 보장된다. 판정용(build_load_csv)은 실빈도가 목적이라
+    #    반대로 store 표본이 맞다 — 두 CSV의 목적이 다르므로 뽑는 방법도 다르다.
+    by_tier = {t: [] for t in range(1, 8)}
+    for (gla, glo) in grid:
+        by_tier[density_tier(bounds, gla, glo, grid)].append((gla, glo))
+    for v in by_tier.values():
+        rnd.shuffle(v)
+    by_tier[0] = list(anchors)
+
+    cats = [int(r[0]) for r in run_sql(
+        "SELECT category_id FROM store WHERE category_id <> 7 ORDER BY RAND() LIMIT 64;")]
+
+    cells = [(t, b) for t in range(0, 8) for b in ("lo", "mid", "hi")]  # 24칸
+    rows, idx = [], 0
+    while len(rows) < BASELINE_WARMUP + BASELINE_ROWS:
+        tier, band = cells[idx % len(cells)]
+        pool = by_tier[tier]
+        if not pool:
+            sys.exit(f"밀도 {tier}단계에 좌표가 없다 — 표본 수를 늘려라.")
+        la, lo = pool[(idx // len(cells)) % len(pool)]
+        la += rnd.uniform(-JITTER, JITTER)
+        lo += rnd.uniform(-JITTER, JITTER)
+        kw = by_band[band][(idx // len(cells)) % len(by_band[band])]
+        rows.append([f"{la:.6f}", f"{lo:.6f}", tier, kw, cats[idx % len(cats)]])
+        idx += 1
+    write_csv(HERE / "scenarios-baseline.csv", rows)
+
+
 def main():
     only = sys.argv[1] if len(sys.argv) > 1 else ""
     sel = keyword_selectivity()
     if only == "--only-selectivity":
         return
-    # Task 2·3에서 이어 붙인다.
-    print(f"선택도 {len(sel)}개 확보")
+    grid = grid_counts()
+    bounds = tier_bounds(grid)
+    anchors = sparse_anchors(grid, 6)
+    print(f"격자 {len(grid)}개 · 7분위 경계 {bounds} · 희소 앵커 {len(anchors)}개")
+    build_load_csv(grid, bounds, anchors)
+    build_baseline_csv(grid, bounds, anchors, sel)
 
 
 if __name__ == "__main__":
