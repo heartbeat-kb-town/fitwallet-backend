@@ -35,6 +35,10 @@
 | `scripts/perf-k6/baseline.js` | 수정 | 고정값 제거 → CSV 조합 + 밀도 태그 |
 | `scripts/perf-k6/README.md` | 수정 | 새 파일과 함정을 문서에 반영 |
 
+**`densityBucket`이 두 스크립트에 중복되는 것은 의도다.** `baseline.js`와 `load.js`는 이미
+`login`·`authHeaders`·`ms`·`fire`를 각자 갖고 있다(실측). 두 스크립트가 EC2에 따로 올라가
+독립 실행되므로 공용 모듈을 만들면 전송 목록에 의존이 하나 는다. 저장소의 기존 방식을 따른다.
+
 **왜 Python인가** — 격자 집계에서 "매장이 있는 격자의 빈 이웃"을 찾고 후보를 검증하고 층화까지 하는 로직이 bash로 쓰기에 크다. 저장소는 이미 `scripts/perf-data/`에서 Python을 쓴다.
 
 **DB 접근 방식** — Python이 `mysql` 클라이언트를 subprocess로 부른다. 드라이버 의존성을 새로 넣지 않기 위해서다. 기본 명령은 이 저장소에서 실제로 동작이 확인된 `docker exec -i fitwallet-mysql-perf mysql`이고, `MYSQL_CMD` 환경변수로 갈아끼울 수 있다(k6 EC2에서 돌릴 때는 `mysql`).
@@ -497,12 +501,15 @@ def build_baseline_csv(grid, bounds, anchors, sel):
     for v in by_band.values():
         rnd.shuffle(v)
 
-    coords = [(float(a), float(b)) for a, b in run_sql(
-        "SELECT latitude, longitude FROM store WHERE latitude IS NOT NULL "
-        "ORDER BY RAND() LIMIT 4000;")]
+    # ⚠️ 좌표를 store에서 뽑으면 밀집 격자에만 몰려 희소 단계(1~2)가 빈다 — store 표본 자체가
+    #    밀도 가중이기 때문이다. **격자를 단계별로 나눠 셀 중심을 쓴다.** 분위수의 정의상
+    #    모든 단계에 셀이 존재하는 것이 보장된다. 판정용(build_load_csv)은 실빈도가 목적이라
+    #    반대로 store 표본이 맞다 — 두 CSV의 목적이 다르므로 뽑는 방법도 다르다.
     by_tier = {t: [] for t in range(1, 8)}
-    for la, lo in coords:
-        by_tier[density_tier(bounds, la, lo, grid)].append((la, lo))
+    for (gla, glo) in grid:
+        by_tier[density_tier(bounds, gla, glo, grid)].append((gla, glo))
+    for v in by_tier.values():
+        rnd.shuffle(v)
     by_tier[0] = list(anchors)
 
     cats = [int(r[0]) for r in run_sql(
@@ -1057,20 +1064,24 @@ case "${1:-}" in
   run)
     script="$2"; name="$3"; shift 3
     envs="$*"
-    put_md=$(aws s3 presign "s3://$BUCKET/$PREFIX/out/$name.md" --expires-in 3600 \
-             --region "$REGION" --http-method PUT 2>/dev/null \
-             || aws s3 presign "s3://$BUCKET/$PREFIX/out/$name.md" --expires-in 3600 --region "$REGION")
-    put_json=$(aws s3 presign "s3://$BUCKET/$PREFIX/out/$name.json" --expires-in 3600 \
-             --region "$REGION" --http-method PUT 2>/dev/null \
-             || aws s3 presign "s3://$BUCKET/$PREFIX/out/$name.json" --expires-in 3600 --region "$REGION")
     base="${script%.js}-summary"
-    ssm_run "run $script" \
-      "cd /opt/perf && $envs k6 run $script 2>&1 | tail -80; \
-       curl -sfS -X PUT --upload-file $base.md '$put_md'; \
-       curl -sfS -X PUT --upload-file $base.json '$put_json'; echo UPLOADED"
+    # 결과는 SSM 표준출력으로 회수한다.
+    #
+    # ⚠️ presigned PUT을 쓰지 않는 이유: aws-cli 2.36.16의 `s3 presign`은 --http-method를
+    #    모른다(실측 ParamValidation 에러). GET용 URL로 PUT하면 403이라 결과가 조용히 안 온다.
+    #    EC2 역할에는 S3 권한이 없어 aws s3 cp도 못 쓴다.
+    ssm_run "run $script" "cd /opt/perf && $envs k6 run $script 2>&1 | tail -80"
     mkdir -p "$HERE/results"
-    aws s3 cp "s3://$BUCKET/$PREFIX/out/$name.md" "$HERE/results/$name.md" --region "$REGION"
-    aws s3 cp "s3://$BUCKET/$PREFIX/out/$name.json" "$HERE/results/$name.json" --region "$REGION"
+    for ext in md json; do
+      # 파일마다 따로 받는다. 한 번에 받으면 SSM 출력 상한(24,000자)에 걸린다.
+      out=$(ssm_run "fetch $base.$ext" "cat /opt/perf/$base.$ext")
+      case "$out" in
+        *"Output truncated"*|"")
+          echo "회수 실패: $base.$ext 가 잘렸거나 비었다" >&2; exit 1 ;;
+      esac
+      printf '%s\n' "$out" > "$HERE/results/$name.$ext"
+      echo "  받음: results/$name.$ext ($(wc -c < "$HERE/results/$name.$ext") bytes)" >&2
+    done
     ;;
   *) echo "사용법: k6ec2.sh push | run <script.js> <결과이름> [ENV=V ...]" >&2; exit 1 ;;
 esac
