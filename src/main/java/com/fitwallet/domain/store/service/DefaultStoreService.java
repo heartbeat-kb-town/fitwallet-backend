@@ -10,6 +10,7 @@ import com.fitwallet.domain.store.mapper.StoreMapper;
 import com.fitwallet.global.exception.BusinessException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -48,8 +49,16 @@ public class DefaultStoreService implements StoreService {
      */
     private static final int[] CASCADE_STEPS_METERS = {300, 1000};
 
-    /** DB에서 오지 않는 서비스 정책값. {@code StoreMapper.findPopularKeywords}의 집계 기간과 맞춘다. */
+    /** DB에서 오지 않는 서비스 정책값. {@code StoreMapper.insertPopularKeywords}의 집계 기간과 맞춘다. */
     private static final int POPULAR_PERIOD_DAYS = 7;
+
+    /**
+     * 인기 검색어 재집계 주기(ms). {@code @Scheduled} 인자로 쓰이므로 컴파일 상수여야 한다.
+     * <p>
+     * 5분인 근거는 비용이다 — 집계 1회가 운영에서 135ms라 부하가 {@code 135 / 300_000 = 0.045%}다.
+     * 하루 1회로 묶어 아낄 것이 없고, 대신 신선도 지연이 최대 5분으로 짧아진다.
+     */
+    private static final long POPULAR_REFRESH_INTERVAL_MS = 300_000L;
 
     private final StoreMapper storeMapper;
     private final SearchHistoryService searchHistoryService;
@@ -124,6 +133,16 @@ public class DefaultStoreService implements StoreService {
                 .build();
     }
 
+    /**
+     * {@code recent}는 이 사용자의 검색 이력에서 바로 읽고, {@code popular}는
+     * {@link #refreshPopularKeywords()}가 미리 채워 둔 결과를 읽는다 — <b>여기서 집계하지 않는다.</b>
+     * <p>
+     * 그래서 {@code popular}는 최대 {@value #POPULAR_REFRESH_INTERVAL_MS}ms만큼 낡을 수 있다.
+     * 사용자가 자기 검색 이력을 지워도({@link #deleteKeyword}/{@link #deleteAllKeywords})
+     * 인기 검색어에서 빠지기까지 그만큼 걸린다.
+     * <p>
+     * {@code periodDays}는 DB에서 오지 않는 서비스 정책값이라 여기서 채운다.
+     */
     @Override
     @Transactional(readOnly = true)
     public StoreKeywordsResponse findKeywords(Long userId) {
@@ -134,6 +153,62 @@ public class DefaultStoreService implements StoreService {
                         .keywords(storeMapper.findPopularKeywords())
                         .build())
                 .build();
+    }
+
+    /**
+     * 인기 검색어를 5분마다 다시 집계한다.
+     *
+     * <h2>왜 요청 경로 밖으로 뺐나</h2>
+     * 예전에는 {@code findKeywords}가 매번 {@code search_history}를 {@code GROUP BY}했다.
+     * V12 커버링 인덱스로 읽는 행을 80만에서 7일 창 크기로 줄여 운영 p50 297ms → 127ms까지
+     * 왔지만 SLO 100ms를 못 넘겼다. 남은 비용의 대부분(약 70ms)이 22만 행을 집계하는
+     * 임시 테이블이고, 그건 인덱스가 손댈 수 있는 자리가 아니었다(V12/V13 주석에 구간별 측정).
+     * <p>
+     * 미리 집계해 두면 조회가 5행 읽기(0.025ms)로 끝난다. 집계 1회는 운영에서 135ms이므로
+     * 5분 주기의 DB 부하는 {@code 135ms / 300초 = 0.045%}다.
+     *
+     * <h2>{@code initialDelay = 0}인 이유</h2>
+     * 기동 직후 한 번 돌아야 첫 배포 후 5분간 {@code popular}이 빈 배열로 나가는 것을 막는다.
+     * Flyway가 {@code sqlSessionFactory}보다 먼저 끝나므로({@code root-context.xml}의
+     * {@code depends-on}) 이때 테이블은 이미 존재한다.
+     *
+     * <h2>{@code fixedDelay}이지 {@code fixedRate}가 아닌 이유</h2>
+     * {@code fixedRate}는 이전 실행이 늦어지면 다음 실행이 곧바로 이어져 집계가 몰릴 수 있다.
+     * {@code fixedDelay}는 <b>끝난 뒤부터</b> 5분을 세므로 겹치지 않는다. 신선도가 5분에서
+     * 5분+실행시간으로 늘어나지만 135ms짜리라 무시할 수 있다.
+     *
+     * <h2>실패하면 로그를 남기고 <b>다시 던진다</b></h2>
+     * 잡아서 삼키면 안 된다. {@code @Transactional} 프록시가 메서드 <b>바깥</b>에 있어서,
+     * 여기서 삼키면 프록시는 예외를 못 보고 그대로 커밋한다 — {@code DELETE}는 성공하고
+     * {@code INSERT}가 실패한 경우 <b>인기 검색어가 통째로 비어 있는 채로 커밋된다.</b>
+     * <p>
+     * 다시 던지면 트랜잭션이 롤백돼 {@code DELETE}가 취소되고 <b>이전 집계 결과가 그대로
+     * 살아남는다.</b> 조회는 (그만큼 낡은 값으로) 계속 동작한다.
+     * <p>
+     * 던져도 다음 주기는 취소되지 않는다. Spring이 반복 스케줄 작업을
+     * {@code TaskUtils.LOG_AND_SUPPRESS_ERROR_HANDLER}로 감싸 예외를 로그하고 삼키기 때문이다
+     * ({@code ScheduledThreadPoolExecutor}에 예외가 그대로 올라가면 그 작업이 <b>영구 취소</b>되는데,
+     * Spring이 그 앞에서 막아 준다). 그래도 직접 한 번 로그를 남기는 이유는 그 기본 핸들러의
+     * 메시지가 "Unexpected error occurred in scheduled task"뿐이라 맥락이 없기 때문이다.
+     *
+     * <h2>단일 인스턴스 전제</h2>
+     * 이 스케줄러는 인스턴스마다 하나씩 돈다. EB가 단일 인스턴스라 지금은 문제가 없다.
+     * 인스턴스를 늘리면 5분마다 N번 집계되므로(결과는 같아 무해하나 낭비이고, 동시에 돌면
+     * 한쪽이 락을 기다린다) 그때 MySQL EVENT나 락 기반 단일화로 옮겨야 한다.
+     */
+    @Override
+    @Scheduled(fixedDelay = POPULAR_REFRESH_INTERVAL_MS, initialDelay = 0L)
+    @Transactional
+    public void refreshPopularKeywords() {
+        try {
+            storeMapper.deletePopularKeywords();
+            int inserted = storeMapper.insertPopularKeywords();
+            log.info("인기 검색어 재집계 완료. periodDays={}, rows={}", POPULAR_PERIOD_DAYS, inserted);
+        } catch (RuntimeException e) {
+            log.error("인기 검색어 재집계 실패. 롤백되므로 이전 집계 결과가 그대로 남는다"
+                    + "(그만큼 낡는다). 다음 주기는 {}ms 뒤다.", POPULAR_REFRESH_INTERVAL_MS, e);
+            throw e;
+        }
     }
 
     @Override

@@ -13,6 +13,7 @@ import com.fitwallet.global.exception.BusinessException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -30,6 +31,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.BDDMockito.given;
 import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 
@@ -379,6 +381,41 @@ class DefaultStoreServiceTest {
 
         then(storeMapper).should().findRecentKeywords(1L);
         then(storeMapper).should().findPopularKeywords();
+    }
+
+    @Test
+    void 인기_검색어_재집계는_지운_뒤_넣는다() {
+        // 순서가 계약이다. INSERT가 먼저면 rank PK 충돌로 실패한다.
+        given(storeMapper.insertPopularKeywords()).willReturn(5);
+
+        storeService.refreshPopularKeywords();
+
+        InOrder inOrder = inOrder(storeMapper);
+        then(storeMapper).should(inOrder).deletePopularKeywords();
+        then(storeMapper).should(inOrder).insertPopularKeywords();
+    }
+
+    @Test
+    void 인기_검색어_재집계가_실패하면_예외를_다시_던진다() {
+        // 삼키면 @Transactional 프록시가 예외를 못 봐서 DELETE만 커밋된다 —
+        // 인기 검색어가 통째로 빈 채로 남는다. 다시 던져야 롤백돼 이전 집계가 살아남는다.
+        given(storeMapper.insertPopularKeywords())
+                .willThrow(new DataIntegrityViolationException("집계 실패"));
+
+        assertThatThrownBy(() -> storeService.refreshPopularKeywords())
+                .isInstanceOf(DataIntegrityViolationException.class);
+    }
+
+    @Test
+    void 인기_검색어_재집계는_조회_매퍼를_부르지_않는다() {
+        // 갱신과 조회는 완전히 분리돼 있다. 갱신이 조회를 부르면 스케줄러가 요청 경로의
+        // 캐시를 건드리는 셈이 되고, 이 API를 사전 집계로 옮긴 이유가 무너진다.
+        given(storeMapper.insertPopularKeywords()).willReturn(5);
+
+        storeService.refreshPopularKeywords();
+
+        then(storeMapper).should(never()).findPopularKeywords();
+        then(storeMapper).should(never()).findRecentKeywords(anyLong());
     }
 
     @Test

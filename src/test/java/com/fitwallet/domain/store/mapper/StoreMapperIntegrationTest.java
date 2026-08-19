@@ -354,7 +354,7 @@ class StoreMapperIntegrationTest {
             insertSearchHistory(userId, "인기검증키워드" + i, "0 SECOND");
         }
 
-        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+        List<PopularKeywordResponse> popular = refreshAndFindPopularKeywords();
 
         assertThat(popular).hasSize(5);
     }
@@ -370,7 +370,7 @@ class StoreMapperIntegrationTest {
         Long user4 = insertUser();
         insertSearchHistory(user4, "정렬검증소수", "0 SECOND");
 
-        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+        List<PopularKeywordResponse> popular = refreshAndFindPopularKeywords();
 
         assertThat(popular)
                 .extracting(PopularKeywordResponse::getKeyword)
@@ -389,7 +389,7 @@ class StoreMapperIntegrationTest {
         insertSearchHistory(newUser1, "동점최근", "1 DAY");
         insertSearchHistory(newUser2, "동점최근", "1 DAY");
 
-        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+        List<PopularKeywordResponse> popular = refreshAndFindPopularKeywords();
 
         assertThat(popular)
                 .extracting(PopularKeywordResponse::getKeyword)
@@ -401,9 +401,35 @@ class StoreMapperIntegrationTest {
         Long userId = insertUser();
         insertSearchHistory(userId, "기간밖키워드", "8 DAY");
 
-        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+        List<PopularKeywordResponse> popular = refreshAndFindPopularKeywords();
 
         assertThat(popular).extracting(PopularKeywordResponse::getKeyword).doesNotContain("기간밖키워드");
+    }
+
+    @Test
+    void 재집계하면_이전_집계에만_있던_키워드가_사라진다() {
+        // DELETE 없이 REPLACE INTO 한 문장으로 갱신하면 이 테스트가 깨진다 —
+        // 새 결과가 4위까지만 나올 때 옛 5위 행이 그대로 남기 때문이다(StoreMapper.xml 주석).
+        Long userId = insertUser();
+        insertSearchHistory(userId, "재집계검증키워드", "0 SECOND");
+        assertThat(refreshAndFindPopularKeywords())
+                .extracting(PopularKeywordResponse::getKeyword)
+                .contains("재집계검증키워드");
+
+        storeMapper.deleteAllSearchHistory(userId);
+
+        assertThat(refreshAndFindPopularKeywords())
+                .extracting(PopularKeywordResponse::getKeyword)
+                .doesNotContain("재집계검증키워드");
+    }
+
+    @Test
+    void 집계가_한_번도_돌지_않았으면_빈_목록이다() {
+        // 첫 배포 직후 스케줄러가 아직 안 돈 상태다. 예외가 아니라 빈 목록이 계약이다
+        // (StoreKeywordsResponse Javadoc — "서비스 초기에는 popular.keywords만 빌 수 있다").
+        storeMapper.deletePopularKeywords();
+
+        assertThat(storeMapper.findPopularKeywords()).isEmpty();
     }
 
     @Test
@@ -411,7 +437,7 @@ class StoreMapperIntegrationTest {
         Long userId = insertUser();
         insertSearchHistory(userId, "순위검증키워드", "0 SECOND");
 
-        List<PopularKeywordResponse> popular = storeMapper.findPopularKeywords();
+        List<PopularKeywordResponse> popular = refreshAndFindPopularKeywords();
 
         assertThat(popular)
                 .extracting(PopularKeywordResponse::getRank)
@@ -495,6 +521,25 @@ class StoreMapperIntegrationTest {
                 "INSERT INTO search_history (user_id, keyword, searched_at) "
                         + "VALUES (?, ?, NOW() - INTERVAL " + intervalLiteral + ")",
                 userId, keyword);
+    }
+
+    /**
+     * 인기 검색어를 재집계한 뒤 읽는다.
+     * <p>
+     * <b>아래 popular 테스트들이 실제로 검증하는 것은 {@code insertPopularKeywords}의 집계
+     * 규칙이다.</b> V13에서 조회가 {@code search_history} 직접 집계에서 사전 집계 테이블
+     * 읽기로 바뀌면서, {@code findPopularKeywords}만 불러서는 7일 창·동점 처리·순위 같은
+     * 규칙을 확인할 수 없게 됐다. 그래서 검증 대상을 집계 쪽으로 옮기고, 조회는 그 결과를
+     * 꺼내오는 수단으로만 쓴다.
+     * <p>
+     * 운영에서 이 두 문장을 부르는 것은 {@code DefaultStoreService.refreshPopularKeywords}
+     * 하나뿐이고 5분 주기 스케줄러가 호출한다. 테스트는 클래스 레벨 {@code @Transactional}로
+     * 롤백되므로 여기서 지운 집계가 다른 테스트에 남지 않는다.
+     */
+    private List<PopularKeywordResponse> refreshAndFindPopularKeywords() {
+        storeMapper.deletePopularKeywords();
+        storeMapper.insertPopularKeywords();
+        return storeMapper.findPopularKeywords();
     }
 
     /** 시드 페르소나의 검색어 행 수. 시드 16행은 전부 user_id = 1이다. */
