@@ -1022,7 +1022,7 @@ cat > scripts/perf-k6/k6ec2.sh <<'EOF'
 # k6 EC2에서 측정을 돌린다. 로컬에서 쏘면 인터넷 왕복이 끼어 1차와 조건이 달라진다.
 #
 #   scripts/perf-k6/k6ec2.sh push
-#   scripts/perf-k6/k6ec2.sh run baseline.js baseline-before-20260819
+#   scripts/perf-k6/k6ec2.sh run baseline.js baseline-before-20260819 READ_ITERATIONS=30 WARMUP=10
 #   scripts/perf-k6/k6ec2.sh run load.js load-before-20260819 VUS=100
 #
 # ⚠️ EC2 역할에는 S3 권한이 없다. presigned URL로 주고받는다 — IAM을 건드리지 않는 이유다.
@@ -1255,7 +1255,7 @@ Expected: **1초 이상.** 40ms대면 새 WAR이 아직 도는 것이다 — 배
 
 Run:
 ```bash
-scripts/perf-k6/k6ec2.sh run baseline.js baseline-before-20260819
+scripts/perf-k6/k6ec2.sh run baseline.js baseline-before-20260819 READ_ITERATIONS=30 WARMUP=10
 scripts/perf-k6/k6ec2.sh run load.js     load-before-20260819
 ```
 Expected: 두 파일 쌍이 `results/`에 내려온다. 1차와 같은 붕괴(SLO 0/19 · 5xx 45%)는 **예상된 결과다.**
@@ -1315,7 +1315,7 @@ Expected: 인덱스 2개가 나오고 `like_n = match_n`. **다르면 기본 sto
 
 Run:
 ```bash
-scripts/perf-k6/k6ec2.sh run baseline.js baseline-after-20260819
+scripts/perf-k6/k6ec2.sh run baseline.js baseline-after-20260819 READ_ITERATIONS=30 WARMUP=10
 scripts/perf-k6/k6ec2.sh run load.js     load-after-20260819
 ```
 
