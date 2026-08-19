@@ -1599,8 +1599,16 @@ Expected: 최다 비중이 **3% 이상**(예전엔 0.35%). 1% 미만이면 가�
 - [ ] **Step 6: 운영 RDS에 `search_history`만 재적재한다 — 파괴적**
 
 ⚠️ **`search_history` 800,063행이 지워지고 다시 채워진다.** 합성 데이터라 재생성 가능하고
-실사용 검색 기록은 없다. `store`·`users`·`user_card`·`payment_transaction`은 건드리지 않는다.
-**`PERF_TABLES`를 반드시 지정해라 — 빼면 전 테이블을 재적재한다.**
+실사용 검색 기록은 없다.
+
+> 🛑 **`load.sh --reset`을 쓰지 마라.** `--reset`은 `PERF_TABLES`와 **무관하게**
+> `payment_transaction`·`users`·`user_card`·`payment_session`·`refresh_token`을 무조건
+> TRUNCATE한다(`load.sh` 69~80행 실측). `PERF_TABLES`로 갈리는 것은 `store` 하나뿐이다.
+> **`PERF_TABLES="search_history" load.sh --reset`을 실행하면 `payment_transaction`
+> 2,712만 행이 날아간다.** 이 계획의 초안이 실제로 그렇게 적혀 있었고, Task 10 구현자가
+> 실행 전에 발견해 막았다(2026-08-19).
+>
+> 대신 `search_history`만 직접 비우고 `--reset` 없이 적재한다.
 
     CFG=$(aws elasticbeanstalk describe-configuration-settings --application-name fitwallet-backend --environment-name fitwallet-prod --region ap-northeast-2 --query "ConfigurationSettings[0].OptionSettings[?Namespace=='aws:elasticbeanstalk:application:environment']" --output json)
     export PERF_DB_USER=$(echo "$CFG" | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(o.get('Value','') for o in d if o['OptionName']=='DB_USERNAME'))")
@@ -1608,7 +1616,9 @@ Expected: 최다 비중이 **3% 이상**(예전엔 0.35%). 1% 미만이면 가�
     export PERF_DB_HOST=fitwallet-db.c1g6w2em8fdg.ap-northeast-2.rds.amazonaws.com
     export PERF_DB_PORT=3306
     export PERF_ALLOW_DEV_PORT=1
-    PERF_TABLES="search_history" scripts/perf-data/load.sh --reset
+    # search_history만 비운다. --reset은 절대 쓰지 않는다(위 경고).
+    scripts/perf-k6/prod-sql.sh -e "TRUNCATE TABLE search_history;"
+    PERF_TABLES="search_history" scripts/perf-data/load.sh
 
 검증 — 행 800,000 · 최근 7일 15만 이상 · 상위 검색어 n이 24,000 이상(3%):
 
