@@ -472,24 +472,46 @@ def write_transactions(out_dir, rng, stores, benefits, card_start, card_product,
     return path, stats
 
 
-def write_search_history(out_dir, rng, keywords, reference):
-    """search_history 80만 행 (5만 명 × 16개). UNIQUE(user_id, keyword)라 유저별로 비복원 추출한다."""
+def write_search_history(out_dir, rng, keywords, weights, reference, seed):
+    """search_history 80만 행 (5만 명 × 16개). UNIQUE(user_id, keyword)라 유저별로 비복원 추출한다.
+
+    **균등 추출을 쓰지 않는다.** 예전에는 `rng.sample()`이라 검색어 빈도가 2,479~2,792로
+    평평했는데(최대/최소 1.13배), 실제 검색은 소수 검색어에 몰린다. 그리고 이 서비스에서는
+    **가장 많이 검색되는 말이 곧 가장 무거운 쿼리**다 — `카페`가 상호명 35,759건에 매칭된다.
+    균등하게 뽑으면 부하 테스트가 그 구간을 거의 밟지 않아 p95가 낙관적으로 나온다.
+
+    가중치는 그 업종·브랜드의 매장 수이고, 그 순위에 Zipf(1/r)를 씌운다.
+
+    비복원 가중 추출은 **Gumbel top-k**로 한다 — 후보마다 log(w) + Gumbel 잡음을 주고 상위 k개를
+    고르면 가중 비복원 추출과 같아진다. UNIQUE(user_id, keyword) 제약을 그대로 지킨다.
+
+    ⚠️ 전용 RNG를 쓴다. main의 rng를 쓰면 앞선 writer들이 소비한 양에 따라 결과가 달라져
+    --only-search-history로 뽑은 파일이 전체 실행 결과와 달라진다.
+    """
     write_columns(out_dir, "search_history")
     path = os.path.join(out_dir, "search_history.tsv")
     recent_cut = reference - datetime.timedelta(days=7)
     window_seconds = 180 * 24 * 3600
     start = reference - datetime.timedelta(seconds=window_seconds)
 
+    sh_rng = random.Random(seed ^ 0x5EA2C4)
+    ranked = sorted(keywords, key=lambda k: (-weights.get(k, 1), k))
+    log_w = [math.log(1.0 / (i + 1)) for i in range(len(ranked))]
+
     row_id = 0
     with open(path, "w", encoding="utf-8") as fh:
         for user_id in range(1, TARGET_USERS + 1):
-            for keyword in rng.sample(keywords, KEYWORDS_PER_USER):
+            gumbel = [(log_w[i] - math.log(-math.log(sh_rng.random())), i)
+                      for i in range(len(ranked))]
+            gumbel.sort(reverse=True)
+            for _, i in gumbel[:KEYWORDS_PER_USER]:
+                keyword = ranked[i]
                 row_id += 1
                 # 1/4은 최근 7일 이내. 검색 이력 조회가 최신순 상위 N을 본다.
-                if rng.random() < 0.25:
-                    searched = recent_cut + datetime.timedelta(seconds=rng.randrange(7 * 24 * 3600))
+                if sh_rng.random() < 0.25:
+                    searched = recent_cut + datetime.timedelta(seconds=sh_rng.randrange(7 * 24 * 3600))
                 else:
-                    searched = start + datetime.timedelta(seconds=rng.randrange(window_seconds))
+                    searched = start + datetime.timedelta(seconds=sh_rng.randrange(window_seconds))
                 fh.write(
                     f"{row_id}\t{user_id}\t{keyword}\t{searched.strftime('%Y-%m-%d %H:%M:%S')}\n"
                 )
@@ -504,6 +526,10 @@ def main():
         default=None,
         help="paid_at·searched_at의 기준일 YYYY-MM-DD (기본 오늘). 출력을 고정하려면 지정한다",
     )
+    parser.add_argument(
+        "--only-search-history", action="store_true",
+        help="search_history.tsv만 다시 만든다. 검색어 풀을 바꿨을 때 쓴다 — "
+             "전용 RNG를 쓰므로 전체 실행과 같은 결과가 나온다.")
     args = parser.parse_args()
 
     rng = random.Random(args.seed)
@@ -520,34 +546,55 @@ def main():
 
     print(f"시드 {args.seed} · 기준일 {reference:%Y-%m-%d %H:%M:%S}\n")
 
-    stores = StoreIndex.load(store_path)
-    print(f"store  {stores.summary()}")
+    # --only-search-history면 store/혜택 인덱스를 올리지 않는다. search_history는 이 둘을
+    # 쓰지 않는데, StoreIndex는 307MB TSV를 통째로 훑어 로드에만 수십 초가 든다.
+    if not args.only_search_history:
+        stores = StoreIndex.load(store_path)
+        print(f"store  {stores.summary()}")
 
-    benefits = BenefitIndex.load()
-    print(f"혜택   {benefits.summary()}")
+        benefits = BenefitIndex.load()
+        print(f"혜택   {benefits.summary()}")
 
     keyword_path = os.path.join(out_dir, "keywords.tsv")
-    keywords = [line.strip() for line in open(keyword_path, encoding="utf-8") if line.strip()]
-    brand_names = [name for _, name in query("SELECT brand_id, brand_name FROM brand")]
-    keywords = sorted(set(keywords) | set(brand_names))
-    print(f"키워드 {len(keywords)}개 (소분류명 + 브랜드명)\n")
+    weights = {}
+    for line in open(keyword_path, encoding="utf-8"):
+        if not line.strip():
+            continue
+        word, _, count = line.rstrip("\n").partition("\t")
+        weights[word] = int(count) if count else 1
 
-    product_ids = [int(row[0]) for row in query("SELECT card_product_id FROM card_product")]
+    # 브랜드명도 검색어다. 가중치는 그 브랜드의 매장 수 — 소분류와 같은 척도라 함께 정렬된다.
+    brand_stores = {int(b): int(n) for b, n in
+                    query("SELECT brand_id, COUNT(*) FROM store "
+                          "WHERE brand_id IS NOT NULL GROUP BY brand_id")}
+    for brand_id, name in query("SELECT brand_id, brand_name FROM brand"):
+        name = name.strip()
+        if name:
+            weights[name] = max(weights.get(name, 0), brand_stores.get(int(brand_id), 1))
 
-    path = write_users(out_dir, rng)
-    print(f"users               {TARGET_USERS:>9,}  → {os.path.basename(path)}")
+    keywords = sorted(weights)
+    print(f"키워드 {len(keywords)}개 (기타 제외 소분류명 + 브랜드명, 매장 수 가중)\n")
 
-    path, card_start, card_product = write_user_cards(out_dir, rng, product_ids)
-    print(f"user_card           {len(card_product):>9,}  → {os.path.basename(path)}")
+    if not args.only_search_history:
+        product_ids = [int(row[0]) for row in query("SELECT card_product_id FROM card_product")]
 
-    path, stats = write_transactions(
-        out_dir, rng, stores, benefits, card_start, card_product, reference
-    )
-    total = stats["brand"] + stats["plain"] + stats["etc"]
-    print(f"payment_transaction {total:>9,}  → {os.path.basename(path)}")
+        path = write_users(out_dir, rng)
+        print(f"users               {TARGET_USERS:>9,}  → {os.path.basename(path)}")
 
-    path, count = write_search_history(out_dir, rng, keywords, reference)
+        path, card_start, card_product = write_user_cards(out_dir, rng, product_ids)
+        print(f"user_card           {len(card_product):>9,}  → {os.path.basename(path)}")
+
+        path, stats = write_transactions(
+            out_dir, rng, stores, benefits, card_start, card_product, reference
+        )
+        total = stats["brand"] + stats["plain"] + stats["etc"]
+        print(f"payment_transaction {total:>9,}  → {os.path.basename(path)}")
+
+    path, count = write_search_history(out_dir, rng, keywords, weights, reference, args.seed)
     print(f"search_history      {count:>9,}  → {os.path.basename(path)}\n")
+
+    if args.only_search_history:
+        return
 
     print("거래 분포")
     print(f"  브랜드 보유 store   {stats['brand']:>9,}  ({stats['brand'] / total * 100:.1f}%)")
