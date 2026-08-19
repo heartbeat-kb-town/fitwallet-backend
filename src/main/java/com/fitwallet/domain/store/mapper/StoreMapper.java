@@ -76,10 +76,36 @@ public interface StoreMapper {
     List<RecentKeywordResponse> findRecentKeywords(@Param("userId") Long userId);
 
     /**
-     * 최근 7일 집계 상위 5개. {@code searchCount}는 검색 횟수가 아니라 그 키워드를 마지막으로
-     * 검색한 사용자 수다((user_id, keyword) UNIQUE라서). 동점이면 가장 최근에 검색된 쪽이 앞선다.
+     * 사전 집계된 인기 검색어를 {@code rank} 순으로 읽는다. <b>여기서 집계하지 않는다</b> —
+     * {@code popular_keyword} 테이블에 이미 들어 있는 5행을 그대로 가져온다.
+     * <p>
+     * {@code searchCount}는 검색 횟수가 아니라 그 키워드를 마지막으로 검색한 사용자 수다
+     * ({@code (user_id, keyword)} UNIQUE라서). 동점이면 가장 최근에 검색된 쪽이 앞선다 —
+     * 이 규칙을 실제로 적용하는 곳은 {@link #insertPopularKeywords()}다.
+     * <p>
+     * {@link #refreshPopularKeywords 갱신}이 한 번도 돌지 않았으면 빈 목록이다(예외 아님).
+     *
+     * @see com.fitwallet.domain.store.service.StoreService#refreshPopularKeywords()
      */
     List<PopularKeywordResponse> findPopularKeywords();
+
+    /**
+     * 인기 검색어 재집계 ① — 기존 집계를 전부 지운다.
+     * <p>
+     * <b>{@link #insertPopularKeywords()}와 반드시 같은 트랜잭션에서 호출해야 한다.</b>
+     * 지우기만 하고 끝나면 인기 검색어가 통째로 사라진다.
+     */
+    void deletePopularKeywords();
+
+    /**
+     * 인기 검색어 재집계 ② — 최근 7일 기준 상위 5개를 다시 계산해 넣는다.
+     * <p>
+     * 집계 규칙(7일 창 · 1인 1표 · 동점 시 최근 우선 · 최대 5건 · 내림차순)이 전부 이 SQL에
+     * 들어 있다. 조회 쪽에는 규칙이 없으므로 <b>집계 규칙의 회귀 테스트는 이 메서드에 붙인다.</b>
+     *
+     * @return 실제로 들어간 행 수. 7일 창에 검색 기록이 없으면 0이다.
+     */
+    int insertPopularKeywords();
 
     /**
      * 검색 기록 하나를 삭제한다. 소유권 검증까지 WHERE 절에서 끝낸다 — 남의 기록이면 영향 행 0.
