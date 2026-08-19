@@ -65,10 +65,22 @@ const YEAR_MONTH = __ENV.YEAR_MONTH || '2026-07';
 const LAT = 37.4979;
 const LNG = 127.0276;
 
-/** 계획 문서 §3의 SLO 표. 측정값으로 조정하지 않는다. */
-const SLO_SIMPLE = 200;
-const SLO_SEARCH = 300;
-const SLO_AGG = 500;
+/*
+ * SLO. 측정값으로 조정하지 않는다.
+ *
+ * ⚠️ **정본은 노션 「3. SLI/SLO 확정」이고 값은 전 엔드포인트 공통 p95 100ms다.**
+ * 여기 있던 200/300/500 3단은 계획 초안 §3의 표에서 온 것인데 확정 단계에서 폐기됐다.
+ * 그대로 두면 **하네스가 정본보다 느슨한 기준으로 판정한다** — 실제로 개선 후 100 VU에서
+ * 18/19 합격으로 찍혔지만 정본 기준으로는 17/19다(`report_summary` p95 145ms가 3단 기준
+ * SLO_AGG 500ms에는 걸리지 않는다). 에러 없이 합격 수만 부풀어 오르는 종류라 눈에 안 띈다.
+ *
+ * 노션 문서에 "100ms는 잡기 나름, 해보고 비현실적이면 올리기"라고 적혀 있으므로 이 값이
+ * 나중에 바뀔 수는 있다. **바뀌면 노션을 먼저 고치고 여기를 따라 고친다.**
+ */
+const SLO_P95 = Number(__ENV.SLO_P95 || 100);
+const SLO_SIMPLE = SLO_P95;
+const SLO_SEARCH = SLO_P95;
+const SLO_AGG = SLO_P95;
 
 /**
  * 활성 유저 목록. extract-active-users.sh가 만든다.
