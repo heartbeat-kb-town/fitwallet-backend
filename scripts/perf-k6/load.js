@@ -109,10 +109,19 @@ function densityBucket(tier) {
  *
  * 워밍업에 N/2 오프셋을 주는 이유: 같은 조합을 밟으면 판정 구간이 자기가 쓸 페이지를
  * 미리 캐시에 올린 상태로 시작한다.
+ *
+ * ⚠️ **반복 번호는 `exec.vu.iterationInScenario`다.** `exec.scenario.iterationInInstance`는
+ * VU별이 아니라 **시나리오 전역 카운터**라(k6 v2.2.0 실측: 4 VU × 6반복에서 0~23으로 흐른다)
+ * 그걸 쓰면 전진 폭이 VU의 진행이 아니라 *다른 VU가 그 사이 몇 번 돌았는지*에 좌우된다.
+ * 결과는 둘 다 조용하다 — 에러가 없고 표도 정상으로 보인다:
+ *   ① 순회가 타이밍 의존이 되어 **위 "같은 순서를 밟는다"는 전제가 깨진다.** 5xx로 빨리
+ *      죽는 개선 전과 정상인 개선 후가 서로 다른 행 부분집합을 본다
+ *   ② 같은 행을 재방문해 버퍼 풀이 데워진 채 다시 측정된다 — 실측(1/10 스케일 재현)으로
+ *      2,000행 중 1,301행(65%)만 방문했고, 올바른 카운터에서는 1,998행(99.9%)이었다
  */
 function pickScenario(isSteady) {
     const offset = isSteady ? 0 : Math.floor(scenarios.length / 2);
-    const i = (offset + (__VU - 1) + exec.scenario.iterationInInstance * VUS) % scenarios.length;
+    const i = (offset + (__VU - 1) + exec.vu.iterationInScenario * VUS) % scenarios.length;
     return scenarios[i];
 }
 

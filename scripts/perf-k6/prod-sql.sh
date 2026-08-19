@@ -16,6 +16,11 @@ CFG=$(aws elasticbeanstalk describe-configuration-settings \
         --output json)
 U=$(echo "$CFG" | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(o.get('Value','') for o in d if o['OptionName']=='DB_USERNAME'))")
 P=$(echo "$CFG" | python3 -c "import sys,json;d=json.load(sys.stdin);print(next(o.get('Value','') for o in d if o['OptionName']=='DB_PASSWORD'))")
+# ⚠️ grep을 `|| true`로 감싼다. 빈 입력에서 grep은 1을 반환하는데, set -o pipefail이 그걸
+#    스크립트 종료코드로 올린다. DDL은 성공해도 아무것도 출력하지 않으므로
+#    (`DROP INDEX ...` 등) **성공한 문장이 조용히 실패로 보인다** — 놀라서 재시도하면
+#    그때는 진짜 에러가 난다. 이렇게 두면 pipefail이 mysql의 종료코드를 그대로 전한다.
+#    (`CREATE INDEX ...; ANALYZE TABLE ...`은 ANALYZE가 결과 표를 뱉어 안 걸린다 — 그래서 더 헷갈렸다.)
 docker exec -i -e MYSQL_PWD="$P" fitwallet-mysql-perf \
   mysql -h "$RDS" -P 3306 -u "$U" --default-character-set=utf8mb4 --connect-timeout=15 fitwallet "$@" \
-  2>&1 | grep -v "Warning"
+  2>&1 | { grep -v "Warning" || true; }

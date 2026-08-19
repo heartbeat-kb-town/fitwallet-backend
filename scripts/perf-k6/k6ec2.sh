@@ -57,7 +57,12 @@ case "${1:-}" in
     # ⚠️ presigned PUT을 쓰지 않는 이유: aws-cli 2.36.16의 `s3 presign`은 --http-method를
     #    모른다(실측 ParamValidation 에러). GET용 URL로 PUT하면 403이라 결과가 조용히 안 온다.
     #    EC2 역할에는 S3 권한이 없어 aws s3 cp도 못 쓴다.
-    ssm_run "run $script" "cd /opt/perf && $envs k6 run $script 2>&1 | tail -80"
+    # ⚠️ 직전 실행의 결과 파일을 먼저 지운다. k6가 setup() 예외 등으로 중단되면
+    #    handleSummary가 돌지 않아 파일이 안 써지는데, EC2에는 같은 이름의 옛 파일이 남아 있다.
+    #    아래 cat이 그대로 성공해서 **개선 전 결과가 개선 후 파일명으로 회수된다** —
+    #    "받음"까지 찍히므로 눈치챌 방법이 없다. k6의 종료코드도 tail 파이프가 가린다
+    #    (임계값 실패로 중단되지 않게 하려는 의도라 그쪽은 그대로 둔다).
+    ssm_run "run $script" "cd /opt/perf && rm -f $base.md $base.json && $envs k6 run $script 2>&1 | tail -80"
     mkdir -p "$HERE/results"
     for ext in md json; do
       # 파일마다 따로 받는다. 한 번에 받으면 SSM 출력 상한(24,000자)에 걸린다.
