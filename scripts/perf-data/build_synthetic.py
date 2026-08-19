@@ -472,6 +472,37 @@ def write_transactions(out_dir, rng, stores, benefits, card_start, card_product,
     return path, stats
 
 
+def measure_selectivity(keywords):
+    """후보 검색어별 store_name LIKE 매칭 수를 잰다. 이 값 하나가 두 가지를 한다.
+
+    ① **0건이면 풀에서 뺀다.** 소분류명은 대부분 행정 업종 용어라 상호명에 나타나지 않는다 —
+       기타(7)를 뺀 뒤에도 117개 중 83개가 0건이었다(`여성 의류 소매업` `내과/소아과 의원`).
+       어느 접미사가 업종 용어인지 추측하지 않고, 실제로 매칭되는지를 재서 가른다.
+    ② **그 값이 곧 Zipf 순위다.** 매장 수로 순위를 매기면 매장은 5만 개인데 상호명에는
+       한 번도 안 나타나는 말이 상위로 올라간다. 실제 쿼리 비용을 좌우하는 건 매장 수가
+       아니라 **LIKE가 훑어 만나는 행 수**다.
+
+    ⚠️ LIKE 패턴에 검색어가 그대로 들어가므로 %·_·\\·'를 이스케이프한다. 안 하면 %가
+       "아무거나"로 해석돼 매칭 수가 조용히 폭증한다.
+    ⚠️ 전부 한 문장으로 묶으면 3~4분짜리 쿼리가 되어 net_write_timeout(기본 60초)에 걸린다.
+       25개씩 끊으면 배치 하나가 20초 안쪽이다.
+    ⚠️ 결과를 검색어 문자열이 아니라 **인덱스**로 되받는다. MySQL은 문자열 리터럴의 `\\%`를
+       백슬래시째로 돌려주므로, 키로 쓰면 %·_가 든 검색어가 조용히 0건으로 떨어진다.
+    """
+    def esc(k):
+        return k.replace("\\", "\\\\").replace("'", "''").replace("%", "\\%").replace("_", "\\_")
+
+    counts = {}
+    for i in range(0, len(keywords), 25):
+        batch = keywords[i:i + 25]
+        parts = [f"SELECT {i + j} i, COUNT(*) n FROM store "
+                 f"WHERE store_name LIKE '%{esc(k)}%'" for j, k in enumerate(batch)]
+        for idx, n in query(" UNION ALL ".join(parts)):
+            counts[keywords[int(idx)]] = int(n)
+        print(f"  매칭 수 측정 {len(counts)}/{len(keywords)}", flush=True)
+    return counts
+
+
 def write_search_history(out_dir, rng, keywords, weights, reference, seed):
     """search_history 80만 행 (5만 명 × 16개). UNIQUE(user_id, keyword)라 유저별로 비복원 추출한다.
 
@@ -480,7 +511,7 @@ def write_search_history(out_dir, rng, keywords, weights, reference, seed):
     **가장 많이 검색되는 말이 곧 가장 무거운 쿼리**다 — `카페`가 상호명 35,759건에 매칭된다.
     균등하게 뽑으면 부하 테스트가 그 구간을 거의 밟지 않아 p95가 낙관적으로 나온다.
 
-    가중치는 그 업종·브랜드의 매장 수이고, 그 순위에 Zipf(1/r)를 씌운다.
+    가중치는 그 검색어의 store_name LIKE 매칭 수이고, 그 순위에 Zipf(1/r)를 씌운다.
 
     비복원 가중 추출은 **Gumbel top-k**로 한다 — 후보마다 log(w) + Gumbel 잡음을 주고 상위 k개를
     고르면 가중 비복원 추출과 같아진다. UNIQUE(user_id, keyword) 제약을 그대로 지킨다.
@@ -572,8 +603,16 @@ def main():
         if name:
             weights[name] = max(weights.get(name, 0), brand_stores.get(int(brand_id), 1))
 
-    keywords = sorted(weights)
-    print(f"키워드 {len(keywords)}개 (기타 제외 소분류명 + 브랜드명, 매장 수 가중)\n")
+    candidates = sorted(weights)
+    print(f"후보 {len(candidates)}개 (기타 제외 소분류명 + 브랜드명)")
+
+    # keywords.tsv의 매장 수는 폴백으로만 남는다. 실제 순위와 필터는 아래 실측이 정한다.
+    match_counts = measure_selectivity(candidates)
+    keywords = [k for k in candidates if match_counts.get(k, 0) > 0]
+    dropped = len(candidates) - len(keywords)
+    weights = {k: match_counts[k] for k in keywords}
+    print(f"검색어 {len(keywords)}개 "
+          f"(후보 {len(candidates)} − 매칭 0건 {dropped}, LIKE 매칭 수 가중)\n")
 
     if not args.only_search_history:
         product_ids = [int(row[0]) for row in query("SELECT card_product_id FROM card_product")]
