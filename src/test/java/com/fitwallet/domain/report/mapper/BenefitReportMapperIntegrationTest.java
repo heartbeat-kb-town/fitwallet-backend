@@ -11,8 +11,8 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse;
+import com.fitwallet.domain.report.dto.response.CategorySpendResponse;
 import com.fitwallet.domain.report.dto.response.MissedSummaryResponse;
-import com.fitwallet.domain.report.dto.response.MonthlyCategorySpendRawResponse;
 import com.fitwallet.domain.report.dto.response.PopularCardRawResponse;
 import com.fitwallet.domain.report.dto.response.ReceivedBenefitSummaryResponse;
 
@@ -65,7 +65,7 @@ class BenefitReportMapperIntegrationTest {
         assertThat(missed.getAppUnusedAmount()).isZero();
         assertThat(missed.getCardMismatchAmount()).isZero();
 
-        assertThat(benefitReportMapper.getMonthlyCategorySpends(1L, "2099-01", "2099-01")).isEmpty();
+        assertThat(benefitReportMapper.getCategorySpends(1L, "2099-01")).isEmpty();
     }
 
     /**
@@ -89,12 +89,11 @@ class BenefitReportMapperIntegrationTest {
     void 추천_후보는_서비스와_카테고리_조합당_한_행만_반환한다() {
         Long userId = 1L;
 
-        List<MonthlyCategorySpendRawResponse> spends =
-                benefitReportMapper.getMonthlyCategorySpends(userId, "2026-05", "2026-07");
+        List<CategorySpendResponse> spends = benefitReportMapper.getCategorySpends(userId, "2026-07");
         assertThat(spends).isNotEmpty();
 
         List<Long> categoryIds = spends.stream()
-                .map(MonthlyCategorySpendRawResponse::getCategoryId)
+                .map(CategorySpendResponse::getCategoryId)
                 .distinct()
                 .toList();
 
@@ -186,27 +185,26 @@ class BenefitReportMapperIntegrationTest {
     }
 
     @Test
-    void 월별_카테고리_지출은_지정_기간_안의_행만_돌려준다() {
-        List<MonthlyCategorySpendRawResponse> spends =
-                benefitReportMapper.getMonthlyCategorySpends(1L, "2026-05", "2026-07");
+    void 이번_달_카테고리_지출은_거래가_있는_카테고리만_돌려준다() {
+        List<CategorySpendResponse> spends = benefitReportMapper.getCategorySpends(1L, "2026-07");
 
         assertThat(spends).isNotEmpty();
         assertThat(spends).allSatisfy(row -> {
-            assertThat(row.getYearMonth()).isBetween("2026-05", "2026-07");
             assertThat(row.getSpendAmount()).isGreaterThan(BigDecimal.ZERO);
             assertThat(row.getCategoryId()).isNotNull();
         });
+        // 카테고리별로 한 행씩만 (GROUP BY category)
+        assertThat(spends).extracting(CategorySpendResponse::getCategoryId).doesNotHaveDuplicates();
     }
 
     @Test
     void 보유_카드_혜택은_유저가_보유한_카드_상품만_돌려준다() {
         Long userId = 1L;
 
-        // 시드 유저의 보유 카드 상품이 걸린 카테고리들
-        List<MonthlyCategorySpendRawResponse> spends =
-                benefitReportMapper.getMonthlyCategorySpends(userId, "2026-05", "2026-07");
+        // 시드 유저의 이번 달 지출 카테고리들
+        List<CategorySpendResponse> spends = benefitReportMapper.getCategorySpends(userId, "2026-07");
         List<Long> categoryIds = spends.stream()
-                .map(MonthlyCategorySpendRawResponse::getCategoryId)
+                .map(CategorySpendResponse::getCategoryId)
                 .distinct()
                 .toList();
 
