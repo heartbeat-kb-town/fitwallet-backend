@@ -75,7 +75,7 @@ public class DefaultCardService implements CardService {
         CardListSortType sortType = request == null || request.getSort() == null
                 ? CardListSortType.DISPLAY_ORDER
                 : request.getSort();
-        return cardMapper.findByUserId(userId, sortType);
+        return cardMapper.findByUserId(userId, sortType, currentCreditPaymentCondition());
     }
 
     @Override
@@ -209,17 +209,11 @@ public class DefaultCardService implements CardService {
                 request.getYearMonth(), card.getCardType(), oldestTransactionPaidAt);
         CardTransactionProcessor.PreparedTransactionQuery query =
                 cardTransactionProcessor.prepareQuery(cardId, request, period);
-        BigDecimal totalAmount;
-        if (card.getCardType() == CardType.CREDIT) {
-            totalAmount = card.getScheduledPaymentAmount();
-            if (totalAmount == null) {
-                throw new IllegalStateException(
-                        "신용카드 결제예정금액 조회 결과가 없습니다. cardId=" + cardId);
-            }
-        } else {
-            totalAmount = cardMapper.sumTransactionAmount(
-                    userId, cardId, query.getSummaryCondition());
-        }
+        BigDecimal totalAmount = card.getCardType() == CardType.CREDIT
+                ? cardMapper.sumScheduledPaymentAmount(
+                        userId, cardId, query.getSummaryCondition())
+                : cardMapper.sumTransactionAmount(
+                        userId, cardId, query.getSummaryCondition());
         List<CardTransactionItemResponse> transactions = cardMapper.findTransactions(
                 userId, cardId, query.getPageCondition());
         return cardTransactionProcessor.createResponse(card, query, totalAmount, transactions);
@@ -292,7 +286,16 @@ public class DefaultCardService implements CardService {
             cardMapper.reactivateUserCard(userId, request, displayOrder);
         }
 
-        return cardMapper.findByUserIdAndCardProductId(userId, request.getCardProductId());
+        return cardMapper.findByUserIdAndCardProductId(
+                userId, request.getCardProductId(), currentCreditPaymentCondition());
+    }
+
+    private CardTransactionSearchCondition currentCreditPaymentCondition() {
+        CardMonthlyPeriod period = monthlyPeriodResolver.resolve(null, CardType.CREDIT);
+        return CardTransactionSearchCondition.builder()
+                .startAt(period.getStartAt())
+                .endAt(period.getEndAt())
+                .build();
     }
 
     /**

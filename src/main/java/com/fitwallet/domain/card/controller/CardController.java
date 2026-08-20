@@ -64,7 +64,7 @@ public class CardController {
             - `sort`를 생략하면 결제 탭에서 사용하는 `displayOrder` 순으로 반환한다.
             - `sort=RECENTLY_USED`이면 최근 승인 거래 시각 내림차순으로 반환한다.
             - 최근 거래가 없는 카드는 뒤로 보내고 동률이면 `displayOrder`, `userCardId` 순으로 정렬한다.
-            - 신용카드의 `scheduledPaymentAmount`는 기간 제한 없이 전체 승인 거래의 `finalAmount`를 합산한다.
+            - 신용카드의 `scheduledPaymentAmount`는 현재 월 1일부터 전날까지 승인 거래의 `finalAmount`를 합산한다.
             - 보유 카드가 없으면 빈 배열을 반환한다.
             """)
     @GetMapping("/user-cards")

@@ -56,7 +56,7 @@ public class CardListResponse {
 
     /** CREDIT 전용. DEBIT이면 null */
     private BigDecimal creditLimit;
-    /** CREDIT 전용. 기간 제한 없이 전체 승인 거래의 final_amount를 합산하며 DEBIT이면 null. */
+    /** CREDIT 전용. 현재 월 1일부터 전날까지 승인 거래의 final_amount 합계이며 DEBIT이면 null. */
     private BigDecimal scheduledPaymentAmount;
 
     private Integer displayOrder;

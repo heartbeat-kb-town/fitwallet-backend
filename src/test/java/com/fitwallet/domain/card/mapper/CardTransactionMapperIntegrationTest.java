@@ -43,16 +43,7 @@ class CardTransactionMapperIntegrationTest {
     }
 
     @Test
-    void 결제내역용_카드_정보와_승인거래로_재계산한_결제예정금액을_조회한다() {
-        jdbcTemplate.update(
-                "UPDATE user_card SET scheduled_payment_amount = 999999 WHERE user_card_id = ?",
-                SEED_CREDIT_CARD_ID);
-        BigDecimal expectedAmount = jdbcTemplate.queryForObject(
-                "SELECT COALESCE(SUM(final_amount), 0) FROM payment_transaction "
-                        + "WHERE user_card_id = ? AND transaction_status = 'APPROVED'",
-                BigDecimal.class,
-                SEED_CREDIT_CARD_ID);
-
+    void 결제내역용_카드_정보를_조회한다() {
         CardTransactionCardInfo card =
                 cardMapper.findTransactionCardInfo(SEED_USER_ID, SEED_CREDIT_CARD_ID);
 
@@ -63,8 +54,6 @@ class CardTransactionMapperIntegrationTest {
         assertThat(card.getIssuerName()).isNotBlank();
         assertThat(card.getCardType()).isEqualTo(CardType.CREDIT);
         assertThat(card.getMaskedRearNumber()).hasSize(4);
-        assertThat(card.getScheduledPaymentAmount()).isEqualByComparingTo(expectedAmount);
-        assertThat(card.getScheduledPaymentAmount()).isNotEqualByComparingTo("999999");
     }
 
     @Test
@@ -141,6 +130,40 @@ class CardTransactionMapperIntegrationTest {
                         20));
 
         assertThat(amount).isEqualByComparingTo(BigDecimal.ZERO);
+    }
+
+    @Test
+    void 결제예정금액은_조회기간의_승인거래_finalAmount만_합산한다() {
+        LocalDateTime startAt = LocalDateTime.of(2097, 1, 1, 0, 0);
+        LocalDateTime endAt = LocalDateTime.of(2097, 2, 1, 0, 0);
+
+        insertTransaction(startAt.minusSeconds(1), SEED_STORE_ID, "900.00", "1.00", true);
+        insertTransaction(startAt, SEED_STORE_ID, "100.00", "90.00", true);
+        insertTransaction(startAt.plusDays(1), SEED_STORE_ID, "200.00", "180.00", false);
+        insertTransaction(startAt.plusDays(2), SEED_STORE_ID,
+                "500.00", "450.00", true, CardTransactionStatus.CANCELED);
+        insertTransaction(endAt, SEED_STORE_ID, "800.00", "1.00", true);
+
+        BigDecimal amount = cardMapper.sumScheduledPaymentAmount(
+                SEED_USER_ID,
+                SEED_CREDIT_CARD_ID,
+                condition(startAt, endAt, null, null, 20));
+
+        assertThat(amount).isEqualByComparingTo("270.00");
+    }
+
+    @Test
+    void 기존_적립거래의_최종결제금액은_승인금액으로_보정된다() {
+        Integer inconsistentRows = jdbcTemplate.queryForObject("""
+                SELECT COUNT(*)
+                FROM payment_transaction pt
+                         JOIN benefit_service bs
+                           ON bs.service_id = pt.applied_benefit_service_id
+                WHERE bs.benefit_type = 'ACCUMULATE'
+                  AND pt.final_amount <> pt.amount
+                """, Integer.class);
+
+        assertThat(inconsistentRows).isZero();
     }
 
     @Test

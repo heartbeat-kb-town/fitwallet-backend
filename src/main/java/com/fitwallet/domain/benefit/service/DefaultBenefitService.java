@@ -272,6 +272,7 @@ public class DefaultBenefitService implements BenefitService {
                 .userCardId(evaluation.card().getUserCardId())
                 .benefitServiceId(candidate.getServiceId())
                 .tierId(winner.tierId())
+                .benefitType(candidate.getBenefitType())
                 .expectedAmount(benefitAmount.getKrw())
                 .nativeAmount(benefitAmount.getNativeAmount())
                 .build();

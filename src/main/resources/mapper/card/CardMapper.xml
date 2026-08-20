@@ -4,13 +4,15 @@
         "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="com.fitwallet.domain.card.mapper.CardMapper">
 
-    <!-- 결제주기 없이 현재 남아 있는 전체 승인 거래의 실제 청구액을 계산한다. -->
+    <!-- 조회 기간의 승인 거래 중 할인만 반영된 실제 청구액을 계산한다. -->
     <sql id="scheduledPaymentAmount">
         CASE WHEN cp.card_type = 'CREDIT' THEN (
             SELECT COALESCE(SUM(scheduled_pt.final_amount), 0)
             FROM payment_transaction scheduled_pt
             WHERE scheduled_pt.user_card_id = uc.user_card_id
               AND scheduled_pt.transaction_status = 'APPROVED'
+              AND scheduled_pt.paid_at <![CDATA[>=]]> #{condition.startAt}
+              AND scheduled_pt.paid_at <![CDATA[<]]> #{condition.endAt}
         ) ELSE NULL END AS scheduled_payment_amount
     </sql>
 
@@ -49,7 +51,6 @@
         <result column="card_image_url" property="cardImageUrl"/>
         <result column="card_type" property="cardType"/>
         <result column="last4" property="maskedRearNumber"/>
-        <result column="scheduled_payment_amount" property="scheduledPaymentAmount"/>
     </resultMap>
 
     <resultMap id="cardTransactionItemMap"
@@ -150,8 +151,7 @@
                i.card_company_name,
                cp.card_image_url,
                cp.card_type,
-               uc.last4,
-               <include refid="scheduledPaymentAmount"/>
+               uc.last4
         FROM user_card uc
                  JOIN card_product cp ON cp.card_product_id = uc.card_product_id
                  JOIN issuer i ON i.issuer_id = cp.issuer_id
@@ -171,6 +171,18 @@
 
     <select id="sumTransactionAmount" resultType="java.math.BigDecimal">
         SELECT COALESCE(SUM(pt.amount), 0)
+        FROM payment_transaction pt
+                 JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{cardId}
+          AND uc.is_deleted = 0
+          AND pt.transaction_status = 'APPROVED'
+          AND pt.paid_at <![CDATA[>=]]> #{condition.startAt}
+          AND pt.paid_at <![CDATA[<]]> #{condition.endAt}
+    </select>
+
+    <select id="sumScheduledPaymentAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(pt.final_amount), 0)
         FROM payment_transaction pt
                  JOIN user_card uc ON uc.user_card_id = pt.user_card_id
         WHERE uc.user_id = #{userId}

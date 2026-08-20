@@ -5,6 +5,7 @@ import com.fitwallet.domain.card.dto.CardListSortType;
 import com.fitwallet.domain.card.dto.MyDataCard;
 import com.fitwallet.domain.card.dto.MyDataTransaction;
 import com.fitwallet.domain.card.dto.request.CardRegisterRequest;
+import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -56,7 +57,7 @@ class CardMapperIntegrationTest {
     @Test
     void 사용자의_카드를_표시순서대로_조회한다() {
         List<CardListResponse> cards = cardMapper.findByUserId(
-                SEED_USER_ID, CardListSortType.DISPLAY_ORDER);
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER, paymentCondition());
 
         assertThat(cards).hasSize(9)
                 .isSortedAccordingTo(Comparator.comparing(CardListResponse::getDisplayOrder));
@@ -65,7 +66,7 @@ class CardMapperIntegrationTest {
     @Test
     void 조인한_카드상품과_카드사_정보가_함께_채워진다() {
         List<CardListResponse> cards = cardMapper.findByUserId(
-                SEED_USER_ID, CardListSortType.DISPLAY_ORDER);
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER, paymentCondition());
 
         assertThat(cards).allSatisfy(card -> {
             assertThat(card.getCardName()).isNotBlank();
@@ -87,7 +88,7 @@ class CardMapperIntegrationTest {
     @Test
     void CHECK_제약_문자열이_CardType_enum으로_변환된다() {
         List<CardListResponse> cards = cardMapper.findByUserId(
-                SEED_USER_ID, CardListSortType.DISPLAY_ORDER);
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER, paymentCondition());
 
         assertThat(cards).extracting(CardListResponse::getCardType)
                 .containsAnyOf(CardType.CREDIT, CardType.DEBIT)
@@ -97,7 +98,7 @@ class CardMapperIntegrationTest {
     @Test
     void 신용카드는_한도가_체크카드는_잔액이_BigDecimal로_채워진다() {
         List<CardListResponse> cards = cardMapper.findByUserId(
-                SEED_USER_ID, CardListSortType.DISPLAY_ORDER);
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER, paymentCondition());
 
         assertThat(cards).filteredOn(c -> c.getCardType() == CardType.CREDIT)
                 .isNotEmpty()
@@ -118,7 +119,8 @@ class CardMapperIntegrationTest {
     void 소프트_삭제된_카드는_목록에서_제외된다() {
         jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
 
-        assertThat(cardMapper.findByUserId(SEED_USER_ID, CardListSortType.DISPLAY_ORDER)).hasSize(8)
+        assertThat(cardMapper.findByUserId(
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER, paymentCondition())).hasSize(8)
                 .extracting(CardListResponse::getUserCardId)
                 .doesNotContain(1L);
     }
@@ -127,12 +129,14 @@ class CardMapperIntegrationTest {
     void 소프트_삭제된_카드는_단건으로도_조회되지_않는다() {
         jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
 
-        assertThat(cardMapper.findByUserIdAndUserCardId(SEED_USER_ID, 1L)).isNull();
+        assertThat(cardMapper.findByUserIdAndUserCardId(
+                SEED_USER_ID, 1L, paymentCondition())).isNull();
     }
 
     @Test
     void 다른_사용자의_카드는_조회되지_않는다() {
-        assertThat(cardMapper.findByUserIdAndUserCardId(9999L, 1L)).isNull();
+        assertThat(cardMapper.findByUserIdAndUserCardId(
+                9999L, 1L, paymentCondition())).isNull();
     }
 
     // 한 테스트 안에서 "변경 전 조회 → 변경 → 다시 조회"를 하면 안 된다.
@@ -181,7 +185,8 @@ class CardMapperIntegrationTest {
 
         cardMapper.insertUserCard(SEED_USER_ID, request, 6);
 
-        CardListResponse saved = cardMapper.findByUserIdAndCardProductId(SEED_USER_ID, 1L);
+        CardListResponse saved = cardMapper.findByUserIdAndCardProductId(
+                SEED_USER_ID, 1L, paymentCondition());
         assertThat(saved).isNotNull();
         assertThat(saved.getMaskedFrontNumber()).isEqualTo("1234");
         assertThat(saved.getDisplayOrder()).isEqualTo(6);
@@ -198,7 +203,8 @@ class CardMapperIntegrationTest {
 
         cardMapper.reactivateUserCard(SEED_USER_ID, registerRequest(47L), 6);
 
-        CardListResponse revived = cardMapper.findByUserIdAndUserCardId(SEED_USER_ID, 1L);
+        CardListResponse revived = cardMapper.findByUserIdAndUserCardId(
+                SEED_USER_ID, 1L, paymentCondition());
         assertThat(revived).isNotNull();
         assertThat(revived.getMaskedFrontNumber()).isEqualTo("1234");
         assertThat(revived.getDisplayOrder()).isEqualTo(6);
@@ -221,7 +227,8 @@ class CardMapperIntegrationTest {
 
         cardMapper.insertMyDataCard(SEED_USER_ID, card, 6, new HashMap<>());
 
-        CardListResponse saved = cardMapper.findByUserIdAndCardProductId(SEED_USER_ID, 1L);
+        CardListResponse saved = cardMapper.findByUserIdAndCardProductId(
+                SEED_USER_ID, 1L, paymentCondition());
         assertThat(saved).isNotNull();
         assertThat(saved.getMaskedFrontNumber()).isEqualTo("9999");
         assertThat(saved.getMaskedRearNumber()).isEqualTo("1111");
@@ -301,6 +308,13 @@ class CardMapperIntegrationTest {
         assertThat(displayOrderOf(5L)).isEqualTo(3);
         assertThat(displayOrderOf(2L)).isEqualTo(4);
         assertThat(displayOrderOf(4L)).isEqualTo(5);
+    }
+
+    private CardTransactionSearchCondition paymentCondition() {
+        return CardTransactionSearchCondition.builder()
+                .startAt(LocalDateTime.of(2000, 1, 1, 0, 0))
+                .endAt(LocalDateTime.of(2100, 1, 1, 0, 0))
+                .build();
     }
 
     private Integer displayOrderOf(Long userCardId) {

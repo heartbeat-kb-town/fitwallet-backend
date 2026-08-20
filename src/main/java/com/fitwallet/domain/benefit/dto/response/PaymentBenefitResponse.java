@@ -1,5 +1,6 @@
 package com.fitwallet.domain.benefit.dto.response;
 
+import com.fitwallet.domain.benefit.dto.BenefitType;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Getter;
@@ -35,9 +36,12 @@ public class PaymentBenefitResponse {
      */
     private Long tierId;
 
+    /** 결제금액 차감 여부를 판단하는 혜택 유형. CASHBACK만 실제 청구액에서 차감한다. */
+    private BenefitType benefitType;
+
     /**
-     * 원화 환산 기대혜택액. 카드 비교·정렬, 놓친 혜택 계산,
-     * {@code payment_transaction.final_amount} 차감은 전부 이 축에서 한다.
+     * 원화 환산 기대혜택액. 카드 비교·정렬과 놓친 혜택 계산에 사용한다.
+     * 실제 청구액에서는 {@code benefitType=CASHBACK}일 때만 차감한다.
      */
     private BigDecimal expectedAmount;
 

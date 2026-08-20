@@ -128,7 +128,7 @@ class DefaultCardServiceTest {
 
     @Test
     void 내_카드_목록을_매퍼가_준_순서_그대로_반환한다() {
-        given(cardMapper.findByUserId(1L, CardListSortType.DISPLAY_ORDER)).willReturn(List.of(
+        given(cardMapper.findByUserId(eq(1L), eq(CardListSortType.DISPLAY_ORDER), any())).willReturn(List.of(
                 CardListResponse.builder().userCardId(10L).cardType(CardType.CREDIT).build(),
                 CardListResponse.builder().userCardId(11L).cardType(CardType.DEBIT).build()));
 
@@ -140,7 +140,8 @@ class DefaultCardServiceTest {
 
     @Test
     void 카드가_없으면_빈_목록을_반환한다() {
-        given(cardMapper.findByUserId(1L, CardListSortType.DISPLAY_ORDER)).willReturn(List.of());
+        given(cardMapper.findByUserId(eq(1L), eq(CardListSortType.DISPLAY_ORDER), any()))
+                .willReturn(List.of());
 
         assertThat(cardService.findMyCards(1L, null)).isEmpty();
     }
@@ -309,12 +310,19 @@ class DefaultCardServiceTest {
     void 최근사용순_요청을_매퍼에_전달한다() {
         CardListSearchRequest request = new CardListSearchRequest();
         ReflectionTestUtils.setField(request, "sort", CardListSortType.RECENTLY_USED);
-        given(cardMapper.findByUserId(1L, CardListSortType.RECENTLY_USED))
+        given(cardMapper.findByUserId(eq(1L), eq(CardListSortType.RECENTLY_USED), any()))
                 .willReturn(List.of());
 
         cardService.findMyCards(1L, request);
 
-        then(cardMapper).should().findByUserId(1L, CardListSortType.RECENTLY_USED);
+        ArgumentCaptor<CardTransactionSearchCondition> captor =
+                ArgumentCaptor.forClass(CardTransactionSearchCondition.class);
+        then(cardMapper).should().findByUserId(
+                eq(1L), eq(CardListSortType.RECENTLY_USED), captor.capture());
+        assertThat(captor.getValue().getStartAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+        assertThat(captor.getValue().getEndAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 24, 0, 0));
     }
 
     @Test
@@ -440,11 +448,13 @@ class DefaultCardServiceTest {
     }
 
     @Test
-    void 현재월_신용카드는_전체_승인거래로_계산된_결제예정금액을_반환한다() {
+    void 현재월_신용카드는_월초부터_전날까지의_결제예정금액을_반환한다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
-                .willReturn(transactionCard(CardType.CREDIT, new BigDecimal("89800.00")));
+                .willReturn(transactionCard(CardType.CREDIT));
         given(cardMapper.findOldestTransactionPaidAt(1L, 10L))
                 .willReturn(LocalDateTime.of(2026, 4, 15, 10, 0));
+        given(cardMapper.sumScheduledPaymentAmount(eq(1L), eq(10L), any()))
+                .willReturn(new BigDecimal("89800.00"));
         given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
                 .willReturn(List.of());
 
@@ -461,6 +471,15 @@ class DefaultCardServiceTest {
         assertThat(response.getTransactions().getHasNext()).isFalse();
         assertThat(response.getTransactions().getNextCursor()).isNull();
 
+        ArgumentCaptor<CardTransactionSearchCondition> amountCaptor =
+                ArgumentCaptor.forClass(CardTransactionSearchCondition.class);
+        then(cardMapper).should().sumScheduledPaymentAmount(
+                eq(1L), eq(10L), amountCaptor.capture());
+        assertThat(amountCaptor.getValue().getStartAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+        assertThat(amountCaptor.getValue().getEndAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 24, 0, 0));
+
         ArgumentCaptor<CardTransactionSearchCondition> captor =
                 ArgumentCaptor.forClass(CardTransactionSearchCondition.class);
         then(cardMapper).should().findTransactions(eq(1L), eq(10L), captor.capture());
@@ -475,7 +494,7 @@ class DefaultCardServiceTest {
     @Test
     void 현재월_체크카드는_오늘까지_조회하고_거래금액을_합산한다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
-                .willReturn(transactionCard(CardType.DEBIT, null));
+                .willReturn(transactionCard(CardType.DEBIT));
         given(cardMapper.sumTransactionAmount(eq(1L), eq(10L), any()))
                 .willReturn(new BigDecimal("178400.00"));
         given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
@@ -499,9 +518,11 @@ class DefaultCardServiceTest {
     }
 
     @Test
-    void 과거월을_조회해도_신용카드_상단금액은_현재_결제예정금액이다() {
+    void 과거월_신용카드는_해당월의_실제_결제금액을_반환한다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
-                .willReturn(transactionCard(CardType.CREDIT, new BigDecimal("89800.00")));
+                .willReturn(transactionCard(CardType.CREDIT));
+        given(cardMapper.sumScheduledPaymentAmount(eq(1L), eq(10L), any()))
+                .willReturn(new BigDecimal("65000.00"));
         given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
                 .willReturn(List.of());
 
@@ -509,8 +530,8 @@ class DefaultCardServiceTest {
                 cardService.getCardTransactions(1L, 10L, searchRequest("2026-06", null, null));
 
         assertThat(response.getPaymentSummary().getSummaryType())
-                .isEqualTo(CardTransactionSummaryType.SCHEDULED_PAYMENT);
-        assertThat(response.getPaymentSummary().getAmount()).isEqualByComparingTo("89800.00");
+                .isEqualTo(CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT);
+        assertThat(response.getPaymentSummary().getAmount()).isEqualByComparingTo("65000.00");
 
         ArgumentCaptor<CardTransactionSearchCondition> captor =
                 ArgumentCaptor.forClass(CardTransactionSearchCondition.class);
@@ -519,6 +540,7 @@ class DefaultCardServiceTest {
                 .isEqualTo(LocalDateTime.of(2026, 6, 1, 0, 0));
         assertThat(captor.getValue().getEndAt())
                 .isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+        then(cardMapper).should().sumScheduledPaymentAmount(eq(1L), eq(10L), any());
         then(cardMapper).should(never()).sumTransactionAmount(any(), any(), any());
     }
 
@@ -532,22 +554,27 @@ class DefaultCardServiceTest {
     }
 
     @Test
-    void 신용카드_결제예정금액이_null이면_데이터정합성_예외를_던진다() {
+    void 신용카드_승인거래가_없으면_결제예정금액은_0이다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
-                .willReturn(transactionCard(CardType.CREDIT, null));
+                .willReturn(transactionCard(CardType.CREDIT));
+        given(cardMapper.sumScheduledPaymentAmount(eq(1L), eq(10L), any()))
+                .willReturn(BigDecimal.ZERO);
+        given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
+                .willReturn(List.of());
 
-        assertThatThrownBy(() -> cardService.getCardTransactions(
-                1L, 10L, searchRequest(null, null, null)))
-                .isInstanceOf(IllegalStateException.class)
-                .hasMessage("신용카드 결제예정금액 조회 결과가 없습니다. cardId=10");
+        CardTransactionDetailResponse response = cardService.getCardTransactions(
+                1L, 10L, searchRequest(null, null, null));
+
+        assertThat(response.getPaymentSummary().getAmount()).isEqualByComparingTo(BigDecimal.ZERO);
         then(cardMapper).should(never()).sumTransactionAmount(any(), any(), any());
-        then(cardMapper).should(never()).findTransactions(any(), any(), any());
     }
 
     @Test
     void 조회연월_형식과_미래월_범위를_검증하고_오래된월은_허용한다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
-                .willReturn(transactionCard(CardType.CREDIT, BigDecimal.ZERO));
+                .willReturn(transactionCard(CardType.CREDIT));
+        given(cardMapper.sumScheduledPaymentAmount(eq(1L), eq(10L), any()))
+                .willReturn(BigDecimal.ZERO);
         given(cardMapper.findTransactions(eq(1L), eq(10L), any()))
                 .willReturn(List.of());
 
@@ -572,7 +599,7 @@ class DefaultCardServiceTest {
     @Test
     void 조회개수는_1부터_100까지만_허용한다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
-                .willReturn(transactionCard(CardType.CREDIT, BigDecimal.ZERO));
+                .willReturn(transactionCard(CardType.CREDIT));
 
         assertErrorCode(
                 () -> cardService.getCardTransactions(
@@ -587,7 +614,9 @@ class DefaultCardServiceTest {
     @Test
     void size보다_한건_더_조회되면_마지막_응답거래로_다음커서를_만든다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
-                .willReturn(transactionCard(CardType.CREDIT, new BigDecimal("89800.00")));
+                .willReturn(transactionCard(CardType.CREDIT));
+        given(cardMapper.sumScheduledPaymentAmount(eq(1L), eq(10L), any()))
+                .willReturn(new BigDecimal("89800.00"));
         List<CardTransactionItemResponse> fetched = List.of(
                 transaction(103L, LocalDateTime.of(2026, 7, 23, 12, 0)),
                 transaction(102L, LocalDateTime.of(2026, 7, 22, 11, 0)),
@@ -622,7 +651,7 @@ class DefaultCardServiceTest {
     @Test
     void 다른_카드나_조회월의_커서는_허용하지_않는다() {
         given(cardMapper.findTransactionCardInfo(1L, 10L))
-                .willReturn(transactionCard(CardType.CREDIT, BigDecimal.ZERO));
+                .willReturn(transactionCard(CardType.CREDIT));
         String otherCardCursor = encodeCursor("11|2026-07|2026-07-22T11:00:00|102");
         String otherMonthCursor = encodeCursor("10|2026-06|2026-06-22T11:00:00|102");
 
@@ -780,7 +809,7 @@ class DefaultCardServiceTest {
         return request;
     }
 
-    private CardTransactionCardInfo transactionCard(CardType cardType, BigDecimal scheduledAmount) {
+    private CardTransactionCardInfo transactionCard(CardType cardType) {
         return CardTransactionCardInfo.builder()
                 .cardId(10L)
                 .cardProductId(20L)
@@ -789,7 +818,6 @@ class DefaultCardServiceTest {
                 .cardImageUrl("https://example.com/card.png")
                 .cardType(cardType)
                 .maskedRearNumber("1234")
-                .scheduledPaymentAmount(scheduledAmount)
                 .build();
     }
 
