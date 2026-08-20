@@ -37,6 +37,12 @@ public interface PaymentMapper {
     void markSessionProcessing(@Param("paymentId") String paymentId, @Param("storeId") Long storeId, @Param("amount") BigDecimal amount);
     void markSessionFailed(@Param("paymentId") String paymentId);
     void markSessionCompleted(@Param("paymentId") String paymentId);
+
+    /** 체크카드일 때만 방금 저장한 결제 거래를 기준으로 로컬 시연용 잔액을 차감한다. */
+    int updateDebitCardBalanceAfterPayment(@Param("userId") Long userId,
+                                           @Param("userCardId") Long userCardId,
+                                           @Param("paymentSessionId") Long paymentSessionId);
+
     /**
      * @param discountAmount             적용 혜택의 <b>네이티브 단위</b> 혜택값(CASHBACK=원, ACCUMULATE=포인트 개수)
      * @param appliedTierId              한도 사용량 집계 키. 넣지 않으면 {@code BenefitMapper.findUsage}가

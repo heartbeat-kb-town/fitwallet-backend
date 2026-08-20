@@ -431,7 +431,33 @@ class DefaultPaymentServiceTest {
         assertThat(response.getStoreName()).isEqualTo("스타벅스 강남점");
         then(paymentMapper).should(never()).markSessionCompleted(any());
         then(paymentMapper).should(never())
+                .updateDebitCardBalanceAfterPayment(any(), any(), any());
+        then(paymentMapper).should(never())
                 .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void 결제완료시_저장한_결제세션으로_체크카드_잔액갱신을_요청한다() {
+        PaymentResultSessionInfo session = PaymentResultSessionInfo.builder()
+                .paymentSessionId(10L)
+                .userCardId(5L)
+                .storeId(20L)
+                .amount(new BigDecimal("35000"))
+                .build();
+        given(benefitService.findPaymentBenefits(1L, 20L, new BigDecimal("35000")))
+                .willReturn(List.of(benefit(5L, "1400", "1400")));
+        given(paymentMapper.findPaymentResultBySessionId(10L))
+                .willReturn(PaymentResultResponse.builder()
+                        .paymentId("pay_abc")
+                        .status(PaymentSessionStatus.COMPLETED)
+                        .build());
+
+        PaymentResultResponse response =
+                paymentService.completeAndBuildResponse(1L, "pay_abc", session);
+
+        assertThat(response.getStatus()).isEqualTo(PaymentSessionStatus.COMPLETED);
+        then(paymentMapper).should().updateDebitCardBalanceAfterPayment(1L, 5L, 10L);
+        then(paymentMapper).should().markSessionCompleted("pay_abc");
     }
 
     //놓친혜택
@@ -665,6 +691,8 @@ class DefaultPaymentServiceTest {
         assertThat(result.getResponse().getStatus()).isEqualTo(PaymentSessionStatus.COMPLETED);
         assertThat(result.getResponse().getStoreName()).isEqualTo("스타벅스 세종대점");
         then(paymentMapper).should(never()).markSessionCompleted(any());
+        then(paymentMapper).should(never())
+                .updateDebitCardBalanceAfterPayment(any(), any(), any());
         then(paymentMapper).should(never())
                 .insertPaymentTransaction(any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any(), any());
     }
