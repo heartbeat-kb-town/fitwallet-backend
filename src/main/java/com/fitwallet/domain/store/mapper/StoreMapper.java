@@ -23,7 +23,7 @@ import java.util.List;
 public interface StoreMapper {
 
     /**
-     * 사용자 좌표에서 가까운 순으로 가맹점을 조회한다. <b>최대 5건 고정</b>이다.
+     * 사용자 좌표에서 가까운 순으로 가맹점을 조회한다. <b>최대 10건 고정</b>이다.
      * <p>
      * 키워드 검색과 카테고리 주변 조회를 한 쿼리로 처리한다 — {@code cond}의 {@code keyword} /
      * {@code categoryId} / {@code radiusMeters}가 각각 {@code null}이면 그 필터가 걸리지 않는다.
