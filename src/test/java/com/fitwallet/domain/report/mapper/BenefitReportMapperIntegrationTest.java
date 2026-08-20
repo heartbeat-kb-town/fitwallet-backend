@@ -11,8 +11,9 @@ import java.math.BigDecimal;
 import java.util.List;
 
 import com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse;
-import com.fitwallet.domain.report.dto.response.CategorySpendResponse;
 import com.fitwallet.domain.report.dto.response.MissedSummaryResponse;
+import com.fitwallet.domain.report.dto.response.MonthlyCategorySpendRawResponse;
+import com.fitwallet.domain.report.dto.response.PopularCardRawResponse;
 import com.fitwallet.domain.report.dto.response.ReceivedBenefitSummaryResponse;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -64,7 +65,7 @@ class BenefitReportMapperIntegrationTest {
         assertThat(missed.getAppUnusedAmount()).isZero();
         assertThat(missed.getCardMismatchAmount()).isZero();
 
-        assertThat(benefitReportMapper.getTopSpendingCategories(1L, "2099-01", 5)).isEmpty();
+        assertThat(benefitReportMapper.getMonthlyCategorySpends(1L, "2099-01", "2099-01")).isEmpty();
     }
 
     /**
@@ -87,12 +88,15 @@ class BenefitReportMapperIntegrationTest {
     @Test
     void 추천_후보는_서비스와_카테고리_조합당_한_행만_반환한다() {
         Long userId = 1L;
-        String yearMonth = "2026-07";
 
-        List<CategorySpendResponse> top = benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2);
-        assertThat(top).isNotEmpty();
+        List<MonthlyCategorySpendRawResponse> spends =
+                benefitReportMapper.getMonthlyCategorySpends(userId, "2026-05", "2026-07");
+        assertThat(spends).isNotEmpty();
 
-        List<Long> categoryIds = top.stream().map(CategorySpendResponse::getCategoryId).toList();
+        List<Long> categoryIds = spends.stream()
+                .map(MonthlyCategorySpendRawResponse::getCategoryId)
+                .distinct()
+                .toList();
 
         List<CardRecommendationRawResponse> rows = benefitReportMapper.getRecommendedCards(userId, categoryIds);
 
@@ -179,5 +183,33 @@ class BenefitReportMapperIntegrationTest {
         assertThat(after.getTotalReceivedBenefit().subtract(before)).isEqualByComparingTo(new BigDecimal("250.00"));
         // 총 포인트: 환산 전 개수 100이 그대로 더해져야 함 (환산액 250이 섞이면 버그)
         assertThat(after.getTotalPoint().subtract(beforePoint)).isEqualByComparingTo(new BigDecimal("100.00"));
+    }
+
+    @Test
+    void 월별_카테고리_지출은_지정_기간_안의_행만_돌려준다() {
+        List<MonthlyCategorySpendRawResponse> spends =
+                benefitReportMapper.getMonthlyCategorySpends(1L, "2026-05", "2026-07");
+
+        assertThat(spends).isNotEmpty();
+        assertThat(spends).allSatisfy(row -> {
+            assertThat(row.getYearMonth()).isBetween("2026-05", "2026-07");
+            assertThat(row.getSpendAmount()).isGreaterThan(BigDecimal.ZERO);
+            assertThat(row.getCategoryId()).isNotNull();
+        });
+    }
+
+    @Test
+    void 인기_미보유_카드는_요청_개수_이하로_유저가_보유한_카드를_빼고_돌려준다() {
+        Long userId = 1L;
+
+        List<PopularCardRawResponse> popular = benefitReportMapper.getPopularUnownedCards(userId, 2);
+
+        assertThat(popular).hasSizeLessThanOrEqualTo(2);
+
+        List<Long> ownedProductIds = jdbcTemplate().queryForList(
+                "SELECT card_product_id FROM user_card WHERE user_id = ? AND is_deleted = 0",
+                Long.class, userId);
+        assertThat(popular).extracting(PopularCardRawResponse::getCardProductId)
+                .doesNotContainAnyElementsOf(ownedProductIds);
     }
 }

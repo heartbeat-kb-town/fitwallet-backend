@@ -1,7 +1,8 @@
 package com.fitwallet.domain.report.mapper;
 
 import com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse;
-import com.fitwallet.domain.report.dto.response.CategorySpendResponse;
+import com.fitwallet.domain.report.dto.response.MonthlyCategorySpendRawResponse;
+import com.fitwallet.domain.report.dto.response.PopularCardRawResponse;
 import com.fitwallet.domain.report.dto.response.ReceivedBenefitSummaryResponse;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
@@ -17,14 +18,24 @@ public interface BenefitReportMapper {
             @Param("yearMonth") String yearMonth
     );
 
-    List<CategorySpendResponse> getTopSpendingCategories(
+    /**
+     * 최근 N개월([fromYearMonth, toYearMonth])의 카테고리 × 월별 지출을 조회한다.
+     * 추천 엔진이 카테고리별 월 지출들의 중앙값으로 예상 월 지출을 만든다.
+     */
+    List<MonthlyCategorySpendRawResponse> getMonthlyCategorySpends(
             @Param("userId") Long userId,
-            @Param("yearMonth") String yearMonth,
-            @Param("limit") int limit
+            @Param("fromYearMonth") String fromYearMonth,
+            @Param("toYearMonth") String toYearMonth
     );
 
     List<CardRecommendationRawResponse> getRecommendedCards(
             @Param("userId") Long userId,
             @Param("categoryIds") List<Long> categoryIds
+    );
+
+    /** 콜드스타트 폴백: 보유 수 상위의 미보유 카드. */
+    List<PopularCardRawResponse> getPopularUnownedCards(
+            @Param("userId") Long userId,
+            @Param("limit") int limit
     );
 }
