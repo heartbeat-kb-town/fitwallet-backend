@@ -74,6 +74,12 @@ public interface CardMapper {
                                     @Param("cardId") Long cardId,
                                     @Param("condition") CardTransactionSearchCondition condition);
 
+    /** 조회 기간의 승인 거래에서 할인만 반영된 실제 청구액을 합산한다. */
+    BigDecimal sumScheduledPaymentAmount(
+            @Param("userId") Long userId,
+            @Param("cardId") Long cardId,
+            @Param("condition") CardTransactionSearchCondition condition);
+
     /** 카드 유형별 조회 기간의 결제 완료 내역을 커서 기준 최신순으로 조회한다. */
     List<CardTransactionItemResponse> findTransactions(
             @Param("userId") Long userId,
@@ -114,15 +120,18 @@ public interface CardMapper {
 
     /** 사용자의 카드 목록을 요청한 기준으로 조회한다. 삭제된 카드는 제외된다. */
     List<CardListResponse> findByUserId(@Param("userId") Long userId,
-                                        @Param("sortType") CardListSortType sortType);
+                                        @Param("sortType") CardListSortType sortType,
+                                        @Param("condition") CardTransactionSearchCondition condition);
 
     /** 사용자의 카드 한 건. 없거나 삭제됐으면 null. */
     CardListResponse findByUserIdAndUserCardId(@Param("userId") Long userId,
-                                               @Param("userCardId") Long userCardId);
+                                               @Param("userCardId") Long userCardId,
+                                               @Param("condition") CardTransactionSearchCondition condition);
 
     /** 등록 직후 응답을 만들기 위한 조회. */
     CardListResponse findByUserIdAndCardProductId(@Param("userId") Long userId,
-                                                  @Param("cardProductId") Long cardProductId);
+                                                  @Param("cardProductId") Long cardProductId,
+                                                  @Param("condition") CardTransactionSearchCondition condition);
 
     /**
      * 등록 이력 여부. 행이 없으면 {@code null}, 사용 중이면 {@code false}, 소프트 삭제 상태면 {@code true}.

@@ -978,6 +978,7 @@ class DefaultBenefitServiceTest {
         PaymentBenefitResponse benefit = benefitService
                 .findPaymentBenefits(USER_ID, STORE_ID_LONG, new BigDecimal("35000")).get(0);
 
+        assertThat(benefit.getBenefitType()).isEqualTo(BenefitType.ACCUMULATE);
         assertThat(benefit.getExpectedAmount()).isEqualByComparingTo("1400");
         assertThat(benefit.getNativeAmount()).isEqualByComparingTo("1750");
     }

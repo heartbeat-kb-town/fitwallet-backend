@@ -1,5 +1,6 @@
 package com.fitwallet.domain.payment.service;
 
+import com.fitwallet.domain.benefit.dto.BenefitType;
 import com.fitwallet.domain.benefit.dto.response.PaymentBenefitResponse;
 import com.fitwallet.domain.benefit.service.BenefitService;
 import com.fitwallet.domain.card.exception.CardErrorCode;
@@ -273,9 +274,7 @@ public class DefaultPaymentService implements PaymentService {
         BigDecimal discountAmount = applied == null ? BigDecimal.ZERO : applied.getNativeAmount();
         BigDecimal receivedKrw = applied == null ? BigDecimal.ZERO : applied.getExpectedAmount();
 
-        // 빼는 값은 네이티브가 아니라 원화다. discountAmount를 그대로 빼면 적립 건에서
-        // 포인트 개수를 원화에서 빼게 된다 — 3,000P 적립에 1포인트 0.8원이면 2,400원을 빼야 한다.
-        BigDecimal finalAmount = amount.subtract(receivedKrw);
+        BigDecimal finalAmount = calculateFinalAmount(amount, applied);
 
         MissedBenefitInfo missedBenefit = calculateMissedBenefit(benefits, userCardId, receivedKrw);
 
@@ -286,6 +285,14 @@ public class DefaultPaymentService implements PaymentService {
         paymentMapper.markPinAuthUsed(userId);
 
         return paymentMapper.findPaymentResultBySessionId(session.getPaymentSessionId());
+    }
+
+    /** CASHBACK 할인만 실제 청구액에서 차감하고 ACCUMULATE 적립은 원 승인금액을 유지한다. */
+    BigDecimal calculateFinalAmount(BigDecimal amount, PaymentBenefitResponse applied) {
+        if (applied == null || applied.getBenefitType() != BenefitType.CASHBACK) {
+            return amount;
+        }
+        return amount.subtract(applied.getExpectedAmount());
     }
 
     /**

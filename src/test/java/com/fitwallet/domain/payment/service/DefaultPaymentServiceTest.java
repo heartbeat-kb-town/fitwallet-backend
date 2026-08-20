@@ -1,5 +1,6 @@
 package com.fitwallet.domain.payment.service;
 
+import com.fitwallet.domain.benefit.dto.BenefitType;
 import com.fitwallet.domain.benefit.dto.response.PaymentBenefitResponse;
 import com.fitwallet.domain.payment.dto.*;
 import com.fitwallet.domain.payment.dto.request.PinVerifyRequest;
@@ -478,12 +479,51 @@ class DefaultPaymentServiceTest {
         assertThat(result.getMissedAmount()).isNull();
     }
 
+    @Test
+    void 할인_혜택은_원화_혜택액만큼_최종결제금액에서_차감한다() {
+        PaymentBenefitResponse applied = benefit(
+                1L, BenefitType.CASHBACK, "1400", "1400");
+
+        BigDecimal finalAmount = paymentService.calculateFinalAmount(
+                new BigDecimal("35000"), applied);
+
+        assertThat(finalAmount).isEqualByComparingTo("33600");
+    }
+
+    @Test
+    void 적립_혜택은_최종결제금액에서_차감하지_않는다() {
+        PaymentBenefitResponse applied = benefit(
+                1L, BenefitType.ACCUMULATE, "1400", "1750");
+
+        BigDecimal finalAmount = paymentService.calculateFinalAmount(
+                new BigDecimal("35000"), applied);
+
+        assertThat(finalAmount).isEqualByComparingTo("35000");
+    }
+
+    @Test
+    void 적용혜택이_없으면_최종결제금액은_승인금액과_같다() {
+        BigDecimal finalAmount = paymentService.calculateFinalAmount(
+                new BigDecimal("35000"), null);
+
+        assertThat(finalAmount).isEqualByComparingTo("35000");
+    }
+
     /** {@code expectedAmount}는 원화, {@code nativeAmount}는 네이티브 단위 — 둘을 일부러 다르게 준다. */
     private PaymentBenefitResponse benefit(Long userCardId, String expectedAmount, String nativeAmount) {
+        return benefit(userCardId, BenefitType.CASHBACK, expectedAmount, nativeAmount);
+    }
+
+    private PaymentBenefitResponse benefit(
+            Long userCardId,
+            BenefitType benefitType,
+            String expectedAmount,
+            String nativeAmount) {
         return PaymentBenefitResponse.builder()
                 .userCardId(userCardId)
                 .benefitServiceId(100L + userCardId)
                 .tierId(200L + userCardId)
+                .benefitType(benefitType)
                 .expectedAmount(new BigDecimal(expectedAmount))
                 .nativeAmount(new BigDecimal(nativeAmount))
                 .build();

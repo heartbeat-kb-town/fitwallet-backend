@@ -481,7 +481,7 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 | `payment_session_id` (FK) | 확정된 결제 세션 | BIGINT | **YES** | — | → `payment_session`. UNIQUE (`uk_pt_payment_session_id`). **앱을 거치지 않은 거래는 NULL** |
 | `amount` | 결제액 | DECIMAL(15,2) | NO | — | **원화** |
 | `discount_amount` | 적용된 혜택값 | DECIMAL(15,2) | NO | `0.00` | ⚠️ **네이티브 단위입니다** — `applied_benefit_service_id`의 `benefit_type`으로 해석합니다(`CASHBACK`=원, `ACCUMULATE`=포인트 **개수**). 어떤 포인트인지는 `benefit_service.point_currency_id`로 판별하고, 원화가 필요한 집계는 `point_currency.krw_per_point`를 곱합니다. 아래 인용 블록 참고 |
-| `final_amount` | 최종 결제 금액 | DECIMAL(15,2) | NO | — | **원화.** ⚠️ `amount` − `discount_amount`가 **아닙니다** — 혜택값을 원화로 환산한 뒤 뺀 값입니다 |
+| `final_amount` | 최종 결제 금액 | DECIMAL(15,2) | NO | — | **원화.** `CASHBACK` 할인은 원화 환산액을 차감하고, `ACCUMULATE` 적립은 결제대금 할인이 아니므로 `amount`와 같습니다. ⚠️ `discount_amount`는 네이티브 단위라 직접 빼지 않습니다 |
 | `paid_at` | 실제 승인 시각 | DATETIME | NO | — | **비즈니스 시각.** 레코드 생성 시각(`created_at`)과 분리 |
 | `transaction_status` | 거래 상태 | VARCHAR(20) | NO | `APPROVED` | CHECK `APPROVED`(승인) / `CANCELED`(전체 승인취소). 취소 시각은 별도로 저장하지 않습니다 — [§3](#3-코드-값-check-제약) |
 | `is_used_app` | 앱 사용 여부 | TINYINT(1) | NO | `0` | 앱(QR)을 거친 결제인지. 앱을 거쳤으면 `payment_session_id`도 채워집니다 |
@@ -504,7 +504,7 @@ QR 등으로 특정 가맹점에서 결제를 진행하는 동안의 세션 상�
 > | `alternative_discount_amount` | 원화 |
 > | `missed_amount` | 원화 |
 >
-> 그래서 `final_amount = amount − discount_amount`도, `missed_amount = alternative_discount_amount − discount_amount`도 **성립하지 않습니다.** 두 뺄셈 모두 혜택값을 `point_currency.krw_per_point`로 원화 환산한 뒤에 계산한 결과입니다. 네이티브를 원화 필드로 내보내는 쿼리는 반드시 `krw_per_point`를 곱해야 합니다.
+> 그래서 `final_amount = amount − discount_amount`도, `missed_amount = alternative_discount_amount − discount_amount`도 일반적으로 **성립하지 않습니다.** `CASHBACK`만 원화 환산액을 `final_amount`에서 차감하고, `ACCUMULATE`는 차감하지 않습니다. 놓친 혜택은 혜택값을 원화로 환산해 비교합니다. 네이티브를 원화 필드로 내보내는 쿼리는 반드시 `krw_per_point`를 곱해야 합니다.
 >
 > `discount_amount`만 네이티브인 이유는 `applied_benefit_service_id`가 함께 있어 통화를 판별할 수 있기 때문입니다. `alternative_discount_amount`/`missed_amount`는 `better_user_card_id`만 있고 대응하는 `benefit_service`를 가리키지 않아 판별할 수단이 없어 원화로 고정했습니다.
 >

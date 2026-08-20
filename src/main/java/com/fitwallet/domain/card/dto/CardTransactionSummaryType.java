@@ -5,7 +5,7 @@ package com.fitwallet.domain.card.dto;
  */
 public enum CardTransactionSummaryType {
 
-    /** 전체 승인 거래의 final_amount를 다시 계산한 신용카드 결제예정금액. */
+    /** 현재 월 1일부터 전날까지 승인 거래의 final_amount를 합산한 신용카드 결제예정금액. */
     SCHEDULED_PAYMENT,
 
     /** 거래를 합산한 과거 월 신용카드 또는 체크카드의 월 결제 이용금액. */

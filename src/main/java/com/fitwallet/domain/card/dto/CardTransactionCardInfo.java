@@ -5,8 +5,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
-
 /**
  * 카드별 결제 내역 조회에 사용하는 보유 카드 내부 정보.
  * <p>
@@ -27,6 +25,4 @@ public class CardTransactionCardInfo {
     private CardType cardType;
     private String maskedRearNumber;
 
-    /** 신용카드는 전체 승인 거래의 final_amount 합계이며, 체크카드는 null이다. */
-    private BigDecimal scheduledPaymentAmount;
 }

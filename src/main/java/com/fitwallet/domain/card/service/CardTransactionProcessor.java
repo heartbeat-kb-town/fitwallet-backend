@@ -68,6 +68,7 @@ public class CardTransactionProcessor {
                 .availableYearMonths(query.period.getAvailableYearMonths())
                 .paymentSummary(CardTransactionSummaryResponse.builder()
                         .summaryType(card.getCardType() == CardType.CREDIT
+                                && query.period.isCurrentMonth()
                                 ? CardTransactionSummaryType.SCHEDULED_PAYMENT
                                 : CardTransactionSummaryType.MONTHLY_PAYMENT_AMOUNT)
                         .amount(totalAmount)

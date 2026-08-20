@@ -26,8 +26,8 @@ public class CardTransactionSummaryResponse {
     private CardTransactionSummaryType summaryType;
 
     /**
-     * 신용카드는 조회 월과 무관하게 전체 승인 거래의 실제 청구액을 합산한다.
-     * 체크카드는 조회 기간에 해당하는 승인 거래 금액을 합산한다.
+     * 현재 월 신용카드는 월 1일부터 전날까지의 실제 청구액을 합산한다.
+     * 과거 월 신용카드와 체크카드는 조회 월의 승인 거래 금액을 합산한다.
     */
     @ApiModelProperty(value = "결제 이용금액", example = "89800.00")
     private BigDecimal amount;

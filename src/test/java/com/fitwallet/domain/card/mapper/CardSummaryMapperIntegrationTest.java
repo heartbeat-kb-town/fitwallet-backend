@@ -5,6 +5,7 @@ import com.fitwallet.domain.card.dto.CardSummaryCardInfo;
 import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import com.fitwallet.domain.card.dto.CardType;
 import com.fitwallet.domain.card.dto.request.CardRecentTransactionSearchCondition;
+import com.fitwallet.domain.card.dto.request.CardTransactionSearchCondition;
 import com.fitwallet.domain.card.dto.response.CardListResponse;
 import com.fitwallet.domain.card.dto.response.CardSummaryTransactionResponse;
 import org.junit.jupiter.api.BeforeEach;
@@ -118,7 +119,12 @@ class CardSummaryMapperIntegrationTest {
                 1L);
 
         List<CardListResponse> cards = cardMapper.findByUserId(
-                SEED_USER_ID, CardListSortType.RECENTLY_USED);
+                SEED_USER_ID,
+                CardListSortType.RECENTLY_USED,
+                CardTransactionSearchCondition.builder()
+                        .startAt(LocalDateTime.of(2000, 1, 1, 0, 0))
+                        .endAt(LocalDateTime.of(2100, 1, 1, 0, 0))
+                        .build());
 
         assertThat(cards).extracting(CardListResponse::getUserCardId)
                 .startsWith(SEED_CREDIT_CARD_ID, 2L);
