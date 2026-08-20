@@ -382,7 +382,7 @@ erDiagram
 | `expiry_date` | 유효기간 | DATE | NO | — | |
 | `display_order` | 화면 정렬 순서 | INT | NO | — | |
 | `bank_name` | 결제 은행명 | VARCHAR(50) | **YES** | — | **체크카드(`DEBIT`) 전용** |
-| `balance` | 계좌 잔액 | DECIMAL(15,2) | **YES** | — | **체크카드(`DEBIT`) 전용.** 모의결제용 잔액 |
+| `balance` | 계좌 잔액 | DECIMAL(15,2) | **YES** | — | **체크카드(`DEBIT`) 전용.** 로컬 앱 결제가 완료되면 해당 거래의 `final_amount`만큼 차감되는 모의결제용 잔액 |
 | `credit_limit` | 신용 한도 | DECIMAL(15,2) | **YES** | — | **신용카드(`CREDIT`) 전용** |
 | `scheduled_payment_amount` | 결제 예정 금액 | DECIMAL(15,2) | **YES** | — | **신용카드(`CREDIT`) 전용** |
 | `created_at` | 생성 시각 | DATETIME | NO | CURRENT_TIMESTAMP | |

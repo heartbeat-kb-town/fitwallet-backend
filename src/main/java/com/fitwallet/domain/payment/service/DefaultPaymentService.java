@@ -253,7 +253,7 @@ public class DefaultPaymentService implements PaymentService {
      * 놓친 혜택 두 컬럼이 원화인 것은 행에 {@code better_user_card_id}만 있고
      * {@code better_benefit_service_id}가 없어 읽는 쪽이 통화를 판별할 수 없기 때문이다(스키마 주석 참고).
      */
-    private PaymentResultResponse completeAndBuildResponse(Long userId, String paymentId, PaymentResultSessionInfo session) {
+    PaymentResultResponse completeAndBuildResponse(Long userId, String paymentId, PaymentResultSessionInfo session) {
         Long userCardId = session.getUserCardId();
         Long storeId = session.getStoreId();
         BigDecimal amount = session.getAmount();
@@ -282,6 +282,8 @@ public class DefaultPaymentService implements PaymentService {
         paymentMapper.insertPaymentTransaction(userCardId, storeId, session.getPaymentSessionId(),
                 amount, discountAmount, finalAmount, LocalDateTime.now(), appliedBenefitServiceId, appliedTierId,
                 missedBenefit.getBetterUserCardId(), missedBenefit.getAlternativeDiscountAmount(), missedBenefit.getMissedAmount());
+        paymentMapper.updateDebitCardBalanceAfterPayment(
+                userId, userCardId, session.getPaymentSessionId());
         paymentMapper.markSessionCompleted(paymentId);
         paymentMapper.markPinAuthUsed(userId);
 

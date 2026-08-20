@@ -102,6 +102,29 @@
     </update>
 
     <!--
+        로컬 시연용 잔액. CASHBACK은 즉시할인으로 단순화해 final_amount를 차감하고,
+        ACCUMULATE 또는 혜택 없음은 승인금액 전액을 차감한다. 신용카드는 갱신하지 않는다.
+    -->
+    <update id="updateDebitCardBalanceAfterPayment">
+        UPDATE user_card uc
+                 JOIN card_product cp ON cp.card_product_id = uc.card_product_id
+                 JOIN payment_transaction pt
+                   ON pt.user_card_id = uc.user_card_id
+                  AND pt.payment_session_id = #{paymentSessionId}
+                 LEFT JOIN benefit_service bs
+                   ON bs.service_id = pt.applied_benefit_service_id
+        SET uc.balance = uc.balance
+                - CASE WHEN bs.benefit_type = 'CASHBACK'
+                       THEN pt.final_amount
+                       ELSE pt.amount
+                  END
+        WHERE uc.user_id = #{userId}
+          AND uc.user_card_id = #{userCardId}
+          AND uc.is_deleted = 0
+          AND cp.card_type = 'DEBIT'
+    </update>
+
+    <!--
         applied_tier_id를 빼면 BenefitMapper.findUsage(WHERE applied_tier_id = ?)가 이 결제를
         집계하지 못해 앱 결제로는 한도 잔여가 영영 줄지 않는다.
     -->
