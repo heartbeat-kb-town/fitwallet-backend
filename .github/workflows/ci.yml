@@ -81,9 +81,15 @@ jobs:
 
   # main에 커밋이 들어가면(릴리스 PR 머지) EB 환경을 새 버전으로 갱신한다.
   # PR에서는 돌지 않는다 — main ruleset의 필수 상태 체크는 build 하나뿐이다.
+  # 두 레인이 각자의 EB 환경으로 배포된다 (AGENTS.md §14).
+  #   main    → fitwallet-prod  성능 최적화 레인
+  #   develop → fitwallet-demo  기능 개발 레인 (시연용)
+  # 어느 쪽이든 머지가 곧 그 환경의 배포다.
   deploy:
     needs: build
-    if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    if: >-
+      (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+      && github.event_name != 'pull_request'
     runs-on: ubuntu-latest
 
     permissions:
@@ -93,9 +99,8 @@ jobs:
     env:
       AWS_REGION: ap-northeast-2
       EB_APP: fitwallet-backend
-      EB_ENV: fitwallet-prod
       EB_BUCKET: elasticbeanstalk-ap-northeast-2-715975222399
-      APP_URL: http://fitwallet-backend-prod.ap-northeast-2.elasticbeanstalk.com
+      # EB_ENV / APP_URL / LANE 은 아래 Resolve 단계가 브랜치를 보고 정한다
 
     steps:
       - name: Download WAR
@@ -104,8 +109,27 @@ jobs:
           name: war
           path: dist
 
+      # 환경 이름을 잡에 고정하지 않고 브랜치에서 유도한다.
+      # 두 레인이 같은 EB 애플리케이션(fitwallet-backend)과 S3 버킷을 공유하므로
+      # 바뀌는 것은 환경 이름과 확인용 URL 뿐이다.
+      - name: Resolve target environment
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" = "refs/heads/main" ]; then
+            echo "LANE=main"                                                          >> "$GITHUB_ENV"
+            echo "EB_ENV=fitwallet-prod"                                              >> "$GITHUB_ENV"
+            echo "APP_URL=http://fitwallet-backend-prod.ap-northeast-2.elasticbeanstalk.com" >> "$GITHUB_ENV"
+          else
+            echo "LANE=dev"                                                           >> "$GITHUB_ENV"
+            echo "EB_ENV=fitwallet-demo"                                              >> "$GITHUB_ENV"
+            echo "APP_URL=http://fitwallet-demo.ap-northeast-2.elasticbeanstalk.com"   >> "$GITHUB_ENV"
+          fi
+
       # 장기 액세스 키를 저장소에 두지 않는다. IAM 역할의 신뢰 정책이
-      # 이 저장소의 main ref에서 온 토큰만 수임을 허용한다.
+      # 이 저장소의 main·develop ref에서 온 토큰만 수임을 허용한다.
+      #
+      # ⚠️ 이 잡에 GitHub Environment(`environment:` 키)를 붙이면 토큰의 sub 가
+      # `:ref:refs/heads/...` 에서 `:environment:{이름}` 으로 바뀌어 수임이 깨진다.
       - name: Configure AWS credentials (OIDC)
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -131,7 +155,9 @@ jobs:
           # 라벨에 run_attempt가 반드시 들어가야 한다. create-application-version이 성공한 뒤
           # 뒷 단계에서 실패하면 그 라벨이 EB에 남는데, 재실행 때 라벨이 같으면 "이미 존재함"으로
           # 거부돼 사람이 버전을 지우기 전까지 재배포가 막힌다.
-          LABEL="gh-${{ github.run_number }}.${{ github.run_attempt }}-${GITHUB_SHA:0:7}"
+          # 레인을 라벨에 넣는다. 두 브랜치가 EB 애플리케이션 하나를 공유하므로
+          # 버전 목록에서 어느 레인의 산출물인지 구분되어야 롤백 대상을 잘못 고르지 않는다.
+          LABEL="gh-${LANE}-${{ github.run_number }}.${{ github.run_attempt }}-${GITHUB_SHA:0:7}"
           WAR=$(ls dist/*.war)
           echo "LABEL=$LABEL" >> "$GITHUB_ENV"
           echo "버전 라벨 $LABEL / 번들 $WAR"
