@@ -110,6 +110,53 @@
         )
     </select>
 
+    <!-- 2-b) 증분 계산 baseline: 사용자가 보유한 카드가 각 카테고리에서 주는 혜택.
+         getRecommendedCards의 대칭이라 tier/limit 선택 로직이 동일하고, 보유 조건만
+         NOT IN -> IN 으로 뒤집었다(소프트 삭제 제외). 같은 계산기로 baseline을 구하려고
+         같은 resultType으로 반환한다(카드명·이미지는 baseline에 안 쓰여 SELECT하지 않는다). -->
+    <select id="getOwnedCardBenefits" resultType="com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse">
+        SELECT
+        cp.card_product_id,
+        c.category_id,
+        c.category_name,
+        bs.value_type,
+        bs.value_number AS discountRate,
+        bs.point_currency_id,
+        pc.krw_per_point,
+        bt.min_prev_month_spend,
+        bl.limit_value,
+        bl.limit_basis
+        FROM benefit_service bs
+        JOIN service_category sc ON bs.service_id = sc.service_id
+        JOIN category c ON sc.category_id = c.category_id
+        JOIN card_product cp ON bs.card_product_id = cp.card_product_id
+        LEFT JOIN point_currency pc ON bs.point_currency_id = pc.point_currency_id
+        LEFT JOIN benefit_tier bt ON bt.tier_id = (
+            SELECT bt2.tier_id
+            FROM benefit_tier bt2
+            WHERE bt2.service_id = bs.service_id
+            OR bt2.plan_group_id = bs.plan_group_id
+            ORDER BY bt2.min_prev_month_spend ASC, bt2.tier_id ASC
+            LIMIT 1
+        )
+        LEFT JOIN benefit_limit bl ON bl.limit_id = (
+            SELECT bl2.limit_id
+            FROM benefit_limit bl2
+            WHERE bl2.tier_id = bt.tier_id
+            AND bl2.limit_period = 'MONTH'
+            AND bl2.limit_basis &lt;&gt; 'COUNT'
+            ORDER BY bl2.limit_id ASC
+            LIMIT 1
+        )
+        WHERE c.category_id IN
+        <foreach collection="categoryIds" item="categoryId" open="(" separator="," close=")">
+            #{categoryId}
+        </foreach>
+        AND cp.card_product_id IN (
+        SELECT card_product_id FROM user_card WHERE user_id = #{userId} AND is_deleted = 0
+        )
+    </select>
+
     <!-- 3) 콜드스타트 폴백: 보유 수(서로 다른 유저 수) 상위의 미보유 카드.
          거래 내역이 없어 예상 혜택을 계산할 수 없을 때 쓴다. 소프트 삭제된 보유는 제외(§10). -->
     <select id="getPopularUnownedCards"

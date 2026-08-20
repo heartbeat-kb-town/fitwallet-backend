@@ -199,6 +199,31 @@ class BenefitReportMapperIntegrationTest {
     }
 
     @Test
+    void 보유_카드_혜택은_유저가_보유한_카드_상품만_돌려준다() {
+        Long userId = 1L;
+
+        // 시드 유저의 보유 카드 상품이 걸린 카테고리들
+        List<MonthlyCategorySpendRawResponse> spends =
+                benefitReportMapper.getMonthlyCategorySpends(userId, "2026-05", "2026-07");
+        List<Long> categoryIds = spends.stream()
+                .map(MonthlyCategorySpendRawResponse::getCategoryId)
+                .distinct()
+                .toList();
+
+        List<CardRecommendationRawResponse> owned = benefitReportMapper.getOwnedCardBenefits(userId, categoryIds);
+
+        List<Long> ownedProductIds = jdbcTemplate().queryForList(
+                "SELECT card_product_id FROM user_card WHERE user_id = ? AND is_deleted = 0",
+                Long.class, userId);
+        // 반환된 모든 행의 카드 상품은 실제 보유 상품이어야 한다
+        assertThat(owned).allSatisfy(row ->
+                assertThat(ownedProductIds).contains(row.getCardProductId()));
+        // 요청한 카테고리 밖의 행은 없어야 한다
+        assertThat(owned).allSatisfy(row ->
+                assertThat(categoryIds).contains(row.getCategoryId()));
+    }
+
+    @Test
     void 인기_미보유_카드는_요청_개수_이하로_유저가_보유한_카드를_빼고_돌려준다() {
         Long userId = 1L;
 

@@ -53,6 +53,19 @@ class CardRecommendationEngineTest {
                 spend(categoryId, name, M3, monthlyAmount));
     }
 
+    /** 실적 무관 RATE 혜택 한 행(후보/보유 공용). */
+    private CardRecommendationRawResponse rateCard(Long cardProductId, Long categoryId, String categoryName, long ratePercent) {
+        return CardRecommendationRawResponse.builder()
+                .cardProductId(cardProductId)
+                .cardName("카드 " + cardProductId)
+                .categoryId(categoryId)
+                .categoryName(categoryName)
+                .valueType("RATE")
+                .discountRate(BigDecimal.valueOf(ratePercent))
+                .minPrevMonthSpend(null)
+                .build();
+    }
+
     @Test
     void 전월실적_조건이_없는_혜택은_NPE_없이_추천된다() {
         when(benefitReportMapper.getMonthlyCategorySpends(USER_ID, M1, M3))
@@ -286,5 +299,108 @@ class CardRecommendationEngineTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getCardName()).isEqualTo("인기 카드 A");
         verify(benefitReportMapper, never()).getRecommendedCards(anyLong(), org.mockito.ArgumentMatchers.anyList());
+    }
+
+    // ── Phase 2: 보유 카드 대비 증분(한계 혜택) ──────────────────────────────
+
+    @Test
+    void 보유_카드가_이미_커버하는_카테고리는_증분만큼만_반영된다() {
+        // 카페 예상 월 지출 10만. 보유 카드가 카페 5%(baseline 5000), 후보가 카페 8%(8000).
+        // 증분 = 8000 - 5000 = 3000
+        when(benefitReportMapper.getMonthlyCategorySpends(USER_ID, M1, M3))
+                .thenReturn(flatCategory(1L, "카페/디저트", 100000));
+        when(benefitReportMapper.getRecommendedCards(USER_ID, List.of(1L)))
+                .thenReturn(List.of(rateCard(90L, 1L, "카페/디저트", 8)));
+        when(benefitReportMapper.getOwnedCardBenefits(USER_ID, List.of(1L)))
+                .thenReturn(List.of(rateCard(1L, 1L, "카페/디저트", 5)));
+
+        List<CardRecommendationResponse> result = engine.recommend(USER_ID, YEAR_MONTH);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getCardProductId()).isEqualTo(90L);
+        assertThat(result.get(0).getExpectedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(3000));
+    }
+
+    @Test
+    void 보유_카드보다_못한_후보는_증분이_0이라_제외된다() {
+        // 보유 카페 10%(baseline 10000), 후보 카페 5%(5000) → 증분 max(0, 5000-10000)=0 → 제외
+        when(benefitReportMapper.getMonthlyCategorySpends(USER_ID, M1, M3))
+                .thenReturn(flatCategory(1L, "카페/디저트", 100000));
+        when(benefitReportMapper.getRecommendedCards(USER_ID, List.of(1L)))
+                .thenReturn(List.of(rateCard(90L, 1L, "카페/디저트", 5)));
+        when(benefitReportMapper.getOwnedCardBenefits(USER_ID, List.of(1L)))
+                .thenReturn(List.of(rateCard(1L, 1L, "카페/디저트", 10)));
+
+        List<CardRecommendationResponse> result = engine.recommend(USER_ID, YEAR_MONTH);
+
+        assertThat(result).isEmpty();
+    }
+
+    @Test
+    void 후보가_보유_카드의_빈틈_카테고리만_채우면_그_부분만_증분에_잡힌다() {
+        // 카페·마트 각 10만. 보유는 카페 10%만(카페 baseline 10000, 마트 baseline 0).
+        // 후보 X: 카페 10% + 마트 5% → 카페 증분 0, 마트 증분 5000 → 합 5000
+        when(benefitReportMapper.getMonthlyCategorySpends(USER_ID, M1, M3))
+                .thenReturn(List.of(
+                        spend(1L, "카페/디저트", M1, 100000), spend(1L, "카페/디저트", M2, 100000), spend(1L, "카페/디저트", M3, 100000),
+                        spend(2L, "마트", M1, 100000), spend(2L, "마트", M2, 100000), spend(2L, "마트", M3, 100000)));
+        when(benefitReportMapper.getRecommendedCards(USER_ID, List.of(1L, 2L)))
+                .thenReturn(List.of(
+                        rateCard(90L, 1L, "카페/디저트", 10),
+                        rateCard(90L, 2L, "마트", 5)));
+        when(benefitReportMapper.getOwnedCardBenefits(USER_ID, List.of(1L, 2L)))
+                .thenReturn(List.of(rateCard(1L, 1L, "카페/디저트", 10)));
+
+        List<CardRecommendationResponse> result = engine.recommend(USER_ID, YEAR_MONTH);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getExpectedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(5000));
+    }
+
+    @Test
+    void 단독_혜택이_큰_카드보다_빈틈을_채우는_카드가_증분이_커서_먼저_추천된다() {
+        // 카페·마트 각 30만. 보유는 카페 10%(카페 baseline 30000, 마트 baseline 0).
+        // 후보 C: 카페 15% → 카페 benefit 45000, 증분 45000-30000 = 15000
+        // 후보 D: 마트 10% → 마트 benefit 30000, 증분 30000-0    = 30000
+        // 단독 금액은 C(45000) > D(30000)이지만 증분은 D(30000) > C(15000) → D가 먼저
+        when(benefitReportMapper.getMonthlyCategorySpends(USER_ID, M1, M3))
+                .thenReturn(List.of(
+                        spend(1L, "카페/디저트", M1, 300000), spend(1L, "카페/디저트", M2, 300000), spend(1L, "카페/디저트", M3, 300000),
+                        spend(2L, "마트", M1, 300000), spend(2L, "마트", M2, 300000), spend(2L, "마트", M3, 300000)));
+        when(benefitReportMapper.getRecommendedCards(USER_ID, List.of(1L, 2L)))
+                .thenReturn(List.of(
+                        rateCard(100L, 1L, "카페/디저트", 15),   // C
+                        rateCard(200L, 2L, "마트", 10)));         // D
+        when(benefitReportMapper.getOwnedCardBenefits(USER_ID, List.of(1L, 2L)))
+                .thenReturn(List.of(rateCard(1L, 1L, "카페/디저트", 10)));
+
+        List<CardRecommendationResponse> result = engine.recommend(USER_ID, YEAR_MONTH);
+
+        assertThat(result).extracting(CardRecommendationResponse::getCardProductId)
+                .containsExactly(200L, 100L);
+        assertThat(result.get(0).getExpectedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(30000));
+        assertThat(result.get(1).getExpectedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(15000));
+    }
+
+    @Test
+    void 실적을_못_채우는_보유_카드는_baseline에_기여하지_않는다() {
+        // 예상 월 총지출 10만. 보유 카페 20%인데 실적 30만 필요 → 실적 미달이라 baseline 0.
+        // 후보 카페 5%(5000)는 baseline 0 대비 증분 5000 그대로.
+        when(benefitReportMapper.getMonthlyCategorySpends(USER_ID, M1, M3))
+                .thenReturn(flatCategory(1L, "카페/디저트", 100000));
+        when(benefitReportMapper.getRecommendedCards(USER_ID, List.of(1L)))
+                .thenReturn(List.of(rateCard(90L, 1L, "카페/디저트", 5)));
+        CardRecommendationRawResponse ownedHighTier = CardRecommendationRawResponse.builder()
+                .cardProductId(1L).categoryId(1L).categoryName("카페/디저트")
+                .valueType("RATE").discountRate(BigDecimal.valueOf(20))
+                .minPrevMonthSpend(BigDecimal.valueOf(300000)) // 실적 30만 필요 → 예상 10만이라 미달
+                .build();
+        when(benefitReportMapper.getOwnedCardBenefits(USER_ID, List.of(1L)))
+                .thenReturn(List.of(ownedHighTier));
+
+        List<CardRecommendationResponse> result = engine.recommend(USER_ID, YEAR_MONTH);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getExpectedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(5000));
     }
 }
