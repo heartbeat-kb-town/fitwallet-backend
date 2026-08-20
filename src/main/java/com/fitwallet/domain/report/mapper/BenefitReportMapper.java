@@ -33,6 +33,17 @@ public interface BenefitReportMapper {
             @Param("categoryIds") List<Long> categoryIds
     );
 
+    /**
+     * 증분(한계 혜택) 계산의 baseline 재료: 사용자가 <b>보유한</b> 카드가 각 카테고리에서 주는 혜택.
+     * {@link #getRecommendedCards}의 대칭(미보유 → 보유)이라 같은 tier/limit 선택 로직을 쓰고,
+     * 같은 계산기({@code calculateExpectedBenefit})로 baseline을 구할 수 있게 같은 타입으로 반환한다.
+     * (카드명·이미지 필드는 baseline 계산에 쓰이지 않는다.)
+     */
+    List<CardRecommendationRawResponse> getOwnedCardBenefits(
+            @Param("userId") Long userId,
+            @Param("categoryIds") List<Long> categoryIds
+    );
+
     /** 콜드스타트 폴백: 보유 수 상위의 미보유 카드. */
     List<PopularCardRawResponse> getPopularUnownedCards(
             @Param("userId") Long userId,

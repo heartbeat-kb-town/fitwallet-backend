@@ -20,16 +20,19 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 카드 추천 전용 엔진 (Phase 1).
+ * 카드 추천 전용 엔진 (Phase 1·2).
  *
- * <p>현행 "이번 달 상위 2개 카테고리 요율곱"의 두 약점을 고친다.
+ * <p>현행 "이번 달 상위 2개 카테고리 요율곱"의 약점을 고친다.
  * <ul>
- *   <li>최근 {@value #PROJECTION_MONTHS}개월 지출의 <b>중앙값</b>으로 카테고리별 "예상 월 지출"을
- *       만든다 — 여행 같은 일회성 과소비에 덜 휘둘린다.</li>
- *   <li>전월 실적 판정을 카테고리 지출이 아니라 <b>예상 월 총지출</b>로 한다 — 실제 실적에 더 가깝다.</li>
+ *   <li>(Phase 1) 최근 {@value #PROJECTION_MONTHS}개월 지출의 <b>중앙값</b>으로 카테고리별 "예상 월
+ *       지출"을 만든다 — 여행 같은 일회성 과소비에 덜 휘둘린다.</li>
+ *   <li>(Phase 1) 전월 실적 판정을 카테고리 지출이 아니라 <b>예상 월 총지출</b>로 한다.</li>
+ *   <li>(Phase 2) 순위를 후보 단독 혜택이 아니라 <b>보유 카드 대비 증분(한계 혜택)</b>으로 매긴다.
+ *       한 결제엔 카드 한 장만 쓰므로, 카테고리별로 후보가 내 기존 최선(baseline)을 이기는 만큼만
+ *       이득이다: {@code marginal = max(0, 후보 혜택 − baseline)}, 증분 = Σ marginal. 이미 잘
+ *       커버되는 카테고리의 카드는 증분이 0이라 자연 제외된다.</li>
  * </ul>
- * 예상 혜택은 후보 카드 단독 기준이다(보유 카드 대비 증분은 Phase 2, 한도 버킷 시간순
- * 정밀 시뮬·실적 달성 확률은 Phase 3).
+ * 정밀 한도 버킷 시간순 시뮬·실적 달성 확률은 Phase 3(이번 범위 밖), 연회비는 스키마에 없어 제외한다.
  *
  * <p>거래 내역이 없으면(콜드스타트) 보유 수 상위의 미보유 카드로 폴백한다.
  */
@@ -136,40 +139,81 @@ public class CardRecommendationEngine {
             categoryIds.add(category.getCategoryId());
         }
         List<CardRecommendationRawResponse> candidates = benefitReportMapper.getRecommendedCards(userId, categoryIds);
+        List<CardRecommendationRawResponse> ownedBenefits = benefitReportMapper.getOwnedCardBenefits(userId, categoryIds);
 
-        Map<Long, BigDecimal> expectedBenefitByCard = new HashMap<>();
+        // 카테고리별 baseline = 보유 카드들이 그 카테고리에서 주는 최선 혜택(실적 통과분만). 없으면 0.
+        Map<Long, BigDecimal> baselineByCategory =
+                baselineByCategory(profile, ownedBenefits, projectedTotalSpend);
+
+        // 후보 카드별 증분 = Σ max(0, 후보 혜택 − baseline). 이미 잘 커버되는 카테고리는 0으로 묻힌다.
+        Map<Long, BigDecimal> marginalByCard = new HashMap<>();
         Map<Long, CardRecommendationRawResponse> cardInfoMap = new HashMap<>();
 
         for (CategorySpendResponse category : profile) {
+            BigDecimal baseline = baselineByCategory.getOrDefault(category.getCategoryId(), BigDecimal.ZERO);
             for (CardRecommendationRawResponse card : candidates) {
                 if (!card.getCategoryId().equals(category.getCategoryId())) {
                     continue;
                 }
-                // min_prev_month_spend는 실적 무관 혜택(tier 없음)이면 NULL이다.
-                // NULL은 "전월실적 조건 없음"이므로 무조건 통과시킨다. (NULL을 compareTo 하면 NPE)
-                // 판정 기준은 카테고리 지출이 아니라 예상 월 총지출(실제 실적에 가깝다).
-                if (card.getMinPrevMonthSpend() != null
-                        && projectedTotalSpend.compareTo(card.getMinPrevMonthSpend()) < 0) {
+                if (!passesPerformance(card, projectedTotalSpend)) {
                     continue;
                 }
-
-                BigDecimal benefit = calculateExpectedBenefit(category, card);
-                expectedBenefitByCard.merge(card.getCardProductId(), benefit, BigDecimal::add);
+                BigDecimal marginal = calculateExpectedBenefit(category, card).subtract(baseline).max(BigDecimal.ZERO);
+                marginalByCard.merge(card.getCardProductId(), marginal, BigDecimal::add);
                 cardInfoMap.putIfAbsent(card.getCardProductId(), card);
             }
         }
 
-        List<Map.Entry<Long, BigDecimal>> sortedEntries = new ArrayList<>(expectedBenefitByCard.entrySet());
-        sortedEntries.sort((a, b) -> b.getValue().compareTo(a.getValue()));
+        List<Map.Entry<Long, BigDecimal>> sortedEntries = new ArrayList<>(marginalByCard.entrySet());
+        // 증분 내림차순, 동률이면 card_product_id 오름차순으로 결정적 정렬
+        sortedEntries.sort((a, b) -> {
+            int byValue = b.getValue().compareTo(a.getValue());
+            return byValue != 0 ? byValue : Long.compare(a.getKey(), b.getKey());
+        });
 
         List<CardRecommendationResponse> recommendations = new ArrayList<>();
         for (Map.Entry<Long, BigDecimal> entry : sortedEntries) {
+            // 증분이 0인 후보(내 기존 카드로 이미 다 커버됨)는 추천 가치가 없어 제외한다.
+            if (entry.getValue().signum() <= 0) {
+                break;
+            }
             if (recommendations.size() >= RECOMMENDATION_COUNT) {
                 break;
             }
             recommendations.add(toCardRecommendationResponse(entry, cardInfoMap));
         }
         return recommendations;
+    }
+
+    /** 카테고리별 baseline: 보유 카드 혜택 중 실적을 통과하는 것들의 최댓값(원화). */
+    private Map<Long, BigDecimal> baselineByCategory(
+            List<CategorySpendResponse> profile,
+            List<CardRecommendationRawResponse> ownedBenefits,
+            BigDecimal projectedTotalSpend) {
+        Map<Long, BigDecimal> baseline = new HashMap<>();
+        for (CategorySpendResponse category : profile) {
+            BigDecimal best = BigDecimal.ZERO;
+            for (CardRecommendationRawResponse owned : ownedBenefits) {
+                if (!owned.getCategoryId().equals(category.getCategoryId())) {
+                    continue;
+                }
+                if (!passesPerformance(owned, projectedTotalSpend)) {
+                    continue;
+                }
+                best = best.max(calculateExpectedBenefit(category, owned));
+            }
+            baseline.put(category.getCategoryId(), best);
+        }
+        return baseline;
+    }
+
+    /**
+     * 전월 실적 조건 통과 여부. 판정 기준은 카테고리 지출이 아니라 예상 월 총지출(실제 실적에 가깝다).
+     * min_prev_month_spend가 NULL이면 실적 무관 혜택이라 무조건 통과한다(NULL을 compareTo 하면 NPE).
+     */
+    private boolean passesPerformance(CardRecommendationRawResponse card, BigDecimal projectedTotalSpend) {
+        return card.getMinPrevMonthSpend() == null
+                || projectedTotalSpend.compareTo(card.getMinPrevMonthSpend()) >= 0;
     }
 
     /** 콜드스타트: 예상 지출을 낼 거래가 없으면 보유 수 상위 미보유 카드로 채운다. */
