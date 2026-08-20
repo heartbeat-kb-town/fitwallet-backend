@@ -104,11 +104,11 @@ class StoreMapperIntegrationTest {
     }
 
     @Test
-    void 조건에_맞는_매장이_많아도_최대_5건만_반환한다() {
+    void 조건에_맞는_매장이_많아도_최대_10건만_반환한다() {
         List<StoreSummaryResponse> stores =
                 storeMapper.findStores(condition(null, CONVENIENCE_CATEGORY_ID, null));
 
-        assertThat(stores).hasSize(5);
+        assertThat(stores).hasSize(10);
     }
 
     @Test
@@ -165,12 +165,12 @@ class StoreMapperIntegrationTest {
     }
 
     @Test
-    void 키워드와_카테고리가_모두_없으면_반경_안에서_가까운_순_5건이_조회된다() {
+    void 키워드와_카테고리가_모두_없으면_반경_안에서_가까운_순_10건이_조회된다() {
         // 서비스가 주변 조회 모드에 적용하는 기본 반경(3km)을 그대로 넣는다.
         List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, 3000));
 
         assertThat(stores)
-                .hasSize(5)
+                .hasSize(10)
                 .isSortedAccordingTo(Comparator.comparing(StoreSummaryResponse::getDistanceMeters))
                 .allSatisfy(store -> assertThat(store.getDistanceMeters()).isLessThanOrEqualTo(3000));
     }
@@ -179,8 +179,8 @@ class StoreMapperIntegrationTest {
     void 반경을_주지_않으면_거리_필터가_걸리지_않는다() {
         List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null));
 
-        assertThat(stores).hasSize(5);
-        assertThat(stores.get(0).getDistanceMeters()).isLessThan(stores.get(4).getDistanceMeters());
+        assertThat(stores).hasSize(10);
+        assertThat(stores.get(0).getDistanceMeters()).isLessThan(stores.get(9).getDistanceMeters());
     }
 
     @Test
