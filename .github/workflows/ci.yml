@@ -71,16 +71,20 @@ jobs:
 
       # deploy 잡이 이 WAR를 그대로 EB에 올린다. 배포 시점에 다시 빌드하지 않으므로
       # 테스트를 통과한 바이너리와 배포된 바이너리가 같다는 것이 보장된다.
+      #
+      # ⚠️ 조건이 아래 deploy 잡의 실행 조건과 반드시 같아야 한다. 어긋나면 deploy는
+      # 도는데 아티팩트가 없어 Download WAR에서 실패한다 (#292에서 실제로 밟았다).
       - name: Upload WAR
-        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        if: >-
+          (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/develop')
+          && github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
         with:
           name: war
           path: build/libs/*.war
           retention-days: 7
 
-  # main에 커밋이 들어가면(릴리스 PR 머지) EB 환경을 새 버전으로 갱신한다.
-  # PR에서는 돌지 않는다 — main ruleset의 필수 상태 체크는 build 하나뿐이다.
+  # PR에서는 돌지 않는다 — 룰셋의 필수 상태 체크는 build 하나뿐이다.
   # 두 레인이 각자의 EB 환경으로 배포된다 (AGENTS.md §14).
   #   main    → fitwallet-prod  성능 최적화 레인
   #   develop → fitwallet-demo  기능 개발 레인 (시연용)
