@@ -267,7 +267,7 @@ class DefaultCardServiceTest {
         CardMonthlyBenefitResponse response = cardService.getCardMonthlyBenefit(1L, 2L);
 
         assertThat(response.getYearMonth()).isEqualTo("2026-07");
-        assertThat(response.getAsOfDate()).isEqualTo(LocalDate.of(2026, 7, 23));
+        assertThat(response.getAsOfDate()).isEqualTo(LocalDate.of(2026, 7, 24));
         assertThat(response.getPerformance().getStatus())
                 .isEqualTo(CardUsagePerformanceStatus.ACHIEVED);
         assertThat(response.getPerformance().getCurrentTier().getTierName())
@@ -292,6 +292,15 @@ class DefaultCardServiceTest {
                 .isEqualTo(LocalDateTime.of(2026, 6, 1, 0, 0));
         assertThat(conditionCaptor.getValue().getEndAt())
                 .isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+
+        ArgumentCaptor<CardUsagePeriodCondition> benefitConditionCaptor =
+                ArgumentCaptor.forClass(CardUsagePeriodCondition.class);
+        then(cardMapper).should().findMonthlyBenefitTargetUsages(
+                eq(1L), eq(2L), benefitConditionCaptor.capture());
+        assertThat(benefitConditionCaptor.getValue().getStartAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 1, 0, 0));
+        assertThat(benefitConditionCaptor.getValue().getEndAt())
+                .isEqualTo(LocalDateTime.of(2026, 7, 25, 0, 0));
     }
 
     @Test

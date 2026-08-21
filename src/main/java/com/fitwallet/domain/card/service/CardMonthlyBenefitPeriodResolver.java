@@ -8,7 +8,7 @@ import java.time.Clock;
 import java.time.LocalDate;
 import java.time.YearMonth;
 
-/** 카드 유형과 관계없이 오늘 거래를 제외하는 월간 혜택 전용 기간 계산기. */
+/** 카드 유형과 관계없이 오늘 거래까지 포함하는 월간 혜택 전용 기간 계산기. */
 @Component
 @RequiredArgsConstructor
 public class CardMonthlyBenefitPeriodResolver {
@@ -22,9 +22,9 @@ public class CardMonthlyBenefitPeriodResolver {
 
         return new CardMonthlyBenefitPeriod(
                 yearMonth,
-                today.minusDays(1),
+                today,
                 yearMonth.atDay(1).atStartOfDay(),
-                today.atStartOfDay(),
+                today.plusDays(1).atStartOfDay(),
                 performanceMonth,
                 performanceMonth.atDay(1).atStartOfDay(),
                 yearMonth.atDay(1).atStartOfDay());

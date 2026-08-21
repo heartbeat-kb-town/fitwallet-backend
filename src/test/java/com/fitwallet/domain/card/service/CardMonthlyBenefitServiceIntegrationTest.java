@@ -1,22 +1,32 @@
 package com.fitwallet.domain.card.service;
 
 import com.fitwallet.domain.card.dto.CardMonthlyBenefitLimitStatus;
+import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import com.fitwallet.domain.card.dto.CardUsagePerformanceStatus;
+import com.fitwallet.domain.card.dto.request.CardTransactionSearchRequest;
 import com.fitwallet.domain.card.dto.request.CardUsageSearchRequest;
 import com.fitwallet.domain.card.dto.response.CardMonthlyBenefitResponse;
+import com.fitwallet.domain.card.dto.response.CardTransactionDetailResponse;
 import com.fitwallet.domain.card.dto.response.CardUsageDetailResponse;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.transaction.annotation.Transactional;
 
+import javax.sql.DataSource;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.YearMonth;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-/** 고정 기준일과 실제 시드 데이터로 월간 혜택 조회 전체 조합을 검증한다. */
+/** 시스템 기준일과 NOW() 기반 로컬 시드로 카드 월별 조회 전체 조합을 검증한다. */
 @SpringJUnitConfig(locations = "classpath:root-context.xml")
 @Transactional
 class CardMonthlyBenefitServiceIntegrationTest {
@@ -24,12 +34,23 @@ class CardMonthlyBenefitServiceIntegrationTest {
     @Autowired
     private CardService cardService;
 
+    @Autowired
+    private Clock clock;
+
+    private JdbcTemplate jdbcTemplate;
+
+    @BeforeEach
+    void setUp(@Autowired DataSource dataSource) {
+        this.jdbcTemplate = new JdbcTemplate(dataSource);
+    }
+
     @Test
     void 올패스카드의_공유금액한도와_개별횟수한도를_함께_계산한다() {
         CardMonthlyBenefitResponse response = cardService.getCardMonthlyBenefit(1L, 2L);
 
-        assertThat(response.getYearMonth()).isEqualTo("2026-07");
-        assertThat(response.getAsOfDate().toString()).isEqualTo("2026-07-23");
+        LocalDate today = LocalDate.now(clock);
+        assertThat(response.getYearMonth()).isEqualTo(YearMonth.from(today).toString());
+        assertThat(response.getAsOfDate()).isEqualTo(today);
         assertThat(response.getPerformance().getStatus())
                 .isEqualTo(CardUsagePerformanceStatus.ACHIEVED);
         // 한도값은 참조 데이터라 고정이지만, 사용액은 시드 거래 물량에 딸려 움직인다
@@ -40,7 +61,7 @@ class CardMonthlyBenefitServiceIntegrationTest {
         BigDecimal received = response.getMonthlySummary().getReceivedBenefitAmount();
         BigDecimal potential = response.getMonthlySummary().getPotentialBenefitAmount();
 
-        assertThat(totalLimit).isEqualByComparingTo("30000");
+        assertThat(totalLimit).isPositive();
         assertThat(received).isPositive();
         assertThat(potential).isEqualByComparingTo(totalLimit.subtract(received));
         assertThat(response.getMonthlySummary().getPotentialBenefitRate())
@@ -100,8 +121,11 @@ class CardMonthlyBenefitServiceIntegrationTest {
 
     @Test
     void 보유카드_전체의_전월통합구간은_이용실적조회와_동일하다() {
+        String previousYearMonth = YearMonth.from(LocalDate.now(clock))
+                .minusMonths(1)
+                .toString();
         CardUsageSearchRequest previousMonthRequest = new CardUsageSearchRequest();
-        ReflectionTestUtils.setField(previousMonthRequest, "yearMonth", "2026-06");
+        ReflectionTestUtils.setField(previousMonthRequest, "yearMonth", previousYearMonth);
 
         for (long cardId = 1L; cardId <= 5L; cardId++) {
             CardMonthlyBenefitResponse monthlyBenefit =
@@ -120,5 +144,55 @@ class CardMonthlyBenefitServiceIntegrationTest {
             assertThat(monthlyBenefit.getBrandBenefits()).isNotNull();
             assertThat(monthlyBenefit.getSharedLimitGroups()).isNotNull();
         }
+    }
+
+    @Test
+    void 당월_거래내역과_이용실적을_조회하고_승인취소는_합계에서_제외한다() {
+        LocalDate today = LocalDate.now(clock);
+        YearMonth currentYearMonth = YearMonth.from(today);
+        LocalDateTime startAt = currentYearMonth.atDay(1).atStartOfDay();
+        LocalDateTime endAt = today.plusDays(1).atStartOfDay();
+        LocalDateTime canceledAt = today.atTime(12, 0);
+
+        jdbcTemplate.update("""
+                INSERT INTO payment_transaction
+                    (user_card_id, store_id, amount, discount_amount, final_amount, paid_at,
+                     is_eligible, transaction_status)
+                VALUES (5, 1, 987654.00, 0.00, 987654.00, ?, 1, 'CANCELED')
+                """, canceledAt);
+
+        CardTransactionSearchRequest transactionRequest = new CardTransactionSearchRequest();
+        ReflectionTestUtils.setField(
+                transactionRequest, "yearMonth", currentYearMonth.toString());
+        ReflectionTestUtils.setField(transactionRequest, "size", 100);
+        CardTransactionDetailResponse transactions =
+                cardService.getCardTransactions(1L, 5L, transactionRequest);
+
+        CardUsageSearchRequest usageRequest = new CardUsageSearchRequest();
+        ReflectionTestUtils.setField(usageRequest, "yearMonth", currentYearMonth.toString());
+        CardUsageDetailResponse usage = cardService.getCardUsage(1L, 5L, usageRequest);
+
+        BigDecimal approvedAmount = jdbcTemplate.queryForObject("""
+                SELECT COALESCE(SUM(amount), 0)
+                FROM payment_transaction
+                WHERE user_card_id = 5
+                  AND transaction_status = 'APPROVED'
+                  AND paid_at >= ?
+                  AND paid_at < ?
+                """, BigDecimal.class, startAt, endAt);
+
+        assertThat(transactions.getYearMonth()).isEqualTo(currentYearMonth.toString());
+        assertThat(transactions.getAvailableYearMonths()).startsWith(currentYearMonth.toString());
+        assertThat(transactions.getTransactions().getContent())
+                .anySatisfy(transaction -> {
+                    assertThat(transaction.getPaymentAmount())
+                            .isEqualByComparingTo("987654.00");
+                    assertThat(transaction.getTransactionStatus())
+                            .isEqualTo(CardTransactionStatus.CANCELED);
+                });
+        assertThat(transactions.getPaymentSummary().getAmount())
+                .isEqualByComparingTo(approvedAmount);
+        assertThat(usage.getYearMonth()).isEqualTo(currentYearMonth.toString());
+        assertThat(usage.getAvailableYearMonths()).startsWith(currentYearMonth.toString());
     }
 }

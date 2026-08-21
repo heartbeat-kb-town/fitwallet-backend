@@ -94,6 +94,8 @@ class CardMonthlyBenefitMapperIntegrationTest {
         insertBenefitTransaction(CU_STORE_ID, startAt.plusDays(3), "20000.00", "2000.00",
                 CardTransactionStatus.APPROVED);
         insertPlainTransaction(GS25_STORE_ID, startAt.plusDays(4));
+        insertBenefitTransaction(GS25_STORE_ID, startAt.plusMonths(1), "90000.00", "9000.00",
+                CardTransactionStatus.APPROVED);
 
         CardUsagePeriodCondition condition = CardUsagePeriodCondition.builder()
                 .startAt(startAt)
