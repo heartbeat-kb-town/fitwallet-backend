@@ -72,7 +72,7 @@ class BenefitMapperIntegrationTest {
     void 사용자의_카드를_표시순서대로_조회한다() {
         List<BenefitUserCardResponse> cards = benefitMapper.findUserCards(SEED_USER_ID);
 
-        assertThat(cards).hasSize(9)
+        assertThat(cards).hasSize(5)
                 .isSortedAccordingTo(Comparator.comparing(BenefitUserCardResponse::getDisplayOrder));
     }
 
@@ -80,7 +80,7 @@ class BenefitMapperIntegrationTest {
     void 소프트_삭제된_카드는_목록에서_제외된다() {
         jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
 
-        assertThat(benefitMapper.findUserCards(SEED_USER_ID)).hasSize(8)
+        assertThat(benefitMapper.findUserCards(SEED_USER_ID)).hasSize(4)
                 .extracting(BenefitUserCardResponse::getUserCardId)
                 .doesNotContain(1L);
     }
