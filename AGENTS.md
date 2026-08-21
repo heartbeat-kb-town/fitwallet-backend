@@ -440,6 +440,51 @@ src/main/resources/config/
 - 로컬에서 포트·계정을 바꾸려면 `.env`만 고치면 된다. `build.gradle`이 `.env`를 읽어
   시스템 프로퍼티로 넘겨주므로 `application-local.properties`의 기본값을 덮어쓴다
 
+### 배포 환경의 JVM 타임존 (2026-08-21 실측)
+
+**`build.gradle`의 `-Duser.timezone=Asia/Seoul`은 `test`와 `gretty`에만 붙는다.**
+EB에 올라가는 WAR는 그 인자를 받지 못하므로 인스턴스 기본값인 UTC로 뜬다. RDS는 파라미터그룹
+`fitwallet-mysql84`가 `time_zone=Asia/Seoul`이라 **자바 쪽만 9시간 어긋난다.**
+
+시각이 밀리는 걸로 끝나지 않는다. `DefaultPaymentService`에는 **DB가 채운 값과 JVM의 now를
+직접 비교**하는 자리가 있어서, 어긋나면 결제 목업이 아예 진행되지 않는다.
+
+| 위치 | 코드 | 증상 |
+|---|---|---|
+| `#111` | `qrSession.getCreatedAt().plusSeconds(..).isBefore(LocalDateTime.now())` | QR이 `PENDING`에서 안 넘어간다 |
+| `#139` | `session.getUpdatedAt().plusSeconds(..).isBefore(LocalDateTime.now())` | 결제 처리가 안 끝난다 |
+| `#282` | `paid_at = LocalDateTime.now()` | 새 결제가 9시간 과거로 기록된다 |
+
+두 EB 환경 모두 JVM 옵션에 `-Duser.timezone=Asia/Seoul`이 있어야 한다.
+**환경을 새로 만들면 다시 걸어야 한다** — 저장소에는 이 설정이 없다(§13의 "환경 속성은 EB에만" 원칙).
+
+```bash
+aws elasticbeanstalk update-environment --region ap-northeast-2 \
+  --application-name fitwallet-backend --environment-name {fitwallet-demo|fitwallet-prod} \
+  --option-settings \
+    'Namespace=aws:elasticbeanstalk:container:tomcat:jvmoptions,OptionName=JVM Options,Value=...' \
+    'Namespace=aws:elasticbeanstalk:application:environment,OptionName=TZ,Value=Asia/Seoul'
+```
+
+> ⚠️ **`JVM Options`는 통째로 덮어쓰기다.** 지금 `fitwallet-prod`의 값은
+> `-Duser.timezone=Asia/Seoul -javaagent:/opt/dd-java-agent.jar`라, 타임존만 적어 보내면
+> Datadog 에이전트가 조용히 빠진다. **보내기 전에 반드시 현재 값을 읽고 이어 붙인다.**
+>
+> ```bash
+> aws elasticbeanstalk describe-configuration-settings --region ap-northeast-2 \
+>   --application-name fitwallet-backend --environment-name fitwallet-prod \
+>   --query 'ConfigurationSettings[0].OptionSettings[?OptionName==`JVM Options`].Value' --output text
+> ```
+
+확인은 **같은 INSERT 안에서 DB가 채운 값과 자바가 쓴 값을 비교**한다. `payment_session`의
+`created_at`(DB DEFAULT)과 `expires_at`(자바 `now() + 180초`) 차이가 **181초 근처면 정상**,
+`-32,220초`면 JVM이 UTC로 떠 있는 것이다.
+
+> `ClockFactory`가 만드는 `Clock` 빈은 이 문제와 무관하게 늘 `Asia/Seoul`이다. 다만
+> `DefaultPaymentService`·`DefaultBenefitService`가 그 빈을 쓰지 않고 `LocalDateTime.now()`를
+> 직접 부른다. 빈을 쓰도록 고치는 것이 근본 해결이지만 **그대로 바꾸면 안 된다** — 로컬은
+> `clock.fixed-date=2026-07-24`라 새 결제가 그 날짜로 찍혀 로컬 시연이 깨진다.
+
 ---
 
 ## 14. Git / GitHub 워크플로우
