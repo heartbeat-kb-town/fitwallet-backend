@@ -29,7 +29,7 @@
         c.category_id,
         c.category_name,
         pt.paid_at AS approvedAt,
-        br.brand_name AS storeName,
+        COALESCE(br.brand_name, s.store_name) AS storeName,
         usedCard.card_name AS usedCardName,
         pt.amount AS paidAmount,
         altCard.card_name AS alternativeCardName,

@@ -38,7 +38,7 @@
         c.category_id,
         c.category_name,
         pt.paid_at AS approvedAt,
-        br.brand_name AS storeName,
+        COALESCE(br.brand_name, s.store_name) AS storeName,
         bs.benefit_type AS benefitType,
         CASE WHEN bs.value_type = 'RATE' THEN bs.value_number ELSE NULL END AS benefitRate,
         pt.amount AS paidAmount,
