@@ -1,7 +1,7 @@
 package com.fitwallet.domain.report.mapper;
 
 import com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse;
-import com.fitwallet.domain.report.dto.response.MonthlyCategorySpendRawResponse;
+import com.fitwallet.domain.report.dto.response.CategorySpendResponse;
 import com.fitwallet.domain.report.dto.response.PopularCardRawResponse;
 import com.fitwallet.domain.report.dto.response.ReceivedBenefitSummaryResponse;
 import org.apache.ibatis.annotations.Mapper;
@@ -19,13 +19,13 @@ public interface BenefitReportMapper {
     );
 
     /**
-     * 최근 N개월([fromYearMonth, toYearMonth])의 카테고리 × 월별 지출을 조회한다.
-     * 추천 엔진이 카테고리별 월 지출들의 중앙값으로 예상 월 지출을 만든다.
+     * 지정한 이번 달(yearMonth)의 카테고리별 지출을 조회한다.
+     * 추천 엔진이 이 지출을 예상 지출로 삼아 카드 혜택을 계산한다.
+     * (거래가 있는 카테고리만 행으로 온다.)
      */
-    List<MonthlyCategorySpendRawResponse> getMonthlyCategorySpends(
+    List<CategorySpendResponse> getCategorySpends(
             @Param("userId") Long userId,
-            @Param("fromYearMonth") String fromYearMonth,
-            @Param("toYearMonth") String toYearMonth
+            @Param("yearMonth") String yearMonth
     );
 
     List<CardRecommendationRawResponse> getRecommendedCards(

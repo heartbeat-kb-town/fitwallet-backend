@@ -3,7 +3,6 @@ package com.fitwallet.domain.report.service;
 import com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse;
 import com.fitwallet.domain.report.dto.response.CardRecommendationResponse;
 import com.fitwallet.domain.report.dto.response.CategorySpendResponse;
-import com.fitwallet.domain.report.dto.response.MonthlyCategorySpendRawResponse;
 import com.fitwallet.domain.report.dto.response.PopularCardRawResponse;
 import com.fitwallet.domain.report.mapper.BenefitReportMapper;
 import lombok.RequiredArgsConstructor;
@@ -11,11 +10,8 @@ import org.springframework.stereotype.Component;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.YearMonth;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -24,9 +20,10 @@ import java.util.Map;
  *
  * <p>현행 "이번 달 상위 2개 카테고리 요율곱"의 약점을 고친다.
  * <ul>
- *   <li>(Phase 1) 최근 {@value #PROJECTION_MONTHS}개월 지출의 <b>중앙값</b>으로 카테고리별 "예상 월
- *       지출"을 만든다 — 여행 같은 일회성 과소비에 덜 휘둘린다.</li>
- *   <li>(Phase 1) 전월 실적 판정을 카테고리 지출이 아니라 <b>예상 월 총지출</b>로 한다.</li>
+ *   <li>지정한 이번 달(yearMonth)의 카테고리 지출을 <b>예상 지출</b>로 삼는다. 상위 2개로 제한하지 않고
+ *       거래가 있는 전 카테고리를 본다. 전월 실적 판정도 이번 달 총지출로 한다.
+ *       (Phase 1은 최근 3개월 중앙값을 썼으나, 분기마다 고정적인 일회성 지출이 중앙값 0으로 잘려
+ *       해당 카테고리 추천을 못 받는 문제가 있어 이번 달 기준으로 되돌렸다.)</li>
  *   <li>(Phase 2) 순위를 후보 단독 혜택이 아니라 <b>보유 카드 대비 증분(한계 혜택)</b>으로 매긴다.
  *       한 결제엔 카드 한 장만 쓰므로, 카테고리별로 후보가 내 기존 최선(baseline)을 이기는 만큼만
  *       이득이다: {@code marginal = max(0, 후보 혜택 − baseline)}, 증분 = Σ marginal. 이미 잘
@@ -41,99 +38,26 @@ import java.util.Map;
 public class CardRecommendationEngine {
 
     private static final int RECOMMENDATION_COUNT = 2;
-    private static final int PROJECTION_MONTHS = 3;
     private static final String COLD_START_DESCRIPTION = "많은 분들이 보유한 인기 카드예요.";
 
     private final BenefitReportMapper benefitReportMapper;
 
-    /** 지정 연월 기준 최근 3개월 예상 지출로 카드 추천 목록을 만든다. */
+    /** 지정한 이번 달(yearMonth)의 카테고리 지출을 예상 지출로 삼아 카드 추천 목록을 만든다. */
     public List<CardRecommendationResponse> recommend(Long userId, String yearMonth) {
-        List<String> monthKeys = recentMonthKeys(yearMonth);
-        List<MonthlyCategorySpendRawResponse> rows = benefitReportMapper.getMonthlyCategorySpends(
-                userId, monthKeys.get(0), monthKeys.get(monthKeys.size() - 1));
-
-        List<CategorySpendResponse> profile = buildProjectedProfile(rows, monthKeys);
+        List<CategorySpendResponse> profile = benefitReportMapper.getCategorySpends(userId, yearMonth);
         if (profile.isEmpty()) {
             return coldStart(userId);
         }
 
-        BigDecimal projectedTotalSpend = projectedTotalSpend(rows, monthKeys);
-        return rankRecommendations(userId, profile, projectedTotalSpend);
-    }
-
-    /** [가장 오래된 달 ... 대상 달] 순으로 최근 3개월의 yyyy-MM 키를 만든다. */
-    private List<String> recentMonthKeys(String yearMonth) {
-        YearMonth base = YearMonth.parse(yearMonth);
-        List<String> keys = new ArrayList<>();
-        for (int i = PROJECTION_MONTHS - 1; i >= 0; i--) {
-            keys.add(base.minusMonths(i).toString());
+        BigDecimal totalSpend = BigDecimal.ZERO;
+        for (CategorySpendResponse category : profile) {
+            totalSpend = totalSpend.add(category.getSpendAmount());
         }
-        return keys;
-    }
-
-    /**
-     * 카테고리별로 3개월치 월 지출(없는 달은 0)의 중앙값을 예상 월 지출로 잡는다.
-     * 중앙값이 0인 카테고리(예: 3개월 중 한 달만 쓴 경우)는 "평소 소비"가 아니라 제외한다.
-     */
-    private List<CategorySpendResponse> buildProjectedProfile(
-            List<MonthlyCategorySpendRawResponse> rows, List<String> monthKeys) {
-        Map<Long, String> categoryNames = new LinkedHashMap<>();
-        Map<Long, Map<String, BigDecimal>> spendByCategory = new LinkedHashMap<>();
-        for (MonthlyCategorySpendRawResponse row : rows) {
-            categoryNames.putIfAbsent(row.getCategoryId(), row.getCategoryName());
-            spendByCategory
-                    .computeIfAbsent(row.getCategoryId(), ignored -> new HashMap<>())
-                    .put(row.getYearMonth(), row.getSpendAmount());
-        }
-
-        List<CategorySpendResponse> profile = new ArrayList<>();
-        for (Map.Entry<Long, Map<String, BigDecimal>> entry : spendByCategory.entrySet()) {
-            BigDecimal projected = median(monthlySeries(entry.getValue(), monthKeys));
-            if (projected.signum() <= 0) {
-                continue;
-            }
-            profile.add(CategorySpendResponse.builder()
-                    .categoryId(entry.getKey())
-                    .categoryName(categoryNames.get(entry.getKey()))
-                    .spendAmount(projected)
-                    .build());
-        }
-        return profile;
-    }
-
-    /** 전월 실적 판정용 예상 월 총지출 = 월별 총지출(없는 달 0)의 중앙값. */
-    private BigDecimal projectedTotalSpend(List<MonthlyCategorySpendRawResponse> rows, List<String> monthKeys) {
-        Map<String, BigDecimal> totalByMonth = new HashMap<>();
-        for (MonthlyCategorySpendRawResponse row : rows) {
-            totalByMonth.merge(row.getYearMonth(), row.getSpendAmount(), BigDecimal::add);
-        }
-        return median(monthlySeries(totalByMonth, monthKeys));
-    }
-
-    /** 월 키 순서대로 값을 뽑되 없는 달은 0으로 채운 3개월 시계열. */
-    private List<BigDecimal> monthlySeries(Map<String, BigDecimal> byMonth, List<String> monthKeys) {
-        List<BigDecimal> series = new ArrayList<>();
-        for (String key : monthKeys) {
-            series.add(byMonth.getOrDefault(key, BigDecimal.ZERO));
-        }
-        return series;
-    }
-
-    /** 값들의 중앙값. 짝수 개면 가운데 두 값의 평균. */
-    private BigDecimal median(List<BigDecimal> values) {
-        List<BigDecimal> sorted = new ArrayList<>(values);
-        Collections.sort(sorted);
-        int size = sorted.size();
-        int mid = size / 2;
-        if (size % 2 == 1) {
-            return sorted.get(mid);
-        }
-        return sorted.get(mid - 1).add(sorted.get(mid))
-                .divide(BigDecimal.valueOf(2), 2, RoundingMode.HALF_UP);
+        return rankRecommendations(userId, profile, totalSpend);
     }
 
     private List<CardRecommendationResponse> rankRecommendations(
-            Long userId, List<CategorySpendResponse> profile, BigDecimal projectedTotalSpend) {
+            Long userId, List<CategorySpendResponse> profile, BigDecimal totalSpend) {
         List<Long> categoryIds = new ArrayList<>();
         for (CategorySpendResponse category : profile) {
             categoryIds.add(category.getCategoryId());
@@ -143,7 +67,7 @@ public class CardRecommendationEngine {
 
         // 카테고리별 baseline = 보유 카드들이 그 카테고리에서 주는 최선 혜택(실적 통과분만). 없으면 0.
         Map<Long, BigDecimal> baselineByCategory =
-                baselineByCategory(profile, ownedBenefits, projectedTotalSpend);
+                baselineByCategory(profile, ownedBenefits, totalSpend);
 
         // 후보 카드별 증분 = Σ max(0, 후보 혜택 − baseline). 이미 잘 커버되는 카테고리는 0으로 묻힌다.
         Map<Long, BigDecimal> marginalByCard = new HashMap<>();
@@ -155,7 +79,7 @@ public class CardRecommendationEngine {
                 if (!card.getCategoryId().equals(category.getCategoryId())) {
                     continue;
                 }
-                if (!passesPerformance(card, projectedTotalSpend)) {
+                if (!passesPerformance(card, totalSpend)) {
                     continue;
                 }
                 BigDecimal marginal = calculateExpectedBenefit(category, card).subtract(baseline).max(BigDecimal.ZERO);
@@ -189,7 +113,7 @@ public class CardRecommendationEngine {
     private Map<Long, BigDecimal> baselineByCategory(
             List<CategorySpendResponse> profile,
             List<CardRecommendationRawResponse> ownedBenefits,
-            BigDecimal projectedTotalSpend) {
+            BigDecimal totalSpend) {
         Map<Long, BigDecimal> baseline = new HashMap<>();
         for (CategorySpendResponse category : profile) {
             BigDecimal best = BigDecimal.ZERO;
@@ -197,7 +121,7 @@ public class CardRecommendationEngine {
                 if (!owned.getCategoryId().equals(category.getCategoryId())) {
                     continue;
                 }
-                if (!passesPerformance(owned, projectedTotalSpend)) {
+                if (!passesPerformance(owned, totalSpend)) {
                     continue;
                 }
                 best = best.max(calculateExpectedBenefit(category, owned));
@@ -208,12 +132,12 @@ public class CardRecommendationEngine {
     }
 
     /**
-     * 전월 실적 조건 통과 여부. 판정 기준은 카테고리 지출이 아니라 예상 월 총지출(실제 실적에 가깝다).
+     * 전월 실적 조건 통과 여부. 판정 기준은 카테고리 지출이 아니라 이번 달 총지출(실제 실적에 가깝다).
      * min_prev_month_spend가 NULL이면 실적 무관 혜택이라 무조건 통과한다(NULL을 compareTo 하면 NPE).
      */
-    private boolean passesPerformance(CardRecommendationRawResponse card, BigDecimal projectedTotalSpend) {
+    private boolean passesPerformance(CardRecommendationRawResponse card, BigDecimal totalSpend) {
         return card.getMinPrevMonthSpend() == null
-                || projectedTotalSpend.compareTo(card.getMinPrevMonthSpend()) >= 0;
+                || totalSpend.compareTo(card.getMinPrevMonthSpend()) >= 0;
     }
 
     /** 콜드스타트: 예상 지출을 낼 거래가 없으면 보유 수 상위 미보유 카드로 채운다. */
