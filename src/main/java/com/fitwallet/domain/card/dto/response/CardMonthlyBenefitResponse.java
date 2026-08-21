@@ -21,10 +21,10 @@ public class CardMonthlyBenefitResponse {
     @ApiModelProperty(value = "조회 대상 카드")
     private CardMonthlyBenefitCardResponse card;
 
-    @ApiModelProperty(value = "혜택 집계 연월(yyyy-MM)", example = "2026-07")
+    @ApiModelProperty(value = "혜택 집계 연월(yyyy-MM)", example = "2026-08")
     private String yearMonth;
 
-    @ApiModelProperty(value = "혜택 집계 기준일. 오늘 거래를 제외하므로 전날이다", example = "2026-07-23")
+    @ApiModelProperty(value = "혜택 집계 기준일. 오늘 거래까지 포함한다", example = "2026-08-21")
     private LocalDate asOfDate;
 
     @ApiModelProperty(value = "원화 환산 월간 혜택 요약")
