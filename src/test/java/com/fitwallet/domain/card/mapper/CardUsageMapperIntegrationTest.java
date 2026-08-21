@@ -104,14 +104,19 @@ class CardUsageMapperIntegrationTest {
     void 플랜그룹_혜택에는_그룹의_공통구간만_연결한다() {
         List<CardUsageBenefitRule> rules = cardMapper.findUsageBenefitRules(NORI_CARD_PRODUCT_ID);
 
-        assertThat(rules).hasSize(12);
-        assertThat(rules).extracting(CardUsageBenefitRule::getBenefitId)
-                .containsOnly(124L, 125L, 126L);
-        assertThat(rules).allSatisfy(rule -> {
-            assertThat(rule.getPlanGroupId()).isEqualTo(15L);
-            assertThat(rule.getSourceTierId()).isBetween(131L, 134L);
-            assertThat(rule.getTierMinimumAmount()).isNotNull();
-        });
+        // 이 카드 상품에는 plan group 소속 혜택과 개별 혜택이 섞여 있다(V905 가 시연용 혜택을
+        // 더하면서 후자가 생겼다). 여기서 볼 것은 "그룹 소속 혜택이 그룹 공통 구간만 무는가"이므로
+        // 그룹 소속 행만 걸러 단언한다 — 개별 구간 쪽은 바로 아래 테스트가 맡는다.
+        assertThat(rules).filteredOn(rule -> rule.getPlanGroupId() != null)
+                .isNotEmpty()
+                .allSatisfy(rule -> {
+                    assertThat(rule.getPlanGroupId()).isEqualTo(15L);
+                    assertThat(rule.getSourceTierId()).isBetween(131L, 134L);
+                    assertThat(rule.getTierMinimumAmount()).isNotNull();
+                });
+        assertThat(rules).filteredOn(rule -> rule.getPlanGroupId() != null)
+                .extracting(CardUsageBenefitRule::getBenefitId)
+                .contains(124L, 125L, 126L);
     }
 
     @Test

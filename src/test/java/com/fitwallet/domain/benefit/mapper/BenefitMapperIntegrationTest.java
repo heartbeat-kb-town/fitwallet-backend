@@ -100,20 +100,31 @@ class BenefitMapperIntegrationTest {
                 .doesNotContain(9999L);
     }
 
+    /**
+     * 시드 거래가 한 건도 없는 {@code user_card 6}으로 검증한다(V904가 이 카드의 결제를 전부 지웠다).
+     * 시드 페르소나의 카드를 쓰면 단언값이 시드 물량에 묶여, 데모 데이터를 늘릴 때마다 함께 깨진다.
+     * <p>
+     * 날짜는 쿼리와 같은 기준(직전 달)으로 맞춰야 하므로 SQL에서 {@code NOW()} 기준으로 만든다.
+     */
     @Test
     void 실적미인정과_취소거래는_전월실적_합계에서_제외된다() {
-        jdbcTemplate.update("INSERT INTO payment_transaction "
-                + "(user_card_id, amount, discount_amount, final_amount, paid_at, is_used_app, is_eligible) "
-                + "VALUES (1, 50000, 0, 50000, '2026-07-15 10:00:00', 0, 0)");
+        insertPrevMonthTransaction(50000, 1, "APPROVED");
+        insertPrevMonthTransaction(30000, 0, "APPROVED");
+        insertPrevMonthTransaction(70000, 1, "CANCELED");
+
+        List<BenefitPrevMonthSpendResponse> spends = benefitMapper.findPrevMonthSpends(List.of(6L));
+
+        assertThat(spends).singleElement()
+                .satisfies(s -> assertThat(s.getPrevMonthSpend()).isEqualByComparingTo("50000.00"));
+    }
+
+    private void insertPrevMonthTransaction(int amount, int isEligible, String status) {
         jdbcTemplate.update("INSERT INTO payment_transaction "
                 + "(user_card_id, amount, discount_amount, final_amount, paid_at, is_used_app, "
                 + "is_eligible, transaction_status) "
-                + "VALUES (1, 70000, 0, 70000, '2026-07-16 10:00:00', 0, 1, 'CANCELED')");
-
-        List<BenefitPrevMonthSpendResponse> spends = benefitMapper.findPrevMonthSpends(List.of(1L));
-
-        assertThat(spends).singleElement()
-                .satisfies(s -> assertThat(s.getPrevMonthSpend()).isEqualByComparingTo("64900.00"));
+                + "VALUES (6, ?, 0, ?, "
+                + "DATE_FORMAT(NOW() - INTERVAL 1 MONTH, '%Y-%m-05 10:00:00'), 0, ?, ?)",
+                amount, amount, isEligible, status);
     }
 
     @Test
@@ -198,7 +209,7 @@ class BenefitMapperIntegrationTest {
         assertThat(limits).singleElement().satisfies(l -> {
             assertThat(l.getLimitBasis()).isEqualTo(LimitBasis.AMOUNT);
             assertThat(l.getLimitPeriod()).isEqualTo(LimitPeriod.MONTH);
-            assertThat(l.getLimitValue()).isEqualByComparingTo("5000.00");
+            assertThat(l.getLimitValue()).isEqualByComparingTo("30000.00");
         });
     }
 
@@ -208,7 +219,7 @@ class BenefitMapperIntegrationTest {
 
         assertThat(limits).extracting(BenefitLimitResponse::getTierId).containsOnly(69L);
         assertThat(limits).extracting(BenefitLimitResponse::getLimitPeriod)
-                .containsExactlyInAnyOrder(LimitPeriod.DAY, LimitPeriod.MONTH);
+                .containsExactly(LimitPeriod.MONTH);
     }
 
     @Test
@@ -220,27 +231,40 @@ class BenefitMapperIntegrationTest {
         assertThat(usage.getUsedCount()).isZero();
     }
 
+    /**
+     * 시드가 닿지 않는 2099년 구간에 직접 넣어 검증한다. 시드 페르소나의 실제 구간을 쓰면
+     * 단언값이 데모 거래 물량에 묶인다 — {@code findUsage}가 확인해야 하는 것은 합계의
+     * 절대값이 아니라 "취소 거래가 빠지는가"다.
+     */
     @Test
     void AMOUNT_기준_소진량을_집계한다() {
-        jdbcTemplate.update("INSERT INTO payment_transaction "
-                + "(user_card_id, amount, discount_amount, final_amount, paid_at, "
-                + "applied_tier_id, transaction_status) "
-                + "VALUES (1, 10000, 9000, 1000, '2026-07-20 10:00:00', 163, 'CANCELED')");
+        insertFutureUsage(10000, 3500, "APPROVED");
+        insertFutureUsage(10000, 9000, "CANCELED");
 
         BenefitUsageResponse usage =
-                benefitMapper.findUsage(1L, 163L, LocalDateTime.of(2026, 7, 1, 0, 0));
+                benefitMapper.findUsage(1L, 163L, LocalDateTime.of(2099, 1, 1, 0, 0));
 
         assertThat(usage.getUsedAmount()).isEqualByComparingTo("3500.00");
     }
 
-    // 3건은 V900의 7월 거래 2건 + V901이 "오늘"로 넣는 컴포즈커피 1건이다.
-    // V901의 행은 NOW() 기준이라 날짜가 고정돼 있지 않지만, 언제 적재해도 이 기간
-    // 시작(2026-07-01)보다는 뒤이므로 집계에서 빠지지 않는다.
+    private void insertFutureUsage(int amount, int discount, String status) {
+        jdbcTemplate.update("INSERT INTO payment_transaction "
+                + "(user_card_id, amount, discount_amount, final_amount, paid_at, "
+                + "applied_tier_id, transaction_status) "
+                + "VALUES (1, ?, ?, ?, '2099-01-20 10:00:00', 163, ?)",
+                amount, discount, amount - discount, status);
+    }
+
+    /** AMOUNT 쪽과 같은 이유로 2099년 구간을 쓴다 — 건수도 시드 물량에 묶이면 안 된다. */
     @Test
     void COUNT_기준_소진량을_집계한다() {
-        BenefitUsageResponse usage =
-                benefitMapper.findUsage(3L, 69L, LocalDateTime.of(2026, 7, 1, 0, 0));
+        insertFutureUsage(5000, 500, "APPROVED");
+        insertFutureUsage(6000, 600, "APPROVED");
+        insertFutureUsage(7000, 700, "CANCELED");
 
-        assertThat(usage.getUsedCount()).isEqualTo(3L);
+        BenefitUsageResponse usage =
+                benefitMapper.findUsage(1L, 163L, LocalDateTime.of(2099, 1, 1, 0, 0));
+
+        assertThat(usage.getUsedCount()).isEqualTo(2L);
     }
 }
