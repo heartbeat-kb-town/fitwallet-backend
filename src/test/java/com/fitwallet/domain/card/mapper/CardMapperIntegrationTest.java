@@ -59,7 +59,7 @@ class CardMapperIntegrationTest {
         List<CardListResponse> cards = cardMapper.findByUserId(
                 SEED_USER_ID, CardListSortType.DISPLAY_ORDER, paymentCondition());
 
-        assertThat(cards).hasSize(9)
+        assertThat(cards).hasSize(5)
                 .isSortedAccordingTo(Comparator.comparing(CardListResponse::getDisplayOrder));
     }
 
@@ -120,7 +120,7 @@ class CardMapperIntegrationTest {
         jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
 
         assertThat(cardMapper.findByUserId(
-                SEED_USER_ID, CardListSortType.DISPLAY_ORDER, paymentCondition())).hasSize(8)
+                SEED_USER_ID, CardListSortType.DISPLAY_ORDER, paymentCondition())).hasSize(4)
                 .extracting(CardListResponse::getUserCardId)
                 .doesNotContain(1L);
     }
@@ -164,14 +164,14 @@ class CardMapperIntegrationTest {
 
     @Test
     void 표시순서_최대값을_조회한다() {
-        assertThat(cardMapper.findMaxDisplayOrder(SEED_USER_ID)).isEqualTo(9);
+        assertThat(cardMapper.findMaxDisplayOrder(SEED_USER_ID)).isEqualTo(5);
     }
 
     @Test
     void 표시순서_최대값은_삭제된_카드를_세지_않는다() {
-        jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE display_order = 9");
+        jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE display_order = 5");
 
-        assertThat(cardMapper.findMaxDisplayOrder(SEED_USER_ID)).isEqualTo(8);
+        assertThat(cardMapper.findMaxDisplayOrder(SEED_USER_ID)).isEqualTo(4);
     }
 
     @Test
@@ -287,7 +287,7 @@ class CardMapperIntegrationTest {
     @Test
     void 보유_카드_ID만_삭제된_카드_없이_조회한다() {
         assertThat(cardMapper.findUserCardIds(SEED_USER_ID))
-                .containsExactlyInAnyOrder(1L, 2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+                .containsExactlyInAnyOrder(1L, 2L, 3L, 4L, 5L);
     }
 
     @Test
@@ -295,7 +295,7 @@ class CardMapperIntegrationTest {
         jdbcTemplate.update("UPDATE user_card SET is_deleted = 1 WHERE user_card_id = 1");
 
         assertThat(cardMapper.findUserCardIds(SEED_USER_ID))
-                .containsExactlyInAnyOrder(2L, 3L, 4L, 5L, 6L, 7L, 8L, 9L);
+                .containsExactlyInAnyOrder(2L, 3L, 4L, 5L);
     }
 
     @Test
