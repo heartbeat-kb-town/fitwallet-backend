@@ -66,6 +66,10 @@ data/
 out/
 *.csv
 !src/**/*.csv
+# k6 시나리오 CSV — 측정 결과(results/)가 아니라 실험을 정의하는 입력이라 추적한다.
+!scripts/perf-k6/keyword-selectivity.csv
+!scripts/perf-k6/scenarios-load.csv
+!scripts/perf-k6/scenarios-baseline.csv
 *.tsv
 
 # 적재 스크립트가 만드는 바이트코드 캐시 (scripts/perf-data/)

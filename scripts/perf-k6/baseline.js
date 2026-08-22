@@ -34,6 +34,34 @@
 import http from 'k6/http';
 import { check } from 'k6';
 import { Trend, Rate } from 'k6/metrics';
+import { SharedArray } from 'k6/data';
+
+const SCENARIO_FILE = __ENV.SCENARIO_FILE || './scenarios-baseline.csv';
+
+/**
+ * 진단용 층화 표본. 앞 WARMUP행은 예열 전용, 뒤 READ_ITERATIONS행이 측정용이다.
+ * 같은 행으로 예열하면 그 조합만 버퍼 풀에 올라간 채 측정에 들어간다.
+ */
+const scenarios = new SharedArray('scenarios', function () {
+    const lines = open(SCENARIO_FILE).split('\n').map((s) => s.trim()).filter(Boolean);
+    return lines.slice(1).map(function (line) {
+        const c = line.split(',');
+        return { lat: c[0], lng: c[1], tier: Number(c[2]), keyword: c[3], categoryId: c[4] };
+    });
+});
+
+function densityBucket(tier) {
+    if (tier === 0) return 'empty';
+    if (tier <= 2) return 'sparse';
+    if (tier <= 5) return 'mid';
+    return 'dense';
+}
+
+/** i번째 호출이 쓸 조합. 예열은 앞쪽, 측정은 WARMUP 이후를 밟는다. */
+function scenarioFor(i, record) {
+    const base = record ? WARMUP + i : i;
+    return scenarios[base % scenarios.length];
+}
 
 const BASE_URL = (__ENV.BASE_URL || 'http://fitwallet-backend-prod.ap-northeast-2.elasticbeanstalk.com')
     .replace(/\/$/, '');
@@ -113,9 +141,12 @@ const READ_ENDPOINTS = [
     { name: 'card_usage',             method: 'GET', url: (c) => `/api/card/${c.userCardId}/usage?yearMonth=${YEAR_MONTH}` },
 
     // 병목 후보 ② — 272만 행 전건에 ACOS/RADIANS. 세 갈래를 따로 재야 어느 조합이 터지는지 갈린다.
-    { name: 'store_search_coords',    method: 'GET', url: () => `/api/store/search?latitude=${LAT}&longitude=${LNG}&radiusMeters=3000` },
-    { name: 'store_search_keyword',   method: 'GET', url: () => `/api/store/search?keyword=%EC%8A%A4%ED%83%80%EB%B2%85%EC%8A%A4&latitude=${LAT}&longitude=${LNG}` },
-    { name: 'store_search_category',  method: 'GET', url: () => `/api/store/search?categoryId=1&latitude=${LAT}&longitude=${LNG}&radiusMeters=3000` },
+    { name: 'store_search_coords',    method: 'GET', geo: true,
+      url: (c, sc) => `/api/store/search?latitude=${sc.lat}&longitude=${sc.lng}&radiusMeters=3000` },
+    { name: 'store_search_keyword',   method: 'GET', geo: true,
+      url: (c, sc) => `/api/store/search?keyword=${encodeURIComponent(sc.keyword)}&latitude=${sc.lat}&longitude=${sc.lng}` },
+    { name: 'store_search_category',  method: 'GET', geo: true,
+      url: (c, sc) => `/api/store/search?categoryId=${sc.categoryId}&latitude=${sc.lat}&longitude=${sc.lng}&radiusMeters=3000` },
     // 병목 후보 ③ — 요청마다 80만 행을 GROUP BY
     { name: 'store_keywords',         method: 'GET', url: () => '/api/store/keywords' },
 
@@ -207,14 +238,29 @@ for (const e of [...READ_ENDPOINTS, ...WRITE_ENDPOINTS]) {
     errors[e.name] = new Rate(`err_${e.name}`);
 }
 
+/*
+ * baseline은 판정이 아니라 관측이라 원래 threshold가 비어 있었다. 그런데 k6는 임계값에
+ * 선언되지 않은 태그 조합의 서브메트릭을 만들지 않아, 밀도별 분해를 읽으려면 선언이 필요하다.
+ * 전부 통과하는 값(p(95)<999999)이라 느린 엔드포인트에서 중단되지 않는다.
+ */
+const densityThresholds = {};
+for (const ep of READ_ENDPOINTS) {
+    if (!ep.geo) continue;
+    for (const b of ['empty', 'sparse', 'mid', 'dense']) {
+        densityThresholds[`ep_${ep.name}{density:${b}}`] = ['p(95)<999999'];
+    }
+}
+
 export const options = {
     scenarios: {
         baseline: { executor: 'shared-iterations', vus: 1, iterations: 1, maxDuration: '2h' },
     },
-    // baseline은 판정이 아니라 관측이다. threshold를 걸면 느린 엔드포인트에서 테스트가 중단돼
-    // 나머지 표가 비어버린다. SLO 판정은 4단계에서 붙인다.
-    thresholds: {},
-    summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'max'],
+    // baseline은 판정이 아니라 관측이다. 전부 통과하는 값이라 느린 엔드포인트에서도 테스트가
+    // 중단되지 않는다 — 그래도 선언이 필요한 이유는 densityThresholds 주석을 본다.
+    thresholds: densityThresholds,
+    // 'count'가 빠지면 Trend의 values에 count가 안 담겨 buildDensityTable의 !t.values.count가
+    // 항상 참이 된다 — 에러 없이 밀도 표가 통째로 빈다(2026-08-19 스모크에서 실측).
+    summaryTrendStats: ['avg', 'min', 'med', 'p(95)', 'max', 'count'],
     discardResponseBodies: false,
 };
 
@@ -322,16 +368,14 @@ export function setup() {
     return ctx;
 }
 
-function fire(ep, ctx, record) {
-    // 측정 대상 요청을 쏘기 전에 필요한 상태를 맞춘다. 이 요청의 시간은 기록하지 않는다.
+function fire(ep, ctx, record, sc) {
     if (ep.prepare) ep.prepare(ctx);
 
     const token = ep.useWriteToken ? ctx.writeToken : ctx.readToken;
     const headers = ep.auth === false ? { 'Content-Type': 'application/json' } : authHeaders(token);
-    const url = `${BASE_URL}${ep.url(ctx)}`;
+    const url = `${BASE_URL}${ep.url(ctx, sc)}`;
     const body = ep.body ? ep.body(ctx) : null;
 
-    // tags.name을 고정해야 URL에 ID가 박힌 요청들이 k6 내부에서 따로 집계되지 않는다.
     const params = { headers, tags: { name: ep.name }, timeout: '120s' };
     const res = ep.method === 'GET'
         ? http.get(url, params)
@@ -339,7 +383,8 @@ function fire(ep, ctx, record) {
 
     const ok = res.status >= 200 && res.status < 300;
     if (record) {
-        trends[ep.name].add(res.timings.duration);
+        // 밀도 태그는 커스텀 Trend에 단다. geo가 아닌 엔드포인트는 태그가 없다.
+        trends[ep.name].add(res.timings.duration, ep.geo ? { density: densityBucket(sc.tier) } : {});
         errors[ep.name].add(!ok);
     }
     if (!ok && record) {
@@ -350,14 +395,13 @@ function fire(ep, ctx, record) {
 
 export default function (ctx) {
     for (const ep of READ_ENDPOINTS) {
-        for (let i = 0; i < WARMUP; i++) fire(ep, ctx, false);
-        for (let i = 0; i < READ_ITERATIONS; i++) fire(ep, ctx, true);
+        for (let i = 0; i < WARMUP; i++) fire(ep, ctx, false, scenarioFor(i, false));
+        for (let i = 0; i < READ_ITERATIONS; i++) fire(ep, ctx, true, scenarioFor(i, true));
         console.log(`[read ] ${ep.name} 완료 (warmup ${WARMUP} + 측정 ${READ_ITERATIONS})`);
     }
 
     for (const ep of WRITE_ENDPOINTS) {
-        // WRITE는 워밍업을 돌리지 않는다. 워밍업분도 그대로 데이터를 바꾸기 때문이다.
-        for (let i = 0; i < WRITE_ITERATIONS; i++) fire(ep, ctx, true);
+        for (let i = 0; i < WRITE_ITERATIONS; i++) fire(ep, ctx, true, scenarios[0]);
         console.log(`[write] ${ep.name} 완료 (측정 ${WRITE_ITERATIONS})`);
     }
 }
@@ -401,6 +445,22 @@ function buildTable(data) {
     return { table: lines.join('\n'), rows };
 }
 
+function buildDensityTable(data) {
+    const lines = [
+        '| 엔드포인트 | 밀도 | N | p50 | max |',
+        '|---|---|---:|---:|---:|',
+    ];
+    for (const ep of READ_ENDPOINTS) {
+        if (!ep.geo) continue;
+        for (const b of ['empty', 'sparse', 'mid', 'dense']) {
+            const t = data.metrics[`ep_${ep.name}{density:${b}}`];
+            if (!t || !t.values.count) continue;
+            lines.push(`| \`${ep.name}\` | ${b} | ${t.values.count} | ${ms(t.values.med)} | ${ms(t.values.max)} |`);
+        }
+    }
+    return lines.join('\n');
+}
+
 export function handleSummary(data) {
     const { table, rows } = buildTable(data);
 
@@ -421,7 +481,9 @@ export function handleSummary(data) {
         '',
     ].join('\n');
 
-    const md = `${header}${table}\n`;
+    const md = `${header}${table}\n\n## 밀도별 분해\n\n`
+        + '> 층화 표본이라 칸당 N이 1~2다. **분포가 아니라 개별 조합의 실측치로 읽는다.**\n\n'
+        + `${buildDensityTable(data)}\n`;
 
     return {
         stdout: `\n${md}\n`,

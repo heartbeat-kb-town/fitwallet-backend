@@ -24,7 +24,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-from category_mapping import EXPECTED, EXPECTED_TOTAL, NAMES, to_category_id  # noqa: E402
+from category_mapping import ETC, EXPECTED, EXPECTED_TOTAL, NAMES, to_category_id  # noqa: E402
 from normalize import BrandMatcher, build_store_name, normalize, strip_branch_suffix  # noqa: E402
 
 # store_id 1~244는 V2 참조데이터(카카오 실데이터)이고 V901 데모가 FK로 참조한다. 그 뒤에 붙인다.
@@ -183,9 +183,10 @@ def main():
     # brand.category_id 우선 규칙으로 옮겨간 행수. 업종 매핑 결과 자체는 건드리지 않는다.
     override_shift = collections.Counter()
     candidates = []
-    # 소분류명(247종)을 검색 키워드 풀로 쓴다. '치킨' '약국' '주유소'처럼 사람이 실제로
-    # 검색하는 말이고, 지어내지 않아도 데이터에서 그대로 나온다. build_synthetic.py가 읽는다.
-    keywords = set()
+    # 소분류명을 검색 키워드 풀로 쓴다. '치킨' '약국' '주유소'처럼 사람이 실제로 검색하는
+    # 말이고, 지어내지 않아도 데이터에서 그대로 나온다. build_synthetic.py가 읽는다.
+    # 값은 그 소분류의 매장 수다 — 검색 빈도의 Zipf 순위로 쓰인다.
+    keyword_counts = collections.Counter()
     skipped_no_name = 0
     total = 0
     store_id = FIRST_STORE_ID
@@ -201,7 +202,13 @@ def main():
                         record["상권업종소분류명"],
                     )
                     category_counts[category_id] += 1
-                    keywords.add(record["상권업종소분류명"].strip())
+                    # 기타(7) 업종의 소분류명은 풀에 넣지 않는다. `건물 및 토목 엔지니어링
+                    # 서비스업` 같은 업종 용어라 상호명에 나타나지 않고(실측 305개 중 174개가
+                    # 0건 매칭), 프론트 카테고리 칩에도 없어 사용자가 칠 일이 없다.
+                    if category_id != ETC:
+                        sub = record["상권업종소분류명"].strip()
+                        if sub:
+                            keyword_counts[sub] += 1
 
                     fields = row_to_fields(record)
                     if not fields[0]:
@@ -271,12 +278,13 @@ def main():
 
     keyword_path = os.path.join(out_dir, "keywords.tsv")
     with open(keyword_path, "w", encoding="utf-8") as fh:
-        for word in sorted(keywords):
-            if word:
-                fh.write(word + "\n")
+        # 두 번째 열은 그 소분류의 매장 수다. build_synthetic.py가 검색 빈도의 Zipf 순위로 쓴다 —
+        # "사람은 많은 업종을 더 검색한다"는 가정이고, 지어낸 값이 아니라 공공데이터에서 나온다.
+        for word, n in sorted(keyword_counts.items(), key=lambda kv: (-kv[1], kv[0])):
+            fh.write(f"{word}\t{n}\n")
 
     print(f"\n→ {out_path}")
-    print(f"→ {keyword_path} ({len(keywords)}개 소분류명 — 검색 키워드 풀)")
+    print(f"→ {keyword_path} ({len(keyword_counts)}개 소분류명 — 기타 제외, 매장 수 내림차순)")
 
 
 if __name__ == "__main__":
