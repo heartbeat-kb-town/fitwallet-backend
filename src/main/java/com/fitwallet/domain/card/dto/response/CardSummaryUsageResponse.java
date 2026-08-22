@@ -28,7 +28,7 @@ public class CardSummaryUsageResponse {
     @ApiModelProperty(value = "현재 월 이용 실적 달성 상태", example = "ACHIEVED")
     private CardUsagePerformanceStatus performanceStatus;
 
-    @ApiModelProperty(value = "실적 인정 거래의 할인 전 이용금액 합계. 실적 조건이 없으면 null",
+    @ApiModelProperty(value = "실적 인정 거래의 할인 적용 후 결제금액 합계. 적립 혜택은 결제금액에서 차감하지 않으며, 실적 조건이 없으면 null",
             example = "500000.00")
     private BigDecimal recognizedAmount;
 
