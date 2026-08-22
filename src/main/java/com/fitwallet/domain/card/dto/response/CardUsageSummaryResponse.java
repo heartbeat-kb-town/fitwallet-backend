@@ -17,7 +17,8 @@ import java.math.BigDecimal;
 @Builder
 public class CardUsageSummaryResponse {
 
-    @ApiModelProperty(value = "실적 인정 거래의 할인 전 이용금액 합계", example = "325900.00")
+    @ApiModelProperty(value = "실적 인정 거래의 할인 적용 후 결제금액 합계. 적립 혜택은 결제금액에서 차감하지 않음",
+            example = "325900.00")
     private BigDecimal recognizedAmount;
 
     @ApiModelProperty(value = "실적 미반영 거래의 할인 전 이용금액 합계", example = "70000.00")

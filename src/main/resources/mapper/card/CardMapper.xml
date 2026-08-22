@@ -309,7 +309,7 @@
     </select>
 
     <select id="findUsageAmounts" resultMap="cardUsageAmountSummaryMap">
-        SELECT COALESCE(SUM(CASE WHEN pt.is_eligible = 1 THEN pt.amount ELSE 0 END), 0)
+        SELECT COALESCE(SUM(CASE WHEN pt.is_eligible = 1 THEN pt.final_amount ELSE 0 END), 0)
                    AS recognized_amount,
                COALESCE(SUM(CASE WHEN pt.is_eligible = 0 THEN pt.amount ELSE 0 END), 0)
                    AS excluded_amount

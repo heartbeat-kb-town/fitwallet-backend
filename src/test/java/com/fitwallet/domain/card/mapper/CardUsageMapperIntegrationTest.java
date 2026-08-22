@@ -85,6 +85,26 @@ class CardUsageMapperIntegrationTest {
     }
 
     @Test
+    void 실적인정금액은_할인후금액을_합산하고_적립혜택은_결제금액을_유지한다() {
+        LocalDateTime startAt = LocalDateTime.of(2031, 1, 1, 0, 0);
+        LocalDateTime endAt = LocalDateTime.of(2031, 2, 1, 0, 0);
+        insertTransaction(new BigDecimal("10000.00"), new BigDecimal("1000.00"),
+                new BigDecimal("9000.00"), startAt, true);
+        insertTransaction(new BigDecimal("6000.00"), new BigDecimal("1000.00"),
+                new BigDecimal("6000.00"), startAt.plusDays(1), true);
+        insertTransaction(new BigDecimal("5000.00"), new BigDecimal("1000.00"),
+                new BigDecimal("4000.00"), startAt.plusDays(2), false);
+
+        CardUsageAmountSummary summary = cardMapper.findUsageAmounts(
+                SEED_USER_ID,
+                NORI_USER_CARD_ID,
+                CardUsagePeriodCondition.builder().startAt(startAt).endAt(endAt).build());
+
+        assertThat(summary.getRecognizedAmount()).isEqualByComparingTo("15000.00");
+        assertThat(summary.getExcludedAmount()).isEqualByComparingTo("5000.00");
+    }
+
+    @Test
     void 거래가_없는_기간의_실적금액은_모두_0이다() {
         LocalDateTime startAt = LocalDateTime.of(2040, 1, 1, 0, 0);
 
@@ -137,11 +157,25 @@ class CardUsageMapperIntegrationTest {
 
     private void insertTransaction(BigDecimal amount, LocalDateTime paidAt, boolean eligible,
                                    CardTransactionStatus transactionStatus) {
+        insertTransaction(amount, BigDecimal.ZERO, amount, paidAt, eligible, transactionStatus);
+    }
+
+    private void insertTransaction(BigDecimal amount, BigDecimal discountAmount,
+                                   BigDecimal finalAmount, LocalDateTime paidAt,
+                                   boolean eligible) {
+        insertTransaction(amount, discountAmount, finalAmount, paidAt, eligible,
+                CardTransactionStatus.APPROVED);
+    }
+
+    private void insertTransaction(BigDecimal amount, BigDecimal discountAmount,
+                                   BigDecimal finalAmount, LocalDateTime paidAt,
+                                   boolean eligible, CardTransactionStatus transactionStatus) {
         jdbcTemplate.update("""
                 INSERT INTO payment_transaction
-                    (user_card_id, amount, final_amount, paid_at, is_eligible, transaction_status)
-                VALUES (?, ?, ?, ?, ?, ?)
-                """, NORI_USER_CARD_ID, amount, amount, paidAt, eligible,
+                    (user_card_id, amount, discount_amount, final_amount, paid_at,
+                     is_eligible, transaction_status)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """, NORI_USER_CARD_ID, amount, discountAmount, finalAmount, paidAt, eligible,
                 transactionStatus.name());
     }
 }
