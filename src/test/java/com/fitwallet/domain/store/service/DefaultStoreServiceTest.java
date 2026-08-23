@@ -33,6 +33,7 @@ import static org.mockito.BDDMockito.then;
 import static org.mockito.BDDMockito.willThrow;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.times;
 
 /**
@@ -262,8 +263,9 @@ class DefaultStoreServiceTest {
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
-        then(storeMapper).should().findStores(captor.capture());
-        assertThat(captor.getValue().getKeyword()).isEqualTo("카페");
+        // 5건을 못 채워 계단을 세 단 밟는다. 어느 단이든 키워드는 trim된 값이어야 한다.
+        then(storeMapper).should(atLeastOnce()).findStores(captor.capture());
+        assertThat(captor.getAllValues()).allSatisfy(c -> assertThat(c.getKeyword()).isEqualTo("카페"));
         assertThat(response.getKeyword()).isEqualTo("카페");
     }
 
@@ -502,7 +504,7 @@ class DefaultStoreServiceTest {
     }
 
     @Test
-    void 전국_매칭이_임계값_이하면_계단을_더_밟지_않고_전국으로_간다() {
+    void 전국_매칭이_임계값_이하면_3km까지만_밟고_전국으로_간다() {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("파리바게뜨").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
@@ -511,9 +513,10 @@ class DefaultStoreServiceTest {
 
         storeService.searchStores(1L, cond);
 
-        // 300m 한 번만 밟고 곧장 전국으로 간다. 매칭이 적은 검색어는 전국 단계가
-        // 사각형 한 칸보다도 싸기 때문이다.
-        then(storeMapper).should(times(1)).findStores(any());
+        // 갈림길은 3km 뒤에 있다. 앞 세 단(300m·1km·3km)은 무조건 밟고, 매칭이 적으므로
+        // 10km는 건너뛰고 전국으로 간다. 앞 세 단이 싼 것이 근거다 — DefaultStoreService의
+        // "갈림길을 3km 뒤로 옮긴 이유" 참고.
+        then(storeMapper).should(times(3)).findStores(any());
         then(storeMapper).should(times(1)).findStoresByFulltext(any(), any());
     }
 

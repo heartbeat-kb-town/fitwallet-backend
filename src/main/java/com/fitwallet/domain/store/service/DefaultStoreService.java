@@ -15,7 +15,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.IntStream;
 
 /**
@@ -64,6 +66,44 @@ public class DefaultStoreService implements StoreService {
      * 운영 환산 267ms가 된다.
      */
     private static final int[] KEYWORD_CASCADE_STEPS_METERS = {300, 1000, 3000, 10000};
+
+    /**
+     * {@link #KEYWORD_CASCADE_STEPS_METERS}에서 전국 단계 갈림길이 놓이는 자리. 이 인덱스
+     * <b>앞</b>의 계단은 무조건 밟고, 뒤의 계단은 {@link #FULLTEXT_ROUTING_THRESHOLD} 판정을
+     * 통과해야 밟는다. 3이면 300m·1km·3km를 밟은 뒤 갈린다.
+     * <p>
+     * 근거는 {@link #findStoresByKeyword}의 "갈림길을 3km 뒤로 옮긴 이유"에 있다.
+     * 값을 줄이면 예전 동작으로 돌아간다(1이면 300m 뒤에 갈림).
+     */
+    private static final int KEYWORD_ROUTING_DECISION_INDEX = 3;
+
+    /**
+     * 검색어 조각식 → 전국 FULLTEXT 매칭 수 캐시.
+     * <p>
+     * <b>이 값은 {@code store}가 바뀌지 않는 한 상수다.</b> 그런데 예전에는 요청마다 다시
+     * 셌고, 운영 트레이스에서 <b>82.6ms</b>가 찍혔다('주유소', 244ms 요청의 34%). 같은 쿼리가
+     * 다른 요청에서는 11.2ms였다 — FULLTEXT 포스팅 리스트가 버퍼에 남아 있느냐에 따라 갈린다.
+     * 즉 <b>느린 쪽이 실사용 값이고, 반복 측정으로는 안 보인다.</b>
+     * <p>
+     * ⚠️ <b>키가 사용자 입력이라 무한히 늘 수 있다.</b> 그래서 LRU로 상한을 둔다. 상한이
+     * 없으면 검색어를 계속 바꿔 던지는 것만으로 힙이 찬다.
+     * <p>
+     * ⚠️ <b>인스턴스마다 따로 갖는다.</b> 지금은 단일 인스턴스라 무해하고, 늘어나도 캐시
+     * 미스가 늘 뿐 정답은 같다({@code store}가 안 바뀌므로).
+     * <p>
+     * {@code store}를 재적재하면 낡는다. 그때는 앱을 재기동한다 — 재적재 자체가 배포 급의
+     * 작업이라 별도 무효화 경로를 두지 않는다.
+     */
+    private static final int FULLTEXT_COUNT_CACHE_MAX = 1_000;
+
+    /** 위 주석의 캐시 본체. 접근 순서 {@link LinkedHashMap}이라 put/get이 곧 LRU 갱신이다. */
+    private final Map<String, Integer> fulltextCountCache = Collections.synchronizedMap(
+            new LinkedHashMap<String, Integer>(16, 0.75f, true) {
+                @Override
+                protected boolean removeEldestEntry(Map.Entry<String, Integer> eldest) {
+                    return size() > FULLTEXT_COUNT_CACHE_MAX;
+                }
+            });
 
     /**
      * 계단을 더 밟을지, 전국 단계로 바로 갈지 가르는 전국 매칭 수 기준.
@@ -365,10 +405,28 @@ public class DefaultStoreService implements StoreService {
      * <h2>왜 중간에 한 번 갈라지나</h2>
      * 계단이 항상 이기지는 않는다. 매칭이 적은 검색어는 전국 단계가 사각형 한 칸보다도 싸다 —
      * 강남역에서 '파리바게뜨'(전국 2,601건)의 전국 단계가 15.3ms인데 1km 사각형은 23ms다.
-     * 그런 검색어를 계단에 태우면 손해라, 300m가 실패한 시점에 {@link StoreMapper#countByFulltext}로
-     * 한 번 물어보고 {@link #FULLTEXT_ROUTING_THRESHOLD} 기준으로 가른다.
+     * 그런 검색어를 계단에 태우면 손해라, {@link StoreMapper#countByFulltext}로 한 번 물어보고
+     * {@link #FULLTEXT_ROUTING_THRESHOLD} 기준으로 가른다.
      * <p>
      * <b>어느 쪽으로 가도 결과는 같다.</b> 이 분기는 비용만 고른다.
+     *
+     * <h2>갈림길을 3km 뒤로 옮긴 이유 (2026-08-23)</h2>
+     * 예전에는 <b>300m</b>가 실패하면 바로 갈랐다. 그런데 전국 매칭 수는 <b>계단을 몇 단
+     * 밟게 될지를 말해주지 않는다</b> — 같은 1만 건이라도 지역 분포에 따라 갈린다.
+     * <pre>
+     *   '주유소' 10,917건 — 전국에 고르게 깔려 1~3km에서 끝난다
+     *   '부산'   10,237건 — 부산에 몰려 있어 강남에서는 10km까지 올라간다
+     * </pre>
+     * 그래서 매칭 수로 가르면 '주유소'류가 전국으로 잘못 떨어진다. 운영 실측(1 VU, 2,000행)에서
+     * 100ms를 넘긴 검색어 12종이 전부 임계값 <b>아래</b> 구간(1,257~10,917)이었다.
+     * <p>
+     * 앞 세 단이 싸다는 것이 이 변경의 근거다. '주유소' 계단 총비용을 밀도 단계별로 재면
+     * <b>7단계 중 6단계가 20ms 이하</b>다(tier 2 3.8ms · tier 4 10.4ms · tier 5 18.6ms ·
+     * tier 7만 113ms). 같은 검색어의 전국 단계는 138ms다. <b>세 단을 다 밟아보는 쪽이 싸다.</b>
+     * <p>
+     * 대가: '부산'처럼 지역 편중이 심한 검색어는 결국 전국으로 가면서 앞 세 단 비용을 더 낸다.
+     * 최악이 밀집 좌표의 +113ms인데, 그건 좌표 인덱스가 위도만 좁히는 별개 문제다
+     * (사각형 3,871행을 얻으려 위도 띠 32,329행을 훑는다).
      *
      * <h2>전국 단계는 성능이 아니라 정확성 요건이다</h2>
      * 마지막 계단까지 5건을 못 채웠으면 반드시 전국으로 가야 한다. 생략하면 5건 미만을 반환해
@@ -376,21 +434,36 @@ public class DefaultStoreService implements StoreService {
      *
      * @param cond 반경이 {@code null}인 확정 조건. {@code keyword}는 {@code null}이 아니다
      */
+    /** 캐시를 먼저 보고, 없으면 세어서 담는다. {@link #fulltextCountCache} 주석 참고. */
+    private int fulltextMatchCount(String matchExpression) {
+        Integer cached = fulltextCountCache.get(matchExpression);
+        if (cached != null) {
+            return cached;
+        }
+        int counted = storeMapper.countByFulltext(matchExpression);
+        fulltextCountCache.put(matchExpression, counted);
+        return counted;
+    }
+
     private List<StoreSummaryResponse> findStoresByKeyword(StoreSearchCondition cond) {
         String matchExpression = buildMatchExpression(cond.getKeyword());
 
-        int firstStep = KEYWORD_CASCADE_STEPS_METERS[0];
-        List<StoreSummaryResponse> found = storeMapper.findStores(withRadius(cond, firstStep));
-        if (isSettled(found, firstStep)) {
-            return found;
+        // 갈림길 앞의 싼 계단들. 여기서 끝나면 count도 전국도 타지 않는다.
+        List<StoreSummaryResponse> found = Collections.emptyList();
+        for (int i = 0; i < KEYWORD_ROUTING_DECISION_INDEX; i++) {
+            int step = KEYWORD_CASCADE_STEPS_METERS[i];
+            found = storeMapper.findStores(withRadius(cond, step));
+            if (isSettled(found, step)) {
+                return found;
+            }
         }
 
         // 조각이 없으면 셀 것도 없다. 그때는 전국 단계가 LIKE 풀스캔이라 비싸므로 계단을 끝까지 밟는다.
         boolean climb = matchExpression == null
-                || storeMapper.countByFulltext(matchExpression) > FULLTEXT_ROUTING_THRESHOLD;
+                || fulltextMatchCount(matchExpression) > FULLTEXT_ROUTING_THRESHOLD;
 
         if (climb) {
-            for (int i = 1; i < KEYWORD_CASCADE_STEPS_METERS.length; i++) {
+            for (int i = KEYWORD_ROUTING_DECISION_INDEX; i < KEYWORD_CASCADE_STEPS_METERS.length; i++) {
                 int step = KEYWORD_CASCADE_STEPS_METERS[i];
                 found = storeMapper.findStores(withRadius(cond, step));
                 if (isSettled(found, step)) {
