@@ -209,14 +209,11 @@ public class DefaultStoreService implements StoreService {
         }
         Long categoryId = cond.getCategoryId();
 
-        // 키워드가 없으면 주변 조회 모드다. 카테고리도 없는(= 좌표만 온) 요청도 여기 포함된다 —
-        // 앱이 검색 화면에 처음 들어와 아무것도 입력하지 않은 상태에서 내 주변 가맹점을 보여주는 경우다.
-        boolean nearbyMode = keyword == null;
         Integer requestedRadius = cond.getRadiusMeters();
         if (requestedRadius != null && requestedRadius <= 0) {
             throw new BusinessException(StoreErrorCode.INVALID_RADIUS);
         }
-        if (nearbyMode && requestedRadius != null && requestedRadius > NEARBY_MAX_RADIUS_METERS) {
+        if (requestedRadius != null && requestedRadius > NEARBY_MAX_RADIUS_METERS) {
             throw new BusinessException(StoreErrorCode.RADIUS_EXCEEDED);
         }
 
@@ -228,10 +225,26 @@ public class DefaultStoreService implements StoreService {
             throw new BusinessException(StoreErrorCode.CATEGORY_NOT_FOUND);
         }
 
-        // 삼항 연산자를 중첩하면 Integer/int가 섞여 requestedRadius가 null일 때 자동 언박싱으로
-        // NPE가 난다(JLS 이항 수치 승격). if-else로 풀어 박싱 타입을 그대로 유지한다.
+        /*
+         * 검색어 갈래도 3km로 자른다 (2026-08-23 정책 변경).
+         *
+         * 예전에는 검색어만 오면 반경이 없어 전국에서 가까운 순 5건을 냈다. 이제 모든 검색이
+         * 3km 안으로 한정된다 — 3km 밖에 있으면 결과에 안 나온다.
+         *
+         * ⚠️ **성능 최적화가 아니라 제품 결정이다.** 운영 2,000행 실측으로 대가가 이만큼이다:
+         *   - 5건 미만으로 줄어드는 요청 1,082건(54.1%)
+         *   - 0건이 되는 요청 720건(36.0%)
+         * 지리산에서 '스타벅스'를 치면 예전에는 98km 밖 매장이 나왔고 이제는 0건이다.
+         *
+         * 얻는 것은 전국 FULLTEXT 단계가 요청 경로에서 사라지는 것이다. 그 단계는 사각형이
+         * 없어 좌표 인덱스가 닿지 않았고(V15의 2차원 인덱스도 무력), 남은 SLO 초과의 대부분이
+         * 거기였다.
+         *
+         * ⚠️ 삼항 연산자를 중첩하면 Integer/int가 섞여 requestedRadius가 null일 때 자동
+         * 언박싱으로 NPE가 난다(JLS 이항 수치 승격). if-else로 풀어 박싱 타입을 유지한다.
+         */
         Integer confirmedRadius = requestedRadius;
-        if (nearbyMode && requestedRadius == null) {
+        if (requestedRadius == null) {
             confirmedRadius = NEARBY_MAX_RADIUS_METERS;
         }
 
@@ -249,9 +262,8 @@ public class DefaultStoreService implements StoreService {
         // 늘리는 만큼 손해"라는 판단이었는데(강남역 '스타벅스' 0.05 + 0.12 + 0.49s), 그건 사각형이
         // 인덱스를 못 타던 시절의 측정이다. V11의 좌표 인덱스와 V14의 커버링 인덱스가 들어온 지금은
         // 뒤집혔다 — 같은 좌표에서 300m 단계가 6ms다.
-        List<StoreSummaryResponse> stores = confirmedRadius != null
-                ? findStoresByCascadingRadius(confirmedCondition)
-                : findStoresByKeyword(confirmedCondition);
+        // 반경은 위에서 항상 확정된다(3km 상한 정책). 그래서 전국 단계로 내려가는 경로가 없다.
+        List<StoreSummaryResponse> stores = findStoresByCascadingRadius(confirmedCondition);
 
         if (keyword != null) {
             recordSearchHistory(userId, keyword);
@@ -520,6 +532,16 @@ public class DefaultStoreService implements StoreService {
         return counted;
     }
 
+    /**
+     * ⚠️ <b>2026-08-23 3km 상한 정책 이후 호출되지 않는다.</b> {@code searchStores}가 반경을 항상
+     * 확정하므로 여기로 내려오는 경로가 없다. 정책을 되돌리면 그대로 살아난다 — 그때까지
+     * 딸린 것들({@link #KEYWORD_CASCADE_STEPS_METERS} · {@link #FULLTEXT_ROUTING_THRESHOLD} ·
+     * {@link #fulltextCountCache} · {@code buildMatchExpression} · 매퍼의 {@code countByFulltext}
+     * /{@code findStoresByFulltext} · {@code ft_store_name} 인덱스)도 함께 남겨 둔다.
+     * <p>
+     * 정책이 굳으면 이 묶음을 통째로 걷어내고 인덱스(약 65MB)도 내린다 — 별건이다.
+     */
+    @SuppressWarnings("unused")
     private List<StoreSummaryResponse> findStoresByKeyword(StoreSearchCondition cond) {
         String matchExpression = buildMatchExpression(cond.getKeyword());
 
