@@ -506,10 +506,11 @@ class DefaultStoreServiceTest {
     @Test
     void 전국_매칭이_임계값_이하면_3km까지만_밟고_전국으로_간다() {
         StoreSearchCondition cond = StoreSearchCondition.builder()
-                .latitude(LATITUDE).longitude(LONGITUDE).keyword("파리바게뜨").build();
+                .latitude(LATITUDE).longitude(LONGITUDE).keyword("스타벅스").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         given(storeMapper.findStores(any(), any())).willReturn(List.of());
-        given(storeMapper.countByFulltext(anyString())).willReturn(2_601);
+        // 운영 실측값. 임계값을 1,000으로 내린 뒤라 '파리바게뜨'(2,601)는 더 이상 이쪽이 아니다.
+        given(storeMapper.countByFulltext(anyString())).willReturn(24);
 
         storeService.searchStores(1L, cond);
 
