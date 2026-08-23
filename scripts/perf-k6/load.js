@@ -100,13 +100,13 @@ const scenarios = new SharedArray('scenarios', function () {
     const lines = open(SCENARIO_FILE).split('\n').map((s) => s.trim()).filter(Boolean);
     return lines.slice(1).map(function (line) {
         const c = line.split(',');
-        return { lat: c[0], lng: c[1], tier: Number(c[2]), keyword: c[3], categoryId: c[4] };
+        return { lat: c[0], lng: c[1], tier: Number(c[2]), keyword: c[3],
+                 categoryId: c[4], storeId: c[5] };
     });
 });
 
-/** 밀도 단계(0~7)를 태그 버킷으로 줄인다. 태그 카디널리티를 낮게 유지한다. */
+/** 밀도 단계(1~7)를 태그 버킷으로 줄인다. 태그 카디널리티를 낮게 유지한다. */
 function densityBucket(tier) {
-    if (tier === 0) return 'empty';   // 1km 안 0건 — 사다리를 10km까지 올리는 유일한 경로
     if (tier <= 2) return 'sparse';
     if (tier <= 5) return 'mid';
     return 'dense';
@@ -186,10 +186,10 @@ const SCREENS = [
     {
         screen: '결제 전',
         calls: [
-            // storeId는 같은 세션의 좌표 검색 응답에서 이어받는다(fire()가 채운다).
-            // 사용자의 실제 동선(검색 → 가맹점 선택 → 결제 전 혜택 조회)과 인과가 맞는다.
+            // storeId는 CSV에서 온다 — 세션 좌표를 뽑은 바로 그 가맹점이다.
+            // 지터가 ±500m라 위 좌표 검색 결과에 반드시 들어 있어 인과가 맞는다.
             { name: 'benefit_expected', slo: SLO_AGG,
-              url: (u, sc) => `/api/benefit/expected?storeId=${sc.storeId || u.storeId}&amount=15000` },
+              url: (u, sc) => `/api/benefit/expected?storeId=${sc.storeId}&amount=15000` },
         ],
     },
     {
@@ -230,7 +230,7 @@ const thresholds = {
  * handleSummary에서 밀도별 수치를 읽으려면 통과가 보장되는 임계값이라도 걸어야 한다.
  * 빠뜨리면 에러 없이 밀도 표가 통째로 비어 나온다.
  */
-const DENSITY_BUCKETS = ['empty', 'sparse', 'mid', 'dense'];
+const DENSITY_BUCKETS = ['sparse', 'mid', 'dense'];
 for (const c of ALL_CALLS) {
     thresholds[`http_req_duration{name:${c.name},phase:steady}`] = [`p(95)<${c.slo}`];
     if (c.geo) {
@@ -308,18 +308,8 @@ export function setup() {
             + '유저가 모자라면 같은 유저를 여러 VU가 공유하게 되어 버퍼 풀 적중률이 왜곡된다.');
     }
 
-    // 가맹점 ID는 전 VU가 같은 값을 쓴다. 첫 유저의 토큰으로 한 번만 뽑는다.
+    // storeId는 시나리오 CSV가 들고 있다 — setup에서 프로브할 것이 없다.
     const probeToken = login(users[0]);
-    const storeRes = http.get(
-        `${BASE_URL}/api/store/search?latitude=${LAT}&longitude=${LNG}&radiusMeters=3000`,
-        { headers: authHeaders(probeToken) });
-    const stores = storeRes.json('data.stores') || [];
-    if (stores.length === 0) {
-        throw new Error(
-            '폴백 프로브 좌표(강남역)의 검색이 0건이다. 세션 좌표는 희소해도 정상이지만 '
-            + '이 프로브는 benefit_expected의 폴백 storeId를 만드는 자리라 비면 안 된다.');
-    }
-    const storeId = stores[0].storeId;
 
     const pool = [];
     for (let i = 0; i < VUS; i++) {
@@ -365,7 +355,7 @@ export function setup() {
                 + 'is_deleted=1인 카드의 거래까지 세어 이 유저를 골랐을 수 있다.');
         }
 
-        pool.push({ loginId, token, userCardId: bestCard.userCardId, cardTxCount: bestCount, storeId });
+        pool.push({ loginId, token, userCardId: bestCard.userCardId, cardTxCount: bestCount });
     }
 
     /*
@@ -400,7 +390,7 @@ export function setup() {
     const maxTx = txCounts[txCounts.length - 1];
 
     console.log(`[setup] BASE_URL=${BASE_URL}`);
-    console.log(`[setup] 유저 풀 ${pool.length}명 (CSV ${users.length}명 중), storeId=${storeId}`);
+    console.log(`[setup] 유저 풀 ${pool.length}명 (CSV ${users.length}명 중)`);
     console.log(`[setup] yearMonth=${YEAR_MONTH}, think time=${THINK}초, VU=${VUS}`);
     console.log(`[setup] 표본 ${sample}명 리포트 검증 통과`);
     console.log(`[setup] 측정 카드의 ${YEAR_MONTH} 거래 건수 — `
@@ -433,13 +423,6 @@ function fire(call, u, sc, isSteady) {
         tags,
         timeout: '60s',
     });
-
-    // 좌표 검색이 성공하면 그 결과의 첫 가맹점을 세션에 담는다. 뒤따르는 benefit_expected가 쓴다.
-    // 0건이면 손대지 않아 setup()의 전역 폴백이 그대로 남는다 — 희소 좌표에서는 0건이 정상이다.
-    if (call.name === 'store_search_coords' && res.status === 200) {
-        const stores = res.json('data.stores') || [];
-        if (stores.length > 0) sc.storeId = stores[0].storeId;
-    }
 
     if (isSteady) steadyReqs.add(1);
 
@@ -477,10 +460,10 @@ export default function (data) {
     const u = data.pool[(__VU - 1) % data.pool.length];
     const isSteady = exec.scenario.name === 'steady';
     // 조합은 세션당 하나다. 한 세션 안에서 좌표가 바뀌면 사용자가 순간이동하고
-    // storeId 인과가 깨진다. SharedArray 원소는 읽기 전용이라 복사해서 쓴다.
+    // 좌표와 storeId가 어긋난다. SharedArray 원소는 읽기 전용이라 복사해서 쓴다.
     const base = pickScenario(isSteady);
     const sc = { lat: base.lat, lng: base.lng, tier: base.tier,
-                 keyword: base.keyword, categoryId: base.categoryId, storeId: null };
+                 keyword: base.keyword, categoryId: base.categoryId, storeId: base.storeId };
 
     for (let i = 0; i < SCREENS.length; i++) {
         for (const call of SCREENS[i].calls) {
@@ -614,8 +597,7 @@ export function handleSummary(data) {
         '',
         '## 밀도별 분해 (좌표 스코프 3종)',
         '',
-        '> `empty`는 1km 안에 매장이 0건인 주입 좌표다(전체의 3%). 표본이 얇아 **p95를 말하지 않고**',
-        '> 중앙값과 max로 읽는다. 정밀 판정은 1 VU 층화 표본이 담당한다.',
+        '> 밀도는 0.01° 격자의 매장 수 7분위다. 정밀 판정은 1 VU 층화 표본이 담당한다.',
         '',
         '| 엔드포인트 | 밀도 | N | p50 | p95 | max |',
         '|---|---|---:|---:|---:|---:|',

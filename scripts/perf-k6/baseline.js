@@ -46,12 +46,12 @@ const scenarios = new SharedArray('scenarios', function () {
     const lines = open(SCENARIO_FILE).split('\n').map((s) => s.trim()).filter(Boolean);
     return lines.slice(1).map(function (line) {
         const c = line.split(',');
-        return { lat: c[0], lng: c[1], tier: Number(c[2]), keyword: c[3], categoryId: c[4] };
+        return { lat: c[0], lng: c[1], tier: Number(c[2]), keyword: c[3],
+                 categoryId: c[4], storeId: c[5] };
     });
 });
 
 function densityBucket(tier) {
-    if (tier === 0) return 'empty';
     if (tier <= 2) return 'sparse';
     if (tier <= 5) return 'mid';
     return 'dense';
@@ -118,10 +118,6 @@ const PIN = __ENV.PERF_PIN || '123456';
  */
 const YEAR_MONTH = __ENV.YEAR_MONTH || '2026-07';
 
-/** 서울 강남역. 272만 건 중 밀도가 높은 좌표라 거리 계산 후 남는 행이 많다. */
-const LAT = 37.4979;
-const LNG = 127.0276;
-
 // ── 엔드포인트 정의 ────────────────────────────────────────────────────────
 // url/body는 setup()이 실제 ID를 채운 뒤에야 확정되므로 함수로 받는다(ctx = setup 반환값).
 // name은 init 컨텍스트에서 Trend를 만들어야 해서 정적이어야 한다.
@@ -150,7 +146,9 @@ const READ_ENDPOINTS = [
     // 병목 후보 ③ — 요청마다 80만 행을 GROUP BY
     { name: 'store_keywords',         method: 'GET', url: () => '/api/store/keywords' },
 
-    { name: 'benefit_expected',       method: 'GET', url: (c) => `/api/benefit/expected?storeId=${c.storeId}&amount=15000` },
+    // storeId는 시나리오 CSV에서 온다 — 그 행의 좌표를 뽑은 바로 그 가맹점이다.
+    { name: 'benefit_expected',       method: 'GET',
+      url: (c, sc) => `/api/benefit/expected?storeId=${sc.storeId}&amount=15000` },
 
     { name: 'report_summary',         method: 'GET', url: () => `/api/report/benefit/summary?yearMonth=${YEAR_MONTH}` },
     // 병목 후보 ① — DATE_FORMAT(paid_at)이 좌변에 있어 인덱스가 죽는다. 540만 행 풀스캔.
@@ -246,7 +244,7 @@ for (const e of [...READ_ENDPOINTS, ...WRITE_ENDPOINTS]) {
 const densityThresholds = {};
 for (const ep of READ_ENDPOINTS) {
     if (!ep.geo) continue;
-    for (const b of ['empty', 'sparse', 'mid', 'dense']) {
+    for (const b of ['sparse', 'mid', 'dense']) {
         densityThresholds[`ep_${ep.name}{density:${b}}`] = ['p(95)<999999'];
     }
 }
@@ -297,14 +295,6 @@ export function setup() {
     const writeCardsRes = http.get(`${BASE_URL}/api/user-cards`, { headers: authHeaders(writeToken) });
     const writeCards = writeCardsRes.json('data') || [];
 
-    const storeRes = http.get(
-        `${BASE_URL}/api/store/search?latitude=${LAT}&longitude=${LNG}&radiusMeters=3000`,
-        { headers: authHeaders(readToken) });
-    const stores = storeRes.json('data.stores') || [];
-    if (stores.length === 0) {
-        throw new Error('좌표 검색이 0건이다. 좌표를 바꾸거나 반경을 넓혀야 한다.');
-    }
-
     /*
      * 측정 유저가 실제로 거래를 갖고 있는지 확인한다.
      *
@@ -354,7 +344,6 @@ export function setup() {
         readToken,
         writeToken,
         userCardId: measuredCard.userCardId,
-        storeId: stores[0].storeId,
         writeUserCardId: writeCards.length ? writeCards[0].userCardId : cards[0].userCardId,
         writeUserCardIds: writeCards.map((c) => c.userCardId),
     };
@@ -363,7 +352,6 @@ export function setup() {
     console.log(`[setup] READ_USER=${READ_USER} userCardId=${ctx.userCardId} `
         + `(보유 ${cards.length}장 중 ${YEAR_MONTH} 거래 ${measuredCardTxCount}건으로 최다)`);
     console.log(`[setup] WRITE_USER=${WRITE_USER} userCardId=${ctx.writeUserCardId} (보유 ${writeCards.length}장)`);
-    console.log(`[setup] storeId=${ctx.storeId} (좌표 검색 ${stores.length}건 중 첫 행)`);
     console.log(`[setup] yearMonth=${YEAR_MONTH} (앱 시계 고정값 2026-07-24 기준)`);
     return ctx;
 }
@@ -452,7 +440,7 @@ function buildDensityTable(data) {
     ];
     for (const ep of READ_ENDPOINTS) {
         if (!ep.geo) continue;
-        for (const b of ['empty', 'sparse', 'mid', 'dense']) {
+        for (const b of ['sparse', 'mid', 'dense']) {
             const t = data.metrics[`ep_${ep.name}{density:${b}}`];
             if (!t || !t.values.count) continue;
             lines.push(`| \`${ep.name}\` | ${b} | ${t.values.count} | ${ms(t.values.med)} | ${ms(t.values.max)} |`);
