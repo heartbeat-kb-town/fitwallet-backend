@@ -34,7 +34,22 @@ public interface StoreMapper {
      * <p>
      * 전체 건수를 내려주지 않으므로 짝이 되는 {@code count*} 메서드가 없다.
      */
-    List<StoreSummaryResponse> findStores(@Param("cond") StoreSearchCondition cond);
+    /**
+     * @param latCells 사각형이 걸치는 {@code lat_cell} 목록(V15). {@code null}이면 이 조건이 붙지
+     *                 않고 위경도 인덱스로 돈다 — 좌표·카테고리 갈래가 그렇다.
+     *                 <p>
+     *                 검색어 갈래에서만 넘긴다. B-tree는 선행 컬럼이 범위면 후행 컬럼으로 더
+     *                 좁히지 못해서, {@code latitude BETWEEN}만으로는 인덱스 범위가 위도에만
+     *                 걸리고 경도는 ICP 필터로만 작동한다(= 전국을 가로지르는 위도 띠를 걷는다).
+     *                 선행을 <b>등치</b>인 {@code lat_cell IN (...)}으로 바꾸면 그 다음 컬럼인
+     *                 경도의 범위가 인덱스에 먹는다. 근거와 실측은 V15 주석에 있다.
+     *                 <p>
+     *                 ⚠️ {@code latitude BETWEEN}은 그대로 남는다. 셀은 0.01° 격자라 사각형보다
+     *                 넓고, 정답을 정하는 것은 여전히 사각형이다. 셀은 <b>덜 걷게 하는 힌트</b>일
+     *                 뿐이라 넉넉하게 잡아도 결과가 바뀌지 않는다.
+     */
+    List<StoreSummaryResponse> findStores(@Param("cond") StoreSearchCondition cond,
+                                          @Param("latCells") List<Integer> latCells);
 
     /**
      * 검색어 갈래의 <b>전국 단계</b>. 계단식 사각형이 5건을 못 채웠을 때만 호출된다.

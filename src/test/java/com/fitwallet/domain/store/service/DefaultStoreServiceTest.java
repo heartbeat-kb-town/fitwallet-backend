@@ -109,13 +109,13 @@ class DefaultStoreServiceTest {
                 .latitude(LATITUDE).longitude(LONGITUDE).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         List<StoreSummaryResponse> expected = List.of(store(1L));
-        given(storeMapper.findStores(any())).willReturn(expected);
+        given(storeMapper.findStores(any(), any())).willReturn(expected);
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
         // 스텁이 매번 1건만 주므로 계단이 끝까지 간다. 확정 반경은 마지막 단계에 나타난다.
-        then(storeMapper).should(times(3)).findStores(captor.capture());
+        then(storeMapper).should(times(3)).findStores(captor.capture(), any());
         assertThat(captor.getValue().getKeyword()).isNull();
         assertThat(captor.getValue().getCategoryId()).isNull();
         assertThat(captor.getValue().getRadiusMeters()).isEqualTo(3000);
@@ -127,7 +127,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
 
         storeService.searchStores(1L, cond);
 
@@ -140,7 +140,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("   ").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
@@ -175,7 +175,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("커피").radiusMeters(3001).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
@@ -226,7 +226,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("커피").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         given(storeMapper.countByFulltext(anyString())).willReturn(10);
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
@@ -243,12 +243,12 @@ class DefaultStoreServiceTest {
                 .latitude(LATITUDE).longitude(LONGITUDE).categoryId(2L).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         given(storeMapper.existsCategory(2L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(3)).findStores(captor.capture());
+        then(storeMapper).should(times(3)).findStores(captor.capture(), any());
         assertThat(captor.getValue().getRadiusMeters()).isEqualTo(3000);
         assertThat(response.getRadiusMeters()).isEqualTo(3000);
     }
@@ -258,13 +258,13 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword(" 카페 ").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
         // 5건을 못 채워 계단을 세 단 밟는다. 어느 단이든 키워드는 trim된 값이어야 한다.
-        then(storeMapper).should(atLeastOnce()).findStores(captor.capture());
+        then(storeMapper).should(atLeastOnce()).findStores(captor.capture(), any());
         assertThat(captor.getAllValues()).allSatisfy(c -> assertThat(c.getKeyword()).isEqualTo("카페"));
         assertThat(response.getKeyword()).isEqualTo("카페");
     }
@@ -274,7 +274,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("커피").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
 
         storeService.searchStores(1L, cond);
 
@@ -287,7 +287,7 @@ class DefaultStoreServiceTest {
                 .latitude(LATITUDE).longitude(LONGITUDE).categoryId(2L).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         given(storeMapper.existsCategory(2L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
 
         storeService.searchStores(1L, cond);
 
@@ -300,7 +300,7 @@ class DefaultStoreServiceTest {
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("커피").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         List<StoreSummaryResponse> expected = List.of(store(1L));
-        given(storeMapper.findStores(any())).willReturn(expected);
+        given(storeMapper.findStores(any(), any())).willReturn(expected);
         // 1건이라 300m에서 안 멈추고 전국 단계까지 간다. 이 테스트의 관심사는
         // 기록 실패가 조회 결과를 막지 않는다는 것이므로 두 경로 모두 같은 답을 주게 둔다.
         given(storeMapper.countByFulltext(anyString())).willReturn(10);
@@ -320,7 +320,7 @@ class DefaultStoreServiceTest {
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword(longKeyword).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         List<StoreSummaryResponse> expected = List.of(store(1L));
-        given(storeMapper.findStores(any())).willReturn(expected);
+        given(storeMapper.findStores(any(), any())).willReturn(expected);
         // 1건이라 300m에서 안 멈추고 전국 단계까지 간다. 이 테스트의 관심사는
         // 기록 실패가 조회 결과를 막지 않는다는 것이므로 두 경로 모두 같은 답을 주게 둔다.
         given(storeMapper.countByFulltext(anyString())).willReturn(10);
@@ -342,7 +342,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("없는가게").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
 
         StoreSearchResponse response = storeService.searchStores(1L, cond);
 
@@ -494,11 +494,11 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("커피").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(storesAtDistances(50, 60, 70, 80, 90));
+        given(storeMapper.findStores(any(), any())).willReturn(storesAtDistances(50, 60, 70, 80, 90));
 
         storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(1)).findStores(any());
+        then(storeMapper).should(times(1)).findStores(any(), any());
         then(storeMapper).should(never()).countByFulltext(anyString());
         then(storeMapper).should(never()).findStoresByFulltext(any(), any());
     }
@@ -508,7 +508,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("파리바게뜨").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         given(storeMapper.countByFulltext(anyString())).willReturn(2_601);
 
         storeService.searchStores(1L, cond);
@@ -516,7 +516,7 @@ class DefaultStoreServiceTest {
         // 갈림길은 3km 뒤에 있다. 앞 세 단(300m·1km·3km)은 무조건 밟고, 매칭이 적으므로
         // 10km는 건너뛰고 전국으로 간다. 앞 세 단이 싼 것이 근거다 — DefaultStoreService의
         // "갈림길을 3km 뒤로 옮긴 이유" 참고.
-        then(storeMapper).should(times(3)).findStores(any());
+        then(storeMapper).should(times(3)).findStores(any(), any());
         then(storeMapper).should(times(1)).findStoresByFulltext(any(), any());
     }
 
@@ -525,13 +525,13 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("식당").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         given(storeMapper.countByFulltext(anyString())).willReturn(43_722);
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(4)).findStores(captor.capture());
+        then(storeMapper).should(times(4)).findStores(captor.capture(), any());
         assertThat(captor.getAllValues())
                 .extracting(StoreSearchCondition::getRadiusMeters)
                 .containsExactly(300, 1000, 3000, 10000);
@@ -545,7 +545,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("일식 회/초밥").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         given(storeMapper.countByFulltext(anyString())).willReturn(3);
         ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
 
@@ -563,7 +563,7 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("(주)").build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         ArgumentCaptor<String> captor = ArgumentCaptor.forClass(String.class);
 
         storeService.searchStores(1L, cond);
@@ -585,12 +585,12 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(3)).findStores(captor.capture());
+        then(storeMapper).should(times(3)).findStores(captor.capture(), any());
         assertThat(captor.getAllValues())
                 .extracting(StoreSearchCondition::getRadiusMeters)
                 .containsExactly(300, 1000, 3000);
@@ -601,11 +601,11 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(storesAtDistances(50, 60, 70, 80, 90));
+        given(storeMapper.findStores(any(), any())).willReturn(storesAtDistances(50, 60, 70, 80, 90));
 
         storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(1)).findStores(any());
+        then(storeMapper).should(times(1)).findStores(any(), any());
     }
 
     @Test
@@ -616,14 +616,14 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(storesAtDistances(50, 60, 70, 80, 300));
+        given(storeMapper.findStores(any(), any())).willReturn(storesAtDistances(50, 60, 70, 80, 300));
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         storeService.searchStores(1L, cond);
 
         // 300m에서 멈추지 않고 1km로 넓혀 다시 확인한다. 1km에서는 5번째(300m)가 경계에
         // 걸치지 않으므로 거기서 끝난다.
-        then(storeMapper).should(times(2)).findStores(captor.capture());
+        then(storeMapper).should(times(2)).findStores(captor.capture(), any());
         assertThat(captor.getAllValues())
                 .extracting(StoreSearchCondition::getRadiusMeters)
                 .containsExactly(300, 1000);
@@ -634,13 +634,13 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).radiusMeters(100).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         storeService.searchStores(1L, cond);
 
         // 클램프가 없으면 [300, 1000, 100]을 돌아 100m 밖 가맹점이 응답에 실린다.
-        then(storeMapper).should(times(1)).findStores(captor.capture());
+        then(storeMapper).should(times(1)).findStores(captor.capture(), any());
         assertThat(captor.getValue().getRadiusMeters()).isEqualTo(100);
     }
 
@@ -649,12 +649,12 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).radiusMeters(1000).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(2)).findStores(captor.capture());
+        then(storeMapper).should(times(2)).findStores(captor.capture(), any());
         assertThat(captor.getAllValues())
                 .extracting(StoreSearchCondition::getRadiusMeters)
                 .containsExactly(300, 1000);
@@ -665,12 +665,12 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).radiusMeters(500).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(2)).findStores(captor.capture());
+        then(storeMapper).should(times(2)).findStores(captor.capture(), any());
         assertThat(captor.getAllValues())
                 .extracting(StoreSearchCondition::getRadiusMeters)
                 .containsExactly(300, 500)
@@ -683,7 +683,7 @@ class DefaultStoreServiceTest {
                 .latitude(LATITUDE).longitude(LONGITUDE).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
         List<StoreSummaryResponse> widest = storesAtDistances(2500, 2800);
-        given(storeMapper.findStores(any()))
+        given(storeMapper.findStores(any(), any()))
                 .willReturn(List.of())
                 .willReturn(storesAtDistances(900))
                 .willReturn(widest);
@@ -704,12 +704,12 @@ class DefaultStoreServiceTest {
         StoreSearchCondition cond = StoreSearchCondition.builder()
                 .latitude(LATITUDE).longitude(LONGITUDE).keyword("스타벅스").radiusMeters(3000).build();
         given(storeMapper.findLocationAgreed(1L)).willReturn(true);
-        given(storeMapper.findStores(any())).willReturn(List.of());
+        given(storeMapper.findStores(any(), any())).willReturn(List.of());
         ArgumentCaptor<StoreSearchCondition> captor = ArgumentCaptor.forClass(StoreSearchCondition.class);
 
         storeService.searchStores(1L, cond);
 
-        then(storeMapper).should(times(3)).findStores(captor.capture());
+        then(storeMapper).should(times(3)).findStores(captor.capture(), any());
         assertThat(captor.getAllValues())
                 .extracting(StoreSearchCondition::getRadiusMeters)
                 .containsExactly(300, 1000, 3000);

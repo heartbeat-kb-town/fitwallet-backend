@@ -20,11 +20,13 @@ import javax.sql.DataSource;
 import java.sql.PreparedStatement;
 import java.sql.Statement;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.stream.Collectors;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.tuple;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
@@ -104,7 +106,7 @@ class StoreMapperIntegrationTest {
 
     @Test
     void 거리가_가까운_순으로_정렬된다() {
-        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null));
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null), null);
 
         assertThat(stores)
                 .isNotEmpty()
@@ -114,14 +116,43 @@ class StoreMapperIntegrationTest {
     @Test
     void 조건에_맞는_매장이_많아도_최대_5건만_반환한다() {
         List<StoreSummaryResponse> stores =
-                storeMapper.findStores(condition(null, CONVENIENCE_CATEGORY_ID, null));
+                storeMapper.findStores(condition(null, CONVENIENCE_CATEGORY_ID, null), null);
 
         assertThat(stores).hasSize(5);
     }
 
+    /**
+     * V15의 2차원 인덱스가 <b>결과를 바꾸지 않는다</b>는 것을 지킨다.
+     * <p>
+     * {@code lat_cell IN (...)}은 인덱스가 덜 걷게 하는 힌트일 뿐이고, 정답은 여전히
+     * {@code latitude BETWEEN}이 정한다. 그런데 셀 목록을 좁게 계산하면 사각형 가장자리 행이
+     * <b>에러 없이 조용히 빠진다</b> — 그 회귀를 잡는 자리다.
+     * <p>
+     * 셀 계산은 {@code DefaultStoreService.latCells}와 같은 식이어야 한다.
+     */
+    @Test
+    void 셀_목록을_넘겨도_넘기지_않았을_때와_같은_결과다() {
+        StoreSearchCondition cond = condition("커피", null, 3000);
+        double halfHeight = (3000 + 1) / (6_371_000 * Math.PI / 180);
+        List<Integer> cells = new ArrayList<>();
+        for (int cell = (int) Math.floor((BASE_LATITUDE - halfHeight) * 100) - 1;
+             cell <= (int) Math.floor((BASE_LATITUDE + halfHeight) * 100) + 1; cell++) {
+            cells.add(cell);
+        }
+
+        List<StoreSummaryResponse> without = storeMapper.findStores(cond, null);
+        List<StoreSummaryResponse> with = storeMapper.findStores(cond, cells);
+
+        assertThat(with)
+                .extracting(StoreSummaryResponse::getStoreId, StoreSummaryResponse::getDistanceMeters)
+                .isEqualTo(without.stream()
+                        .map(s -> tuple(s.getStoreId(), s.getDistanceMeters()))
+                        .toList());
+    }
+
     @Test
     void 키워드로_상호명을_부분_일치_검색한다() {
-        List<StoreSummaryResponse> stores = storeMapper.findStores(condition("커피", null, null));
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition("커피", null, null), null);
 
         assertThat(stores)
                 .isNotEmpty()
@@ -132,7 +163,7 @@ class StoreMapperIntegrationTest {
     @Test
     void FULLTEXT_전국_조회가_LIKE_조회와_같은_결과를_낸다() {
         // MATCH는 가속기일 뿐이고 판정은 LIKE가 한다. 두 경로의 답이 다르면 그 전제가 깨진 것이다.
-        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("커피", null, null));
+        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("커피", null, null), null);
 
         List<StoreSummaryResponse> byFulltext =
                 storeMapper.findStoresByFulltext(condition("커피", null, null), "+\"커피\"");
@@ -151,7 +182,7 @@ class StoreMapperIntegrationTest {
         // 'AI'는 두 글자가 모두 stopword라 통째로 사라진다 — 빈 stopword 테이블을 가리키지 않은
         // 상태에서 인덱스를 만들면 여기서 0건이 나온다. 실패가 예외가 아니라 '조용한 0건'이라
         // 이 테스트가 없으면 배포 후에도 눈치채기 어렵다(perf DB 실측: bar·lab·nail·ca·A1이 전부 0건).
-        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("AI", null, null));
+        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("AI", null, null), null);
         assertThat(byLike).as("시드에 AI가 들어간 상호명이 있어야 이 테스트가 의미를 가진다").isNotEmpty();
 
         List<StoreSummaryResponse> byFulltext =
@@ -167,7 +198,7 @@ class StoreMapperIntegrationTest {
         // '(주)'처럼 구분자와 1글자만으로 된 키워드는 MATCH 식을 만들 수 없다. 그때 서비스가
         // matchExpression을 null로 넘기고, 매퍼는 MATCH를 붙이지 않은 채 LIKE로만 돌아야 한다.
         // 빈 MATCH 식을 넘기면 0건이 나와 결과가 바뀐다.
-        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("커피", null, null));
+        List<StoreSummaryResponse> byLike = storeMapper.findStores(condition("커피", null, null), null);
 
         List<StoreSummaryResponse> withoutMatch =
                 storeMapper.findStoresByFulltext(condition("커피", null, null), null);
@@ -182,7 +213,7 @@ class StoreMapperIntegrationTest {
     void 라우팅_신호는_LIKE_매칭_수_이상을_센다() {
         // MATCH는 LIKE의 상위집합이므로 이 값은 실제 매칭 수보다 작을 수 없다.
         // 작게 나오면 상위집합 전제가 깨진 것이고, 그러면 라우팅이 아니라 결과가 틀어진다.
-        int likeCount = storeMapper.findStores(condition("커피", null, null)).size();
+        int likeCount = storeMapper.findStores(condition("커피", null, null), null).size();
 
         int matchCount = storeMapper.countByFulltext("+\"커피\"");
 
@@ -192,7 +223,7 @@ class StoreMapperIntegrationTest {
     @Test
     void 카테고리로_업종을_필터링한다() {
         List<StoreSummaryResponse> stores =
-                storeMapper.findStores(condition(null, CONVENIENCE_CATEGORY_ID, null));
+                storeMapper.findStores(condition(null, CONVENIENCE_CATEGORY_ID, null), null);
 
         assertThat(stores)
                 .isNotEmpty()
@@ -204,7 +235,7 @@ class StoreMapperIntegrationTest {
     @Test
     void 키워드와_카테고리를_함께_주면_카테고리_안에서_검색한다() {
         List<StoreSummaryResponse> stores =
-                storeMapper.findStores(condition("커피", CAFE_CATEGORY_ID, null));
+                storeMapper.findStores(condition("커피", CAFE_CATEGORY_ID, null), null);
 
         assertThat(stores)
                 .isNotEmpty()
@@ -218,14 +249,14 @@ class StoreMapperIntegrationTest {
     void 키워드는_맞지만_카테고리가_다르면_제외된다() {
         // 시드의 '커피' 매장 7건은 전부 카페/디저트다. 편의점/마트로 필터하면 교집합이 없다.
         List<StoreSummaryResponse> stores =
-                storeMapper.findStores(condition("커피", CONVENIENCE_CATEGORY_ID, null));
+                storeMapper.findStores(condition("커피", CONVENIENCE_CATEGORY_ID, null), null);
 
         assertThat(stores).isEmpty();
     }
 
     @Test
     void 반경을_주면_그_안의_매장만_조회된다() {
-        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, 10));
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, 10), null);
 
         assertThat(stores)
                 .extracting(StoreSummaryResponse::getStoreId)
@@ -235,7 +266,7 @@ class StoreMapperIntegrationTest {
     @Test
     void 키워드와_카테고리가_모두_없으면_반경_안에서_가까운_순_5건이_조회된다() {
         // 서비스가 주변 조회 모드에 적용하는 기본 반경(3km)을 그대로 넣는다.
-        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, 3000));
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, 3000), null);
 
         assertThat(stores)
                 .hasSize(5)
@@ -245,7 +276,7 @@ class StoreMapperIntegrationTest {
 
     @Test
     void 반경을_주지_않으면_거리_필터가_걸리지_않는다() {
-        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null));
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null), null);
 
         assertThat(stores).hasSize(5);
         assertThat(stores.get(0).getDistanceMeters()).isLessThan(stores.get(4).getDistanceMeters());
@@ -256,7 +287,7 @@ class StoreMapperIntegrationTest {
         // 변경을 먼저 하고 한 번만 조회한다 (MyBatis 1차 캐시 회피)
         jdbcTemplate.update("UPDATE store SET latitude = NULL WHERE store_id = ?", NEAREST_STORE_ID);
 
-        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null));
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null), null);
 
         assertThat(stores)
                 .extracting(StoreSummaryResponse::getStoreId)
@@ -271,7 +302,7 @@ class StoreMapperIntegrationTest {
      */
     @Test
     void 카테고리_중첩_객체가_항상_채워진다() {
-        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null));
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null), null);
 
         assertThat(stores).isNotEmpty().allSatisfy(store -> {
             assertThat(store.getCategory()).isNotNull();
@@ -287,7 +318,7 @@ class StoreMapperIntegrationTest {
         jdbcTemplate.update("UPDATE store SET store_rank = 1 WHERE store_id = ?", TIE_LAST_BY_NAME);
 
         List<StoreSummaryResponse> stores =
-                storeMapper.findStores(tieCondition());
+                storeMapper.findStores(tieCondition(), null);
 
         assertThat(stores)
                 .extracting(StoreSummaryResponse::getStoreId)
@@ -296,7 +327,7 @@ class StoreMapperIntegrationTest {
 
     @Test
     void 표시순위가_전부_없으면_이름_사전순으로_정렬된다() {
-        List<StoreSummaryResponse> stores = storeMapper.findStores(tieCondition());
+        List<StoreSummaryResponse> stores = storeMapper.findStores(tieCondition(), null);
 
         assertThat(stores)
                 .extracting(StoreSummaryResponse::getStoreId)
@@ -635,7 +666,7 @@ class StoreMapperIntegrationTest {
         Long storeId = insertStore(exactlyThreeKmNorth, FAR_LONGITUDE);
 
         List<StoreSummaryResponse> stores = storeMapper.findStores(
-                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000));
+                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000), null);
 
         assertThat(stores).extracting(StoreSummaryResponse::getStoreId).containsExactly(storeId);
         assertThat(stores.get(0).getDistanceMeters()).isEqualTo(3000);
@@ -654,7 +685,7 @@ class StoreMapperIntegrationTest {
         Long storeId = insertStore(FAR_LATITUDE, exactlyThreeKmEast);
 
         List<StoreSummaryResponse> stores = storeMapper.findStores(
-                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000));
+                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000), null);
 
         assertThat(stores).extracting(StoreSummaryResponse::getStoreId).containsExactly(storeId);
     }
@@ -666,7 +697,7 @@ class StoreMapperIntegrationTest {
         insertStore(FAR_LATITUDE + 3100 * latitudeDegreesPerMeter, FAR_LONGITUDE);
 
         List<StoreSummaryResponse> stores = storeMapper.findStores(
-                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000));
+                buildCondition(FAR_LATITUDE, FAR_LONGITUDE, null, null, 3000), null);
 
         assertThat(stores).isEmpty();
     }
@@ -677,8 +708,8 @@ class StoreMapperIntegrationTest {
      */
     @Test
     void 사각형을_거쳐도_반경_안_상위_5건이_달라지지_않는다() {
-        List<StoreSummaryResponse> withoutBox = storeMapper.findStores(condition(null, null, null));
-        List<StoreSummaryResponse> withBox = storeMapper.findStores(condition(null, null, 1000));
+        List<StoreSummaryResponse> withoutBox = storeMapper.findStores(condition(null, null, null), null);
+        List<StoreSummaryResponse> withBox = storeMapper.findStores(condition(null, null, 1000), null);
 
         assertThat(withoutBox).allSatisfy(store ->
                 assertThat(store.getDistanceMeters()).isLessThanOrEqualTo(1000));
@@ -691,7 +722,7 @@ class StoreMapperIntegrationTest {
     void 좌표가_없는_매장은_반경_없는_조회에서도_제외된다() {
         insertStore(null, null);
 
-        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null));
+        List<StoreSummaryResponse> stores = storeMapper.findStores(condition(null, null, null), null);
 
         assertThat(stores).allSatisfy(store ->
                 assertThat(store.getDistanceMeters()).isNotNull());

@@ -14,6 +14,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -365,7 +366,7 @@ public class DefaultStoreService implements StoreService {
 
         List<StoreSummaryResponse> found = Collections.emptyList();
         for (int step : steps) {
-            found = storeMapper.findStores(withRadius(cond, step));
+            found = findStoresWithin(cond, step);
             if (isSettled(found, step)) {
                 return found;
             }
@@ -383,6 +384,47 @@ public class DefaultStoreService implements StoreService {
     }
 
     /** {@code @Setter}가 금지라(§4) 반경만 바꾼 새 인스턴스를 만든다. */
+    /**
+     * 위도 1도의 미터 환산. <b>매퍼 XML의 사각형 식과 같은 상수여야 한다</b> — 다르면 셀이
+     * 사각형을 덜 덮어 결과가 조용히 빠진다.
+     */
+    private static final double METERS_PER_DEGREE_LATITUDE = 6_371_000 * Math.PI / 180;
+
+    /** {@code store.lat_cell}의 격자 배율(V15). 0.01도 = 약 1.11km. */
+    private static final int LAT_CELL_SCALE = 100;
+
+    /**
+     * 사각형이 걸치는 {@code lat_cell} 목록. 반경이 있고 검색어 갈래일 때만 쓴다.
+     * <p>
+     * <b>넉넉하게 잡는다.</b> 셀은 정답을 정하지 않는다 — 정답은 매퍼의
+     * {@code latitude BETWEEN}이 정하고, 셀은 인덱스가 덜 걷게 하는 힌트일 뿐이다. 그래서
+     * 한 칸 더 붙여도 결과가 안 바뀌고, 자바 {@code double}과 MySQL {@code DECIMAL} 산술이
+     * 경계에서 어긋나 <b>사각형 가장자리 행이 조용히 빠지는 것</b>만 막는다.
+     * <p>
+     * 개수는 3km에서 7~8개, 10km에서 20개 안쪽이다.
+     */
+    private List<Integer> latCells(double latitude, int radiusMeters) {
+        double halfHeight = (radiusMeters + 1) / METERS_PER_DEGREE_LATITUDE;
+        int from = (int) Math.floor((latitude - halfHeight) * LAT_CELL_SCALE) - 1;
+        int to = (int) Math.floor((latitude + halfHeight) * LAT_CELL_SCALE) + 1;
+        List<Integer> cells = new ArrayList<>(to - from + 1);
+        for (int cell = from; cell <= to; cell++) {
+            cells.add(cell);
+        }
+        return cells;
+    }
+
+    /**
+     * 한 계단을 밟는다. 검색어 갈래에만 셀 목록을 넘긴다 — 좌표·카테고리 갈래는 각자의
+     * 인덱스가 이미 맞고, 셀을 넘기면 그 인덱스에 없는 컬럼이라 서버 필터만 늘어난다.
+     */
+    private List<StoreSummaryResponse> findStoresWithin(StoreSearchCondition cond, int radiusMeters) {
+        List<Integer> cells = cond.getKeyword() == null
+                ? null
+                : latCells(cond.getLatitude(), radiusMeters);
+        return storeMapper.findStores(withRadius(cond, radiusMeters), cells);
+    }
+
     private StoreSearchCondition withRadius(StoreSearchCondition cond, int radiusMeters) {
         return StoreSearchCondition.builder()
                 .keyword(cond.getKeyword())
@@ -452,7 +494,7 @@ public class DefaultStoreService implements StoreService {
         List<StoreSummaryResponse> found = Collections.emptyList();
         for (int i = 0; i < KEYWORD_ROUTING_DECISION_INDEX; i++) {
             int step = KEYWORD_CASCADE_STEPS_METERS[i];
-            found = storeMapper.findStores(withRadius(cond, step));
+            found = findStoresWithin(cond, step);
             if (isSettled(found, step)) {
                 return found;
             }
@@ -465,7 +507,7 @@ public class DefaultStoreService implements StoreService {
         if (climb) {
             for (int i = KEYWORD_ROUTING_DECISION_INDEX; i < KEYWORD_CASCADE_STEPS_METERS.length; i++) {
                 int step = KEYWORD_CASCADE_STEPS_METERS[i];
-                found = storeMapper.findStores(withRadius(cond, step));
+                found = findStoresWithin(cond, step);
                 if (isSettled(found, step)) {
                     return found;
                 }
