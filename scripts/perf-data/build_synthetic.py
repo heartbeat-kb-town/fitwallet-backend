@@ -673,7 +673,16 @@ def main():
     keywords = [k for k in candidates if measured.get(k, (0, 7))[0] > 0]
     dropped = len(candidates) - len(keywords)
     weights = {k: measured[k][0] for k in keywords}
-    categories = {k: measured[k][1] for k in keywords}
+
+    # 최빈 카테고리는 매칭이 적은 검색어에서 흔들린다 — `AK몰`은 매칭 1건이고 그 한 곳이
+    # 카페라 카페/디저트로 잡힌다. 브랜드명과 정확히 일치하면 brand 테이블이 정답이므로
+    # 그쪽을 우선한다(실측 7종/80종이 어긋났고 홈플러스·롯데마트가 쇼핑으로 잡혀 있었다).
+    brand_categories = {n.strip(): int(c)
+                        for c, n in query("SELECT category_id, brand_name FROM brand") if n.strip()}
+    categories = {k: brand_categories.get(k, measured[k][1]) for k in keywords}
+    overridden = sum(1 for k in keywords
+                     if k in brand_categories and brand_categories[k] != measured[k][1])
+    print(f"  브랜드 테이블로 카테고리를 바로잡은 검색어 {overridden}개")
     print(f"검색어 {len(keywords)}개 "
           f"(후보 {len(candidates)} − 매칭 0건 {dropped}, "
           f"업종 간 CATEGORY_WEIGHTS · 업종 내 LIKE 매칭 수 Zipf)\n")

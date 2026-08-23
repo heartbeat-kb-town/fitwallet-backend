@@ -116,13 +116,19 @@ def keyword_selectivity():
             per_cat.setdefault(batch[int(r[0])], {})[int(r[1])] = int(r[2])
         print(f"  {len(per_cat)}/{len(keywords)}", flush=True)
 
+    # 최빈 카테고리는 매칭이 적은 검색어에서 흔들린다 — `AK몰`은 매칭 1건이고 그 한 곳이
+    # 카페라 카페/디저트로 잡힌다. 브랜드명과 정확히 일치하면 brand 테이블이 정답이다.
+    # (build_synthetic.py의 main()도 같은 보정을 한다 — 둘의 분류가 같아야 한다.)
+    brand_categories = {r[1].strip(): int(r[0])
+                        for r in run_sql("SELECT category_id, brand_name FROM brand;") if r[1].strip()}
+
     sel = {}
     for k in keywords:
         cats = per_cat.get(k, {})
         total = sum(cats.values())
         # 동점이면 카테고리 ID가 작은 쪽 — 결정적이어야 재실행 결과가 같다.
         modal = min(cats, key=lambda c: (-cats[c], c)) if cats else 7
-        sel[k] = (total, modal)
+        sel[k] = (total, brand_categories.get(k, modal))
 
     with cache.open("w", encoding="utf-8", newline="") as f:
         w = csv.writer(f)
@@ -219,6 +225,9 @@ def build_load_csv(grid, bounds):
     keywords = [r[0] for r in run_sql(
         f"SELECT keyword FROM search_history WHERE CHAR_LENGTH(keyword) >= 2 "
         rf"AND keyword NOT LIKE '%\%%' ORDER BY RAND() LIMIT {LOAD_ROWS};")]
+    if len(keywords) < LOAD_ROWS:
+        sys.exit(f"검색어를 {LOAD_ROWS}개 못 뽑았다({len(keywords)}개). "
+                 f"search_history가 비었거나 재적재 중이다.")
 
     # 카테고리 칩은 좌표와 독립이다 — 사용자는 자기 위치와 무관하게 누른다.
     cats = weighted_categories(rnd, LOAD_ROWS)
@@ -287,6 +296,10 @@ def build_baseline_csv(grid, bounds, sel):
         by_band[selectivity_band(n)].append(k)
     for v in by_band.values():
         rnd.shuffle(v)
+    empty_bands = [b for b, v in by_band.items() if not v]
+    if empty_bands:
+        sys.exit(f"선택도 구간에 검색어가 없다: {empty_bands}. "
+                 f"#270 임계값 양쪽을 표본에 넣을 수 없으므로 중단한다.")
 
     # ⚠️ 좌표를 store에서 바로 뽑으면 밀집 격자에만 몰려 희소 단계(1~2)가 빈다 — store 표본
     #    자체가 밀도 가중이기 때문이다. **격자를 단계별로 나눠 고른 뒤, 그 격자 안의 매장을
@@ -302,6 +315,10 @@ def build_baseline_csv(grid, bounds, sel):
     cats = weighted_categories(rnd, BASELINE_WARMUP + BASELINE_ROWS)
 
     cells = [(t, b) for t in range(1, 8) for b in ("lo", "mid", "hi")]  # 21칸
+    # ⚠️ 격자를 `idx // len(cells)`로 고르면 같은 단계의 세 선택도 구간이 **같은 격자**를
+    #    쓴다(셋 다 같은 몫). 그러면 40행이 14개 매장만 반복해 benefit_expected가 데워진
+    #    버퍼 풀을 재게 된다. 단계마다 쓴 횟수를 따로 세어 행마다 다른 격자를 쓴다.
+    used = {t: 0 for t in range(1, 8)}
     rows, idx = [], 0
     while len(rows) < BASELINE_WARMUP + BASELINE_ROWS:
         tier, band = cells[idx % len(cells)]
@@ -311,9 +328,10 @@ def build_baseline_csv(grid, bounds, sel):
         picked = None
         # 격자에 기타(7)뿐이면 매장이 안 잡힌다. 같은 단계의 다음 격자로 넘어간다.
         for step in range(len(pool)):
-            gla, glo = pool[((idx // len(cells)) + step) % len(pool)]
+            gla, glo = pool[(used[tier] + step) % len(pool)]
             picked = store_in_cell(gla, glo)
             if picked:
+                used[tier] += step + 1
                 break
         if not picked:
             sys.exit(f"밀도 {tier}단계에서 기타가 아닌 매장을 못 찾았다.")
