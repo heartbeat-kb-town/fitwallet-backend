@@ -49,6 +49,21 @@ BRAND_SHARE = 0.45
 PLAIN_SHARE = 0.45  # 브랜드 없는 category 1~6
 # 나머지 10%가 기타(7). 기타는 혜택이 0건이라 판정이 빈손으로 끝나는 경로를 재현한다.
 
+# 사용자가 검색어를 치는 업종 분포. **공개 통계가 아니라 우리가 정한 가정치다** —
+# 근거와 대가는 docs/superpowers/specs/2026-08-22-k6-scenario-realism-design.md §2에 있다.
+#
+# ⚠️ 같은 벡터가 scripts/perf-k6/extract-scenarios.py에도 있다. 검색어 분포(DB)와 카테고리
+#    칩 분포(CSV)가 같은 벡터를 써야 한다는 것이 설계 전제이므로 **둘은 함께 고친다.**
+CATEGORY_WEIGHTS = {
+    1: 0.26,  # 카페/디저트
+    4: 0.26,  # 푸드
+    2: 0.20,  # 편의점/마트
+    3: 0.16,  # 쇼핑
+    6: 0.08,  # 주유
+    5: 0.04,  # 병원
+}
+assert abs(sum(CATEGORY_WEIGHTS.values()) - 1.0) < 1e-9, "CATEGORY_WEIGHTS의 합이 1이 아니다"
+
 BETTER_SHARE = 0.30  # better_user_card_id를 채우는 비율
 APP_SHARE = 0.45  # is_used_app = 1 비율 (데모 실측 175/391)
 
@@ -492,29 +507,59 @@ def measure_selectivity(keywords):
     def esc(k):
         return k.replace("\\", "\\\\").replace("'", "''").replace("%", "\\%").replace("_", "\\_")
 
-    counts = {}
+    per_cat = {}
     for i in range(0, len(keywords), 25):
         batch = keywords[i:i + 25]
-        parts = [f"SELECT {i + j} i, COUNT(*) n FROM store "
-                 f"WHERE store_name LIKE '%{esc(k)}%'" for j, k in enumerate(batch)]
-        for idx, n in query(" UNION ALL ".join(parts)):
-            counts[keywords[int(idx)]] = int(n)
-        print(f"  매칭 수 측정 {len(counts)}/{len(keywords)}", flush=True)
+        parts = [f"SELECT {i + j} i, category_id c, COUNT(*) n FROM store "
+                 f"WHERE store_name LIKE '%{esc(k)}%' GROUP BY category_id"
+                 for j, k in enumerate(batch)]
+        for idx, c, n in query(" UNION ALL ".join(parts)):
+            per_cat.setdefault(keywords[int(idx)], {})[int(c)] = int(n)
+        print(f"  매칭 수·카테고리 측정 {len(per_cat)}/{len(keywords)}", flush=True)
+
+    counts = {}
+    for k in keywords:
+        cats = per_cat.get(k, {})
+        # 동점이면 카테고리 ID가 작은 쪽 — 결정적이어야 재실행 결과가 같다.
+        modal = min(cats, key=lambda c: (-cats[c], c)) if cats else 7
+        counts[k] = (sum(cats.values()), modal)
     return counts
 
 
-def write_search_history(out_dir, rng, keywords, weights, reference, seed):
+def allocate_slots(rnd, total, caps):
+    """검색어 슬롯 total개를 CATEGORY_WEIGHTS 비율대로 업종에 나눈다.
+
+    검색어가 5개뿐인 주유에 6칸이 떨어지면 비복원 추출이 불가능하므로 caps로 막는다
+    (16칸에서 확률 0.03% — 5만 명이면 십수 명). 막힌 칸은 남은 업종으로 재분배된다.
+    """
+    counts = {c: 0 for c in CATEGORY_WEIGHTS}
+    for _ in range(total):
+        avail = [c for c in CATEGORY_WEIGHTS if counts[c] < caps[c]]
+        if not avail:
+            break
+        counts[rnd.choices(avail, weights=[CATEGORY_WEIGHTS[c] for c in avail])[0]] += 1
+    return counts
+
+
+def write_search_history(out_dir, rng, keywords, weights, categories, reference, seed):
     """search_history 80만 행 (5만 명 × 16개). UNIQUE(user_id, keyword)라 유저별로 비복원 추출한다.
 
     **균등 추출을 쓰지 않는다.** 예전에는 `rng.sample()`이라 검색어 빈도가 2,479~2,792로
-    평평했는데(최대/최소 1.13배), 실제 검색은 소수 검색어에 몰린다. 그리고 이 서비스에서는
-    **가장 많이 검색되는 말이 곧 가장 무거운 쿼리**다 — `카페`가 상호명 35,759건에 매칭된다.
-    균등하게 뽑으면 부하 테스트가 그 구간을 거의 밟지 않아 p95가 낙관적으로 나온다.
+    평평했는데(최대/최소 1.13배), 실제 검색은 소수 검색어에 몰린다.
 
-    가중치는 그 검색어의 store_name LIKE 매칭 수이고, 그 순위에 Zipf(1/r)를 씌운다.
+    **업종 간 비중은 CATEGORY_WEIGHTS, 업종 안 상대비는 매칭 수 Zipf.** 예전에는 매칭 수
+    Zipf 하나만 전역으로 걸었는데, 그러면 "매장이 많은 말 = 많이 검색되는 말"이 되어 카드
+    혜택 앱인데도 병원 계열(약국·한의원·치과의원)이 검색의 17%를 차지했다. 업종 비중만
+    바꾸고 업종 안 순위는 그대로 두면 무거운 검색어 노출은 유지된다 — 선택도 >13,000 구간
+    비중이 16.9% → 16.2%로 사실상 그대로다(설계 §2).
+
+    슬롯 배분으로 업종 비중을 **정확히** 맞춘다. 유저마다 16칸을 업종 벡터대로 나눈 뒤 그
+    업종 안에서만 뽑으므로, 실현된 업종 비중이 목표와 일치한다. 전역 Gumbel top-k에 가중치만
+    실어서는 top-k의 비선형성 때문에 목표 비중이 재현되지 않는다.
 
     비복원 가중 추출은 **Gumbel top-k**로 한다 — 후보마다 log(w) + Gumbel 잡음을 주고 상위 k개를
     고르면 가중 비복원 추출과 같아진다. UNIQUE(user_id, keyword) 제약을 그대로 지킨다.
+    (top-k는 머리쪽을 압축한다. 업종 안 상대비가 가중치 비와 정확히 같지는 않다 — 예전과 같다.)
 
     ⚠️ 전용 RNG를 쓴다. main의 rng를 쓰면 앞선 writer들이 소비한 양에 따라 결과가 달라져
     --only-search-history로 뽑은 파일이 전체 실행 결과와 달라진다.
@@ -527,16 +572,33 @@ def write_search_history(out_dir, rng, keywords, weights, reference, seed):
 
     sh_rng = random.Random(seed ^ 0x5EA2C4)
     ranked = sorted(keywords, key=lambda k: (-weights.get(k, 1), k))
-    log_w = [math.log(1.0 / (i + 1)) for i in range(len(ranked))]
+    # 전역 순위 Zipf. 업종 안 상대비를 보존하려면 업종별로 다시 매기면 안 된다 —
+    # 약국(전역 2위)과 종합병원(전역 50위)의 비가 1/2:1/50에서 1/1:1/7로 바뀌어 버린다.
+    log_w = {k: math.log(1.0 / (i + 1)) for i, k in enumerate(ranked)}
+
+    by_cat = {}
+    for k in ranked:
+        by_cat.setdefault(categories.get(k, 7), []).append(k)
+    by_cat.pop(7, None)  # 기타는 칩에도 벡터에도 없다
+    missing = [c for c in CATEGORY_WEIGHTS if c not in by_cat]
+    if missing:
+        sys.exit(f"검색어가 하나도 없는 카테고리가 있다: {missing}")
+    caps = {c: len(by_cat[c]) for c in CATEGORY_WEIGHTS}
+    print(f"  업종별 검색어 수 " + " · ".join(f"{c}:{caps[c]}" for c in sorted(caps)))
 
     row_id = 0
     with open(path, "w", encoding="utf-8") as fh:
         for user_id in range(1, TARGET_USERS + 1):
-            gumbel = [(log_w[i] - math.log(-math.log(sh_rng.random())), i)
-                      for i in range(len(ranked))]
-            gumbel.sort(reverse=True)
-            for _, i in gumbel[:KEYWORDS_PER_USER]:
-                keyword = ranked[i]
+            picks = []
+            for cid, n in allocate_slots(sh_rng, KEYWORDS_PER_USER, caps).items():
+                if not n:
+                    continue
+                pool = by_cat[cid]
+                gumbel = sorted(
+                    ((log_w[k] - math.log(-math.log(sh_rng.random())), k) for k in pool),
+                    reverse=True)
+                picks.extend(k for _, k in gumbel[:n])
+            for keyword in picks:
                 row_id += 1
                 # 1/4은 최근 7일 이내. 검색 이력 조회가 최신순 상위 N을 본다.
                 if sh_rng.random() < 0.25:
@@ -607,12 +669,14 @@ def main():
     print(f"후보 {len(candidates)}개 (기타 제외 소분류명 + 브랜드명)")
 
     # keywords.tsv의 매장 수는 폴백으로만 남는다. 실제 순위와 필터는 아래 실측이 정한다.
-    match_counts = measure_selectivity(candidates)
-    keywords = [k for k in candidates if match_counts.get(k, 0) > 0]
+    measured = measure_selectivity(candidates)
+    keywords = [k for k in candidates if measured.get(k, (0, 7))[0] > 0]
     dropped = len(candidates) - len(keywords)
-    weights = {k: match_counts[k] for k in keywords}
+    weights = {k: measured[k][0] for k in keywords}
+    categories = {k: measured[k][1] for k in keywords}
     print(f"검색어 {len(keywords)}개 "
-          f"(후보 {len(candidates)} − 매칭 0건 {dropped}, LIKE 매칭 수 가중)\n")
+          f"(후보 {len(candidates)} − 매칭 0건 {dropped}, "
+          f"업종 간 CATEGORY_WEIGHTS · 업종 내 LIKE 매칭 수 Zipf)\n")
 
     if not args.only_search_history:
         product_ids = [int(row[0]) for row in query("SELECT card_product_id FROM card_product")]
@@ -629,7 +693,8 @@ def main():
         total = stats["brand"] + stats["plain"] + stats["etc"]
         print(f"payment_transaction {total:>9,}  → {os.path.basename(path)}")
 
-    path, count = write_search_history(out_dir, rng, keywords, weights, reference, args.seed)
+    path, count = write_search_history(
+        out_dir, rng, keywords, weights, categories, reference, args.seed)
     print(f"search_history      {count:>9,}  → {os.path.basename(path)}\n")
 
     if args.only_search_history:
