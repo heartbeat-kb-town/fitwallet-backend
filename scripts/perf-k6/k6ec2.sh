@@ -44,7 +44,9 @@ ssm_run() {  # $1=설명 $2=쉘 명령
 case "${1:-}" in
   push)
     cmds=""
-    for f in baseline.js load.js active-users.csv scenarios-load.csv scenarios-baseline.csv; do
+    # 새 스크립트를 만들면 여기에 더한다. 빠뜨리면 run에서 "couldn't be found on local disk"로 죽는다.
+    for f in baseline.js load.js keyword-probe.js \
+             active-users.csv scenarios-load.csv scenarios-baseline.csv keyword-selectivity.csv; do
       aws s3 cp "$HERE/$f" "s3://$BUCKET/$PREFIX/$f" --region "$REGION" >/dev/null
       url=$(aws s3 presign "s3://$BUCKET/$PREFIX/$f" --expires-in 3600 --region "$REGION")
       cmds+="curl -sfS -o /opt/perf/$f '$url' && "
@@ -78,5 +80,31 @@ case "${1:-}" in
       echo "  받음: results/$name.$ext ($(wc -c < "$HERE/results/$name.$ext") bytes)" >&2
     done
     ;;
-  *) echo "사용법: k6ec2.sh push | run <script.js> <결과이름> [ENV=V ...]" >&2; exit 1 ;;
+  probe)
+    # keyword-probe.js 전용. run과 달리 요약 파일이 아니라 **행 단위 CSV**를 회수한다.
+    #
+    # ⚠️ run의 `tail -80`을 쓸 수 없다 — 2,000행이 잘린다. 그래서 EC2에서 파일로 받아
+    #    청크로 끌어온다. SSM 출력 상한이 24,000자라 한 번에 다 못 가져온다.
+    # ⚠️ --log-format=raw가 없으면 k6가 console.log를 time="..." msg="..."로 감싸
+    #    CSV가 깨진다.
+    name="$2"; shift 2; envs="$*"
+    ssm_run "probe run" "cd /opt/perf && rm -f probe-rows.csv && ($envs k6 run --log-format=raw --quiet keyword-probe.js 2>&1 | grep '^ROW,' > probe-rows.csv); wc -l < probe-rows.csv"
+    # ⚠️ 숫자만 남긴다. SSM 출력에 개행·캐리지리턴이 섞이면 산술 확장이 변수명으로 오해한다.
+    total=$(ssm_run "count rows" "wc -l < /opt/perf/probe-rows.csv" | tr -cd '0-9')
+    # ⚠️ ${}로 감싼다. `$total개`는 bash가 한글 바이트를 변수명에 붙여 읽어 unbound variable이 된다.
+    echo "  회수할 행 ${total}개" >&2
+    mkdir -p "$HERE/results"
+    : > "$HERE/results/$name.csv"
+    chunk=200
+    for ((from = 1; from <= total; from += chunk)); do
+      to=$((from + chunk - 1))
+      out=$(ssm_run "fetch $from-$to/$total" "sed -n '${from},${to}p' /opt/perf/probe-rows.csv")
+      case "$out" in *"Output truncated"*) echo "회수 실패: 청크가 잘렸다. chunk를 줄여라" >&2; exit 1 ;; esac
+      printf '%s\n' "$out" >> "$HERE/results/$name.csv"
+    done
+    got=$(wc -l < "$HERE/results/$name.csv" | tr -d ' ')
+    [ "$got" = "$total" ] || { echo "회수 불일치: 원본 ${total}행, 받은 것 ${got}행" >&2; exit 1; }
+    echo "  받음: results/$name.csv (${got}행)" >&2
+    ;;
+  *) echo "사용법: k6ec2.sh push | run <script.js> <결과이름> [ENV=V ...] | probe <결과이름> [ENV=V ...]" >&2; exit 1 ;;
 esac
