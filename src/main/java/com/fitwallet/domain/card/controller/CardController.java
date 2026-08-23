@@ -169,7 +169,8 @@ public class CardController {
             - `yearMonth`를 생략하면 현재 월을 조회하며, 미래 월을 제외한 모든 과거 월을 조회할 수 있다.
             - `availableYearMonths`는 현재 월부터 최초 거래 월까지 빈 월을 포함해 최신순으로 반환한다.
             - 체크카드의 현재 월 실적은 오늘 거래까지, 신용카드는 전날 거래까지 반영한다.
-            - `recognizedAmount`는 `is_eligible=true`, `excludedAmount`는 `is_eligible=false` 거래의 `amount` 합계다.
+            - `recognizedAmount`는 `is_eligible=true` 거래의 할인 적용 후 결제금액(`final_amount`) 합계다.
+            - `excludedAmount`는 `is_eligible=false` 거래의 할인 전 이용금액(`amount`) 합계다.
             - 실적 조건이 있는 카드는 최소금액 기준의 통합 구간과 구간별 적용 혜택을 반환한다.
             - 실적 조건이 없는 카드는 `tiers=[]`이고 혜택을 `defaultBenefits`로 반환한다.
             - 실적 금액을 선택하면 같은 `cardId`, `yearMonth`로 카드별 결제 내역 API를 호출할 수 있다.
