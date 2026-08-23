@@ -61,7 +61,7 @@ class DefaultBenefitReportServiceTest {
 
         assertThat(response.getRecommendations()).isEmpty();
         // 빈 categoryIds로 매퍼를 호출하면 IN () 문법 오류가 나므로 아예 호출하지 않아야 한다
-        verify(benefitReportMapper, never()).getRecommendedCards(anyLong(), anyList());
+        verify(benefitReportMapper, never()).getAllRecommendationCandidates();
     }
 
     @Test
@@ -91,8 +91,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -130,8 +132,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -166,8 +170,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -205,8 +211,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -241,8 +249,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -283,8 +293,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -325,8 +337,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 

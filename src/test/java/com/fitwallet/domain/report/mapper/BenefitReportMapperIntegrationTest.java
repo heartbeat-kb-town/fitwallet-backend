@@ -71,7 +71,10 @@ class BenefitReportMapperIntegrationTest {
 
         List<Long> categoryIds = top.stream().map(CategorySpendResponse::getCategoryId).toList();
 
-        List<CardRecommendationRawResponse> rows = benefitReportMapper.getRecommendedCards(userId, categoryIds);
+        // 카탈로그는 사용자·카테고리 조건이 없다. 필터는 서비스가 자바에서 한다.
+        List<CardRecommendationRawResponse> rows = benefitReportMapper.getAllRecommendationCandidates().stream()
+                .filter(r -> categoryIds.contains(r.getCategoryId()))
+                .toList();
 
         String inClause = categoryIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElseThrow();
         Integer distinctCombos = jdbcTemplate().queryForObject(
