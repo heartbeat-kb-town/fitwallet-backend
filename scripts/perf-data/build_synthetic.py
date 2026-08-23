@@ -24,6 +24,7 @@ import datetime
 import math
 import os
 import random
+import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -42,6 +43,10 @@ TX_MU = math.log(TX_MEAN_PER_ACTIVE) - TX_SIGMA**2 / 2
 TX_MIN, TX_MAX = 30, 12_000
 TARGET_TX = ACTIVE_USERS * TX_MEAN_PER_ACTIVE  # 약 27,000,000 (분포라 정확히 일치하진 않는다)
 KEYWORDS_PER_USER = 16
+
+# 검색어 최소 길이. DefaultStoreService.KEYWORD_MIN_LENGTH와 맞춘다 —
+# ngram_token_size = 2라 1글자는 색인되지 않아 서비스가 거부한다.
+KEYWORD_MIN_LENGTH = 2
 
 # 거래를 store 세 구간에 나누는 비율. 브랜드 45%는 benefit_service의 스코프 구성비
 # (BRAND 75 : INDUSTRY 90)를 반영한 값이며 실제 결제 빈도의 추정치가 아니다.
@@ -487,6 +492,31 @@ def write_transactions(out_dir, rng, stores, benefits, card_start, card_product,
     return path, stats
 
 
+def user_typed_form(subcategory):
+    """행정 소분류명을 **사용자가 칠 법한 말**로 줄인다. 조각이 없으면 None.
+
+    검색어 풀이 `keywords.tsv`(업종 소분류명)에서 오는 탓에 행정 표기가 그대로 섞여 있었다 —
+    `국수/칼국수` · `아이스크림 할인점` · `성형외과 의원` 같은 것들이다. **사용자는 이렇게
+    치지 않는다.** `칼국수`라고 치지 `국수/칼국수`라고 치지 않는다.
+
+    측정에서 이게 병목으로 잡혔다. ngram이 `+"국수" +"칼국수"`로 쪼개는데 `칼국수`가 `국수`를
+    포함하므로 AND가 무의미해져 **칼국수 매장 8,681건을 전부 꺼낸 뒤** `LIKE '%국수/칼국수%'`로
+    11건만 남긴다. 8,670건이 헛수고다. 운영 실측으로 이 검색어가 167ms였다.
+
+    **가장 긴 조각을 쓴다.** 그쪽이 더 구체적이라 사용자가 치는 말에 가깝고, `의원`·`전문`처럼
+    단독으로는 안 치는 범용 조각이 안 생긴다.
+
+    ⚠️ **브랜드명에는 적용하지 않는다.** `S-OIL`·`SSG.COM`은 구분자가 들어 있어도 그 자체가
+    사용자가 치는 말이다. 이 함수는 소분류명에만 쓴다(브랜드는 아래에서 따로 더한다).
+
+    ⚠️ 매칭 수가 크게 는다 — `족발/보쌈` 1건 → `족발` 7,200건. **측정이 보수적인 쪽으로
+    바뀐다.** 실사용에 맞추는 것이 목적이므로 의도된 방향이다.
+    """
+    fragments = [f for f in re.split(r"[^\w]+", subcategory, flags=re.UNICODE)
+                 if len(f) >= KEYWORD_MIN_LENGTH]
+    return max(fragments, key=len) if fragments else None
+
+
 def measure_selectivity(keywords):
     """후보 검색어별 store_name LIKE 매칭 수를 잰다. 이 값 하나가 두 가지를 한다.
 
@@ -650,11 +680,13 @@ def main():
 
     keyword_path = os.path.join(out_dir, "keywords.tsv")
     weights = {}
+    subcategories = set()   # 브랜드명과 구분한다 — 축약은 소분류명에만 건다
     for line in open(keyword_path, encoding="utf-8"):
         if not line.strip():
             continue
         word, _, count = line.rstrip("\n").partition("\t")
         weights[word] = int(count) if count else 1
+        subcategories.add(word)
 
     # 브랜드명도 검색어다. 가중치는 그 브랜드의 매장 수 — 소분류와 같은 척도라 함께 정렬된다.
     brand_stores = {int(b): int(n) for b, n in
@@ -672,6 +704,25 @@ def main():
     measured = measure_selectivity(candidates)
     keywords = [k for k in candidates if measured.get(k, (0, 7))[0] > 0]
     dropped = len(candidates) - len(keywords)
+
+    # ⚠️ 축약은 **0건 필터 뒤에** 건다. 앞에 걸면 그 필터가 무력화된다 — `여성 의류 소매업`은
+    #    상호명에 안 나타나 0건으로 걸러지던 건데, `소매업`으로 줄이면 4,910건에 매칭돼
+    #    되살아난다. 그 필터가 하던 일이 정확히 행정 용어 제거다(실측으로 50종이 되살아났다).
+    renamed = {}
+    for k in keywords:
+        if k in subcategories:
+            typed = user_typed_form(k)
+            if typed is not None and typed != k:
+                renamed[k] = typed
+    if renamed:
+        print(f"  사용자 표기로 축약 {len(renamed)}종: "
+              + " · ".join(f"{a}→{b}" for a, b in sorted(renamed.items())[:6])
+              + (" ..." if len(renamed) > 6 else ""))
+        # 줄인 형태는 매칭 수가 달라지므로 다시 잰다. 브랜드명과 겹치면 브랜드 쪽을 남긴다.
+        fresh = measure_selectivity(sorted(set(renamed.values()) - set(keywords)))
+        measured = {**measured, **fresh}
+        keywords = sorted({renamed.get(k, k) for k in keywords})
+        keywords = [k for k in keywords if measured.get(k, (0, 7))[0] > 0]
     weights = {k: measured[k][0] for k in keywords}
 
     # 최빈 카테고리는 매칭이 적은 검색어에서 흔들린다 — `AK몰`은 매칭 1건이고 그 한 곳이
