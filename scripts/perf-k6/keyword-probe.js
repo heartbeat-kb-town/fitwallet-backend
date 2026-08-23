@@ -45,6 +45,14 @@ const SELECTIVITY_FILE = __ENV.SELECTIVITY_FILE || './keyword-selectivity.csv';
 
 /** `real` = 실빈도 표본 그대로, `sweep` = 검색어 × 밀도 전 조합 한 번씩. */
 const MODE = __ENV.MODE || 'real';
+
+/*
+ * 반경을 붙이면 **다른 코드 경로**를 잰다. 서비스가 radiusMeters의 유무로 갈리기 때문이다 —
+ * 있으면 findStoresByCascadingRadius([300,1000,3000], count·전국 없음),
+ * 없으면 findStoresByKeyword(사다리 + countByFulltext + 전국 FULLTEXT).
+ * 즉 RADIUS=3000은 "전국 폴백을 없앤 세상"을 배포 없이 재는 스위치다.
+ */
+const RADIUS = __ENV.RADIUS || '';
 const WARMUP = Number(__ENV.WARMUP || 20);
 const SLO_MS = Number(__ENV.SLO_MS || 100);
 
@@ -112,7 +120,8 @@ export function setup() {
     if (res.status !== 200) {
         throw new Error(`로그인 실패 (${PROBE_USER}): HTTP ${res.status} — ${res.body}`);
     }
-    console.log(`[setup] MODE=${MODE} rows=${rows.length} WARMUP=${WARMUP} SLO=${SLO_MS}ms`);
+    console.log(`[setup] MODE=${MODE} rows=${rows.length} WARMUP=${WARMUP} SLO=${SLO_MS}ms`
+        + ` RADIUS=${RADIUS || '(없음 — 전국 폴백 경로)'}`);
     console.log('ROW,idx,tier,keyword,selectivity,ms,n,farthest,status');
     return { token: res.json('data.accessToken') };
 }
@@ -121,7 +130,8 @@ export default function (data) {
     const i = __ITER;
     const row = rows[i % rows.length];
     const url = `${BASE_URL}/api/store/search`
-        + `?keyword=${encodeURIComponent(row.keyword)}&latitude=${row.lat}&longitude=${row.lng}`;
+        + `?keyword=${encodeURIComponent(row.keyword)}&latitude=${row.lat}&longitude=${row.lng}`
+        + (RADIUS ? `&radiusMeters=${RADIUS}` : '');
 
     const res = http.get(url, {
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${data.token}` },
