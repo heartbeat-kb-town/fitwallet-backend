@@ -61,7 +61,7 @@ class DefaultBenefitReportServiceTest {
 
         assertThat(response.getRecommendations()).isEmpty();
         // 빈 categoryIds로 매퍼를 호출하면 IN () 문법 오류가 나므로 아예 호출하지 않아야 한다
-        verify(benefitReportMapper, never()).getRecommendedCards(anyLong(), anyList());
+        verify(benefitReportMapper, never()).getAllRecommendationCandidates();
     }
 
     @Test
@@ -91,8 +91,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -130,8 +132,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -166,8 +170,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -205,8 +211,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -241,8 +249,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -283,8 +293,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -325,8 +337,10 @@ class DefaultBenefitReportServiceTest {
         when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
         when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2))
                 .thenReturn(List.of(category));
-        when(benefitReportMapper.getRecommendedCards(userId, List.of(1L)))
+        when(benefitReportMapper.getAllRecommendationCandidates())
                 .thenReturn(List.of(card));
+        // 보유 카드 제외는 이제 자바에서 한다(예전에는 SQL의 NOT IN).
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of());
 
         BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
 
@@ -334,4 +348,36 @@ class DefaultBenefitReportServiceTest {
         assertThat(response.getRecommendations().get(0).getExpectedBenefit())
                 .isEqualByComparingTo(BigDecimal.valueOf(15000));
     }
+    @Test
+    void 이미_보유한_카드는_추천에서_제외된다() {
+        Long userId = 1L;
+        String yearMonth = "2026-04";
+
+        CategorySpendResponse category = CategorySpendResponse.builder()
+                .categoryId(1L)
+                .categoryName("카페/디저트")
+                .spendAmount(BigDecimal.valueOf(50000))
+                .build();
+        CardRecommendationRawResponse owned = CardRecommendationRawResponse.builder()
+                .cardProductId(90L).cardName("이미 가진 카드").categoryId(1L).categoryName("카페/디저트")
+                .valueType("RATE").discountRate(BigDecimal.valueOf(1)).build();
+        CardRecommendationRawResponse fresh = CardRecommendationRawResponse.builder()
+                .cardProductId(91L).cardName("새 카드").categoryId(1L).categoryName("카페/디저트")
+                .valueType("RATE").discountRate(BigDecimal.valueOf(1)).build();
+
+        when(benefitReportMapper.getTotalReceivedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
+        when(benefitReportMapper.getTotalMissedBenefit(userId, yearMonth)).thenReturn(BigDecimal.ZERO);
+        when(benefitReportMapper.getCategoryBenefits(userId, yearMonth)).thenReturn(List.of());
+        when(benefitReportMapper.getTopSpendingCategories(userId, yearMonth, 2)).thenReturn(List.of(category));
+        when(benefitReportMapper.getAllRecommendationCandidates()).thenReturn(List.of(owned, fresh));
+        when(benefitReportMapper.findOwnedCardProductIds(userId)).thenReturn(List.of(90L));
+
+        BenefitSummaryResponse response = benefitReportService.getBenefitSummary(userId, yearMonth);
+
+        // 예전에는 SQL의 NOT IN이 걸렀다. 카탈로그로 옮기면서 자바로 넘어온 책임이라 잠근다.
+        assertThat(response.getRecommendations())
+                .extracting(CardRecommendationResponse::getCardProductId)
+                .containsExactly(91L);
+    }
+
 }

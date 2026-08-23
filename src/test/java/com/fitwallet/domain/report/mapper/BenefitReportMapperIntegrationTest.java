@@ -60,6 +60,9 @@ class BenefitReportMapperIntegrationTest {
      * 추천 후보 쿼리가 tier/limit 조인으로 서비스당 여러 행을 뱉으면
      * 서비스 레이어가 같은 예상 혜택을 중복 합산한다(#188). 매퍼가 (서비스, 카테고리)
      * 조합당 정확히 한 행만 돌려주는지 — 실 시드 데이터로 잠근다.
+     * <p>
+     * 보유 카드 제외는 여기서 검증하지 않는다. 카탈로그는 사용자 조건이 없고
+     * 필터는 서비스가 자바에서 하기 때문이다(DefaultBenefitReportService 참고).
      */
     @Test
     void 추천_후보는_서비스와_카테고리_조합당_한_행만_반환한다() {
@@ -71,7 +74,10 @@ class BenefitReportMapperIntegrationTest {
 
         List<Long> categoryIds = top.stream().map(CategorySpendResponse::getCategoryId).toList();
 
-        List<CardRecommendationRawResponse> rows = benefitReportMapper.getRecommendedCards(userId, categoryIds);
+        // 카탈로그는 사용자·카테고리 조건이 없다. 필터는 서비스가 자바에서 한다.
+        List<CardRecommendationRawResponse> rows = benefitReportMapper.getAllRecommendationCandidates().stream()
+                .filter(r -> categoryIds.contains(r.getCategoryId()))
+                .toList();
 
         String inClause = categoryIds.stream().map(String::valueOf).reduce((a, b) -> a + "," + b).orElseThrow();
         Integer distinctCombos = jdbcTemplate().queryForObject(
@@ -82,9 +88,8 @@ class BenefitReportMapperIntegrationTest {
                         "  JOIN category c ON sc.category_id = c.category_id" +
                         "  JOIN card_product cp ON bs.card_product_id = cp.card_product_id" +
                         "  WHERE c.category_id IN (" + inClause + ")" +
-                        "  AND cp.card_product_id NOT IN (SELECT card_product_id FROM user_card WHERE user_id = ?)" +
                         ") t",
-                Integer.class, userId
+                Integer.class
         );
 
         assertThat(rows).hasSize(distinctCombos);

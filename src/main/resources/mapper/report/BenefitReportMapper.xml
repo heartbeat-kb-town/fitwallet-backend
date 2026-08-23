@@ -77,7 +77,18 @@
            min_prev_month_spend가 NULL이 되어 서비스에서 NPE가 난다).
          - limit: 월 한도 중 금액성(AMOUNT/POINT)만. COUNT는 건수 한도라 원화 캡이 아니다.
            없으면 NULL(한도 없음)로 남는다. -->
-    <select id="getRecommendedCards" resultType="com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse">
+    <!--
+        추천 후보의 SELECT 본문. 조인 대상이 전부 참조 데이터라(benefit_service ·
+        service_category · category · card_product · point_currency · benefit_tier ·
+        benefit_limit) 결과가 사용자와 무관하다 — 아래 두 문이 같은 본문을 쓴다.
+
+        ⚠️ 종속 서브쿼리 두 개가 **혜택 서비스마다 한 번씩** 돈다. 카테고리 하나에 서비스가
+           61개라 요청당 122회고, RECOMMENDATION_COUNT=2면 244회다. service_id와
+           plan_group_id를 OR로 묶어 인덱스를 못 타고 매번 정렬한다. 100VU 실측으로 이
+           쿼리만 p50 17.7ms · p95 128.4ms였고 엔드포인트 p95(113ms)를 혼자 넘겼다.
+           그래서 사용자와 무관한 부분을 앱이 한 번만 부르고 캐시한다(getAllRecommendationCandidates).
+    -->
+    <sql id="recommendationCandidateBody">
         SELECT
         cp.card_product_id,
         cp.card_name,
@@ -113,12 +124,18 @@
             ORDER BY bl2.limit_id ASC
             LIMIT 1
         )
-        WHERE c.category_id IN
-        <foreach collection="categoryIds" item="categoryId" open="(" separator="," close=")">
-            #{categoryId}
-        </foreach>
-        AND cp.card_product_id NOT IN (
-        SELECT card_product_id FROM user_card WHERE user_id = #{userId}
-        )
+    </sql>
+
+    <!--
+        전 카테고리 후보를 한 번에. 앱이 기동 후 한 번만 부르고 메모리에 들고 있는다 —
+        위 주석의 종속 서브쿼리가 앱 생애 1회로 줄어드는 자리다.
+    -->
+    <select id="getAllRecommendationCandidates" resultType="com.fitwallet.domain.report.dto.response.CardRecommendationRawResponse">
+        <include refid="recommendationCandidateBody"/>
+    </select>
+
+    <!-- 추천에서 제외할 보유 카드. user_card(user_id) 인덱스로 끝난다. -->
+    <select id="findOwnedCardProductIds" resultType="java.lang.Long">
+        SELECT DISTINCT card_product_id FROM user_card WHERE user_id = #{userId}
     </select>
 </mapper>
