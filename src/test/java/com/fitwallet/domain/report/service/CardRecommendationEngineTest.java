@@ -403,4 +403,48 @@ class CardRecommendationEngineTest {
         assertThat(result).hasSize(1);
         assertThat(result.get(0).getExpectedBenefit()).isEqualByComparingTo(BigDecimal.valueOf(5000));
     }
+
+    // ── 카드 상세 페이지 URL 전달 (#325) ────────────────────────────────────
+
+    @Test
+    void 추천_카드는_카드사_상품_상세_URL을_그대로_내려준다() {
+        when(benefitReportMapper.getMonthlyCategorySpends(USER_ID, M1, M3))
+                .thenReturn(flatCategory(1L, "카페/디저트", 100000));
+
+        CardRecommendationRawResponse card = CardRecommendationRawResponse.builder()
+                .cardProductId(54L)
+                .cardName("KB국민 톡톡M 카드")
+                .cardImageUrl("09290_img.png")
+                .detailUrl("https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=09290")
+                .categoryId(1L)
+                .categoryName("카페/디저트")
+                .valueType("RATE")
+                .discountRate(BigDecimal.valueOf(20))
+                .minPrevMonthSpend(null)
+                .build();
+        when(benefitReportMapper.getRecommendedCards(USER_ID, List.of(1L))).thenReturn(List.of(card));
+
+        List<CardRecommendationResponse> result = engine.recommend(USER_ID, YEAR_MONTH);
+
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getDetailUrl())
+                .isEqualTo("https://card.kbcard.com/CRD/DVIEW/HCAMCXPRICAC0076?mainCC=a&cooperationcode=09290");
+    }
+
+    @Test
+    void 콜드스타트_폴백에서도_상품_상세_URL이_함께_내려간다() {
+        when(benefitReportMapper.getMonthlyCategorySpends(USER_ID, M1, M3)).thenReturn(List.of());
+        when(benefitReportMapper.getPopularUnownedCards(USER_ID, 2)).thenReturn(List.of(
+                PopularCardRawResponse.builder()
+                        .cardProductId(44L).cardName("KB국민 국민행복체크카드")
+                        .detailUrl("https://card.kbcard.com/x?cooperationcode=02066").build(),
+                // URL이 아직 없는 카드는 null 그대로 나간다 — 읽는 쪽이 "이동할 곳 없음"으로 처리한다
+                PopularCardRawResponse.builder()
+                        .cardProductId(12L).cardName("URL 없는 카드").build()));
+
+        List<CardRecommendationResponse> result = engine.recommend(USER_ID, YEAR_MONTH);
+
+        assertThat(result).extracting(CardRecommendationResponse::getDetailUrl)
+                .containsExactly("https://card.kbcard.com/x?cooperationcode=02066", null);
+    }
 }

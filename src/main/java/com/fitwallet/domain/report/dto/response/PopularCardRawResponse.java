@@ -17,4 +17,5 @@ public class PopularCardRawResponse {
     private Long cardProductId;
     private String cardName;
     private String cardImageUrl;
+    private String detailUrl;
 }

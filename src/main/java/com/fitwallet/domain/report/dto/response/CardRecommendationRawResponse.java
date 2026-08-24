@@ -20,6 +20,7 @@ public class CardRecommendationRawResponse {
     private Long cardProductId;
     private String cardName;
     private String cardImageUrl;
+    private String detailUrl;
     private Long categoryId;
     private String categoryName;
     private String valueType;      // "RATE" | "FIXED"

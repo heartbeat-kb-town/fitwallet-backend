@@ -227,6 +227,7 @@ public class CardRecommendationEngine {
                     .cardProductId(card.getCardProductId())
                     .cardName(card.getCardName())
                     .cardImageUrl(card.getCardImageUrl())
+                    .detailUrl(card.getDetailUrl())
                     // 예상 지출이 없어 혜택을 추정할 수 없다 — 금액은 비우고 인기 기반임을 문구로 알린다.
                     .expectedBenefit(null)
                     .description(COLD_START_DESCRIPTION)
@@ -271,6 +272,7 @@ public class CardRecommendationEngine {
                 .cardProductId(info.getCardProductId())
                 .cardName(info.getCardName())
                 .cardImageUrl(info.getCardImageUrl())
+                .detailUrl(info.getDetailUrl())
                 .expectedBenefit(entry.getValue())
                 .description(buildDescription(info))
                 .build();

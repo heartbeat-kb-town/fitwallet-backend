@@ -70,6 +70,7 @@
         cp.card_product_id,
         cp.card_name,
         cp.card_image_url,
+        cp.detail_url,
         c.category_id,
         c.category_name,
         bs.value_type,
@@ -164,13 +165,14 @@
         SELECT
         cp.card_product_id,
         cp.card_name,
-        cp.card_image_url
+        cp.card_image_url,
+        cp.detail_url
         FROM card_product cp
         JOIN user_card uc ON uc.card_product_id = cp.card_product_id AND uc.is_deleted = 0
         WHERE cp.card_product_id NOT IN (
         SELECT card_product_id FROM user_card WHERE user_id = #{userId} AND is_deleted = 0
         )
-        GROUP BY cp.card_product_id, cp.card_name, cp.card_image_url
+        GROUP BY cp.card_product_id, cp.card_name, cp.card_image_url, cp.detail_url
         ORDER BY COUNT(DISTINCT uc.user_id) DESC, cp.card_product_id ASC
         LIMIT #{limit}
     </select>

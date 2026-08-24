@@ -286,4 +286,30 @@ class CardTransactionMapperIntegrationTest {
                 .limit(limit)
                 .build();
     }
+
+    // ── 시드의 실적 미인정 건 (#325) ────────────────────────────────────────
+
+    @Test
+    void 시드의_공과금_거래는_이번달_내역에_실적_미인정으로_나온다() {
+        LocalDateTime monthStart = LocalDateTime.now().withDayOfMonth(1).toLocalDate().atStartOfDay();
+
+        List<CardTransactionItemResponse> transactions = cardMapper.findTransactions(
+                SEED_USER_ID, SEED_CREDIT_CARD_ID,
+                CardTransactionSearchCondition.builder()
+                        .startAt(monthStart)
+                        .endAt(monthStart.plusMonths(1))
+                        .limit(100)
+                        .build());
+
+        // V909가 넣은 한 건. 승인 건이므로 목록에 나오되 실적에는 안 잡힌다 — 취소 건과 다르다.
+        assertThat(transactions)
+                .filteredOn(tx -> "한국전력공사".equals(tx.getStoreName()))
+                .singleElement()
+                .satisfies(tx -> {
+                    assertThat(tx.getPaymentAmount()).isEqualByComparingTo("22000.00");
+                    assertThat(tx.getPerformanceIncluded()).isFalse();
+                    assertThat(tx.getTransactionStatus()).isEqualTo(CardTransactionStatus.APPROVED);
+                    assertThat(tx.getCategoryName()).isEqualTo("기타");
+                });
+    }
 }
