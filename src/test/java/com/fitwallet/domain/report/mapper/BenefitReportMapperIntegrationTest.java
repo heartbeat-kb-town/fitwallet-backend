@@ -237,4 +237,49 @@ class BenefitReportMapperIntegrationTest {
         assertThat(popular).extracting(PopularCardRawResponse::getCardProductId)
                 .doesNotContainAnyElementsOf(ownedProductIds);
     }
+
+    // ── card_product.detail_url 매핑 (#325) ─────────────────────────────────
+    //
+    // resultType 매핑은 SQL이 안 뽑은 컬럼을 조용히 버린다(§6). DTO에 detailUrl 필드가 있어도
+    // 매퍼 XML이 cp.detail_url을 SELECT하지 않으면 응답에 늘 null이 실린다. 아래 두 테스트가
+    // 그 침묵을 잡는다 — 컴파일도 통과하고 단위 테스트도 통과하는 종류의 실패다.
+
+    @Test
+    void 추천_후보_조회는_카드의_상품_상세_URL을_함께_가져온다() {
+        Long userId = 1L;
+        // V12가 URL을 채워 둔 미보유 카드. 시연에서 추천으로 노출되는 두 장 중 하나다.
+        Long cardProductId = 54L;
+
+        String expected = jdbcTemplate().queryForObject(
+                "SELECT detail_url FROM card_product WHERE card_product_id = ?",
+                String.class, cardProductId);
+        assertThat(expected).as("V12가 %d번 카드에 URL을 채웠어야 한다", cardProductId).isNotNull();
+
+        List<CardRecommendationRawResponse> candidates =
+                benefitReportMapper.getRecommendedCards(userId, List.of(1L, 2L, 3L, 4L, 5L, 6L, 7L));
+
+        assertThat(candidates)
+                .filteredOn(row -> cardProductId.equals(row.getCardProductId()))
+                .isNotEmpty()
+                .allSatisfy(row -> assertThat(row.getDetailUrl()).isEqualTo(expected));
+    }
+
+    @Test
+    void 인기_미보유_카드_조회도_상품_상세_URL을_함께_가져온다() {
+        // ⚠️ 시드 유저(1L)로는 이 쿼리가 항상 빈 결과다. 로컬 시드에 회원이 하나뿐이라
+        // "누군가 보유한 카드 상품" 전부가 곧 시드 유저의 보유 카드이고, 쿼리가 그걸 통째로
+        // 제외하기 때문이다. 콜드스타트 경로를 태우려면 보유 카드가 없는 사용자여야 한다.
+        Long cardlessUserId = 9999L;
+
+        // 인기 상위가 어느 카드일지는 보유 분포에 달려 있어 고정할 수 없다. 전 카드에 식별
+        // 가능한 값을 심어 두고(클래스 레벨 @Transactional이 롤백한다) 그게 돌아오는지 본다.
+        jdbcTemplate().update(
+                "UPDATE card_product SET detail_url = CONCAT('https://example.test/', card_product_id)");
+
+        List<PopularCardRawResponse> popular = benefitReportMapper.getPopularUnownedCards(cardlessUserId, 2);
+
+        assertThat(popular).isNotEmpty();
+        assertThat(popular).allSatisfy(card ->
+                assertThat(card.getDetailUrl()).isEqualTo("https://example.test/" + card.getCardProductId()));
+    }
 }
