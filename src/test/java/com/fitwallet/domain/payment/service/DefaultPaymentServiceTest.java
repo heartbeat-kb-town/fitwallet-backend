@@ -148,7 +148,7 @@ class DefaultPaymentServiceTest {
         paymentService.generateQr(1L, qrRequest(1L, "auth_abc123"));
 
         then(paymentMapper).should(never()).markPinAuthUsed(any());
-        then(paymentMapper).should().insertPaymentSession(eq(1L), anyString(), eq(PaymentSessionStatus.PENDING), any());
+        then(paymentMapper).should().insertPaymentSession(eq(1L), anyString(), eq(PaymentSessionStatus.PENDING), any(), any());
     }
 
     @Test
@@ -233,7 +233,7 @@ class DefaultPaymentServiceTest {
                 .isInstanceOf(BusinessException.class);
 
         then(paymentMapper).should(never()).markPinAuthUsed(any());
-        then(paymentMapper).should(never()).insertPaymentSession(any(), any(), any(), any());
+        then(paymentMapper).should(never()).insertPaymentSession(any(), any(), any(), any(), any());
     }
 
     // QR 상태 조회
@@ -376,7 +376,7 @@ class DefaultPaymentServiceTest {
 
         assertThat(response.getStatus()).isEqualTo(PaymentSessionStatus.PROCESSING);
         assertThat(response.getPaymentId()).isEqualTo("pay_abc");
-        then(paymentMapper).should().markSessionProcessing(eq("pay_abc"), eq(20L), eq(BigDecimal.valueOf(4500)));
+        then(paymentMapper).should().markSessionProcessing(eq("pay_abc"), eq(20L), eq(BigDecimal.valueOf(5000)));
     }
 
     @Test

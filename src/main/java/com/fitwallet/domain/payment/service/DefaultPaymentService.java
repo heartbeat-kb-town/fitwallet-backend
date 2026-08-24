@@ -32,7 +32,7 @@ public class DefaultPaymentService implements PaymentService {
     private static final int QR_SESSION_TTL_SECONDS = 180;
     private static final int MOCK_SCAN_DELAY_SECONDS = 3;
     private static final Long MOCK_STORE_ID = 20L;
-    private static final BigDecimal MOCK_AMOUNT = BigDecimal.valueOf(4500);
+    private static final BigDecimal MOCK_AMOUNT = BigDecimal.valueOf(5000);
     private static final int MOCK_PROCESS_DELAY_SECONDS = 2;
     private static final double MOCK_SUCCESS_RATE = 0.9;
     private static final Pattern STORE_QR_TOKEN_PATTERN = Pattern.compile("^FITWALLET-QR-\\d{5}$");
@@ -79,7 +79,7 @@ public class DefaultPaymentService implements PaymentService {
 
         String qrToken = "qrt_" + UUID.randomUUID().toString().replace("-", "");
 
-        paymentMapper.insertPaymentSession(request.getUserCardId(), qrToken, PaymentSessionStatus.PENDING, LocalDateTime.now().plusSeconds(QR_SESSION_TTL_SECONDS));
+        paymentMapper.insertPaymentSession(request.getUserCardId(), qrToken, PaymentSessionStatus.PENDING, request.getAmount(), LocalDateTime.now().plusSeconds(QR_SESSION_TTL_SECONDS));
 
         return QrGenerateResponse.builder()
                 .qrToken(qrToken)
@@ -128,7 +128,8 @@ public class DefaultPaymentService implements PaymentService {
         }
 
         if (session.getStatus() == PaymentSessionStatus.SCANNED){
-            paymentMapper.markSessionProcessing(paymentId, MOCK_STORE_ID, MOCK_AMOUNT);
+            BigDecimal amount = session.getAmount() != null ? session.getAmount() : MOCK_AMOUNT;
+            paymentMapper.markSessionProcessing(paymentId, MOCK_STORE_ID, amount);
             return PaymentResultResponse.builder()
                     .paymentId(paymentId)
                     .status(PaymentSessionStatus.PROCESSING)

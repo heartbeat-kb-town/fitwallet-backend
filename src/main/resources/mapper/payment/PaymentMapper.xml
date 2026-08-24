@@ -45,8 +45,8 @@
     </update>
 
     <insert id="insertPaymentSession">
-        INSERT INTO payment_session (user_card_id, session_token, status, expires_at)
-        VALUES (#{userCardId}, #{sessionToken}, #{status}, #{expiresAt})
+        INSERT INTO payment_session (user_card_id, session_token, status, amount, expires_at)
+        VALUES (#{userCardId}, #{sessionToken}, #{status}, #{amount}, #{expiresAt})
     </insert>
 
     <select id="findQrSessionByToken" resultType="com.fitwallet.domain.payment.dto.QrSessionInfo">
