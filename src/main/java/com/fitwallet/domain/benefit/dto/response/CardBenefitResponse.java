@@ -50,8 +50,10 @@ public class CardBenefitResponse {
     private BenefitDetailResponse benefit;
 
     @ApiModelProperty(value = """
-            기대혜택액 기준 순위. 1위가 이 결제에 가장 이득인 카드다. "1위" 배지는 이 값으로 그린다.
-            - **`amount`를 보냈을 때만 채워진다.** 미전달이면 모든 카드가 null이다
+            추천 순위. 1위가 가장 이득인 카드다. "1위" 배지는 이 값으로 그린다.
+            `cards` 배열도 이 순위대로 내려간다.
+            - **`amount`를 보내면 기대혜택액 기준**, 생략하면 **혜택 우열 기준**(정액 → 정률,
+              할인 → 적립, 그다음 값이 큰 쪽)이다
             - `status`가 `AVAILABLE`인 카드에만 붙는다. 나머지는 null
             - **동점은 같은 순위를 주고 다음 순위를 건너뛴다** — `1, 1, 3`""",
             example = "1")

@@ -63,10 +63,21 @@ public class DefaultBenefitService implements BenefitService {
     private static final List<LimitPeriod> EXHAUSTED_PRIORITY = List.of(
             LimitPeriod.DAY, LimitPeriod.MONTH, LimitPeriod.YEAR);
 
-    /** tie-break: valueType(FIXED→RATE) → benefitType(CASHBACK→ACCUMULATE) → serviceId 오름차순. */
-    private static final Comparator<BenefitCandidateResponse> TIE_BREAK_ORDER =
+    /**
+     * 금액을 모를 때 혜택끼리 매기는 우선순위 —
+     * valueType(FIXED→RATE) → benefitType(CASHBACK→ACCUMULATE) → valueNumber 내림차순 → serviceId 오름차순.
+     * <p>
+     * 앞의 두 단이 <b>단위를 먼저 갈라놓기 때문에</b> valueNumber 단에서 원과 포인트 개수를 직접 비교하는
+     * 일은 생기지 않는다 — 정액 캐시백끼리는 원, 정액 적립끼리는 포인트 개수, 정률끼리는 %끼리만 비교한다.
+     * <p>
+     * 카드 <b>안</b>에서 대표 혜택을 고를 때({@link #pickWinner})와 카드 <b>사이</b>를 정렬할 때
+     * ({@link #sortAndRank}) 같은 comparator를 쓴다. 두 기준이 갈리면 3,000원 혜택을 가진 카드가
+     * 500원짜리로 대표돼 뒤로 밀리는 모순이 생긴다.
+     */
+    private static final Comparator<BenefitCandidateResponse> BENEFIT_PRIORITY =
             Comparator.<BenefitCandidateResponse, Integer>comparing(c -> c.getValueType() == ValueType.FIXED ? 0 : 1)
                     .thenComparing(c -> c.getBenefitType() == BenefitType.CASHBACK ? 0 : 1)
+                    .thenComparing(BenefitCandidateResponse::getValueNumber, Comparator.<BigDecimal>reverseOrder())
                     .thenComparing(BenefitCandidateResponse::getServiceId);
 
     private final BenefitMapper benefitMapper;
@@ -101,14 +112,10 @@ public class DefaultBenefitService implements BenefitService {
                     .build();
         }
 
-        List<CardBenefitResponse> cards = evaluations.stream()
-                .map(evaluation -> toCardResponse(evaluation, resolvedAmount))
-                .collect(Collectors.toList());
-
         return ExpectedBenefitResponse.builder()
                 .store(toStoreResponse(store))
                 .hasCard(true)
-                .cards(sortAndRank(cards, resolvedAmount))
+                .cards(sortAndRank(evaluations, resolvedAmount))
                 .build();
     }
 
@@ -255,10 +262,11 @@ public class DefaultBenefitService implements BenefitService {
                 reason(BenefitReasonCode.LIMIT_EXHAUSTED, message), winner);
     }
 
-    private CardBenefitResponse toCardResponse(CardEvaluation evaluation, BigDecimal amount) {
+    private CardBenefitResponse toCardResponse(CardEvaluation evaluation, Map<Long, BigDecimal> expectedAmounts) {
         BenefitDetailResponse benefit = evaluation.winner() == null
                 ? null
-                : buildDetail(evaluation.winner(), amount);
+                : buildDetail(evaluation.winner().candidate(),
+                        expectedAmounts.get(evaluation.card().getUserCardId()));
         return buildCard(evaluation.card(), evaluation.status(), evaluation.reason(), benefit);
     }
 
@@ -394,14 +402,17 @@ public class DefaultBenefitService implements BenefitService {
     /**
      * 카드 한 장이 내놓을 혜택 하나를 고른다.
      * <p>
-     * <b>금액을 알면 산출액이 가장 큰 후보가 이긴다.</b> {@code TIE_BREAK_ORDER}는 산출액이
-     * 같을 때만 쓰는 진짜 tie-break로 내려간다 — 금액을 모르던 시절엔 이게 1차 기준이라
+     * <b>금액을 알면 산출액이 가장 큰 후보가 이긴다.</b> {@code BENEFIT_PRIORITY}는 산출액이
+     * 같을 때만 쓰는 tie-break로 내려간다 — 금액을 모르던 시절엔 이게 1차 기준이라
      * 100,000원 결제에서 "100원 정액"이 "2% 정률"을 이기는 일이 있었다.
+     * <p>
+     * <b>금액을 모르면 {@code BENEFIT_PRIORITY}가 그대로 1차 기준이다.</b> 같은 종류 혜택이
+     * 여러 개면 값이 큰 쪽이 이 카드의 대표가 된다 — 카드 사이를 정렬하는 기준과 같아야 한다.
      */
     private CandidateEvaluation pickWinner(List<CandidateEvaluation> pool, BigDecimal amount) {
         if (amount == null) {
             return pool.stream()
-                    .min(Comparator.comparing(CandidateEvaluation::candidate, TIE_BREAK_ORDER))
+                    .min(Comparator.comparing(CandidateEvaluation::candidate, BENEFIT_PRIORITY))
                     .orElseThrow();
         }
         Comparator<CandidateEvaluation> byExpectedAmountDesc = Comparator
@@ -409,7 +420,7 @@ public class DefaultBenefitService implements BenefitService {
                         benefitAmountCalculator.calculate(amount, e.candidate(), e.remainingKrw()).getKrw())
                 .reversed();
         return pool.stream()
-                .min(byExpectedAmountDesc.thenComparing(CandidateEvaluation::candidate, TIE_BREAK_ORDER))
+                .min(byExpectedAmountDesc.thenComparing(CandidateEvaluation::candidate, BENEFIT_PRIORITY))
                 .orElseThrow();
     }
 
@@ -442,20 +453,18 @@ public class DefaultBenefitService implements BenefitService {
     }
 
     /**
-     * {@code amount}가 없으면 {@code expectedAmount}는 채우지 않는다 — 금액을 모르는 조회다.
+     * {@code expectedAmount}는 {@link #resolveExpectedAmounts}가 미리 계산해 둔 값이다.
+     * 금액을 모르는 조회면 {@code null}이 들어온다 — 그대로 비워 내보낸다.
      * <p>
      * 한도가 소진된 후보로도 불린다({@code LIMIT_EXHAUSTED}). 그때 잔여는 0 이하라
      * {@code expectedAmount}도 0이 된다 — 못 받는 혜택에 금액이 실리지 않는다.
      */
-    private BenefitDetailResponse buildDetail(CandidateEvaluation evaluation, BigDecimal amount) {
-        BenefitCandidateResponse candidate = evaluation.candidate();
+    private BenefitDetailResponse buildDetail(BenefitCandidateResponse candidate, BigDecimal expectedAmount) {
         return BenefitDetailResponse.builder()
                 .benefitServiceId(candidate.getServiceId())
                 .benefitName(candidate.getBenefitName())
                 .displayText(buildDisplayText(candidate))
-                .expectedAmount(amount == null
-                        ? null
-                        : benefitAmountCalculator.calculate(amount, candidate, evaluation.remainingKrw()).getKrw())
+                .expectedAmount(expectedAmount)
                 .build();
     }
 
@@ -501,60 +510,115 @@ public class DefaultBenefitService implements BenefitService {
 
     /**
      * 카드 목록을 정렬하고 순위를 매긴다. 정렬 기준은 3단이다 —
-     * {@code status} 그룹 → {@code expectedAmount} 내림차순 → 기존 표시 순서.
+     * {@code status} 그룹 → <b>혜택 우열</b> → 기존 표시 순서.
+     * <p>
+     * 두 번째 단이 금액 유무로 갈린다. 금액을 알면 {@code expectedAmount} 내림차순이고,
+     * 모르면 {@link #BENEFIT_PRIORITY}(정액→정률, 할인→적립, 값이 큰 쪽)를 쓴다.
+     * 금액을 몰라도 혜택의 <b>종류와 크기</b>는 알 수 있으므로 순위를 못 매길 이유가 없다.
      * <p>
      * 세 번째 단은 코드가 아니라 {@code List.sort}가 <b>안정 정렬</b>이라는 성질이 만든다.
      * 앞의 두 기준이 같으면 {@code findUserCards}가 준 순서(= {@code display_order})가 그대로 남는다.
      * <p>
-     * <b>금액을 모르면 상태 그룹까지만 정렬한다</b> — 비교할 금액이 없으므로 현행 동작 그대로다.
+     * 정렬 대상이 응답 DTO가 아니라 {@link CardEvaluation}인 것은 필수다 —
+     * {@code CardBenefitResponse}에는 {@code valueType}·{@code valueNumber}가 없어
+     * 금액 없는 조회의 정렬 키를 만들 수 없다.
      */
-    private List<CardBenefitResponse> sortAndRank(List<CardBenefitResponse> cards, BigDecimal amount) {
-        Comparator<CardBenefitResponse> byStatusGroup =
-                Comparator.comparingInt(c -> STATUS_GROUP_RANK.get(c.getStatus()));
+    private List<CardBenefitResponse> sortAndRank(List<CardEvaluation> evaluations, BigDecimal amount) {
+        Map<Long, BigDecimal> expectedAmounts = resolveExpectedAmounts(evaluations, amount);
 
-        if (amount == null) {
-            cards.sort(byStatusGroup);
-            return cards;
-        }
+        Comparator<CardEvaluation> order =
+                Comparator.<CardEvaluation>comparingInt(e -> STATUS_GROUP_RANK.get(e.status()))
+                        .thenComparing(amount == null
+                                ? byBenefitPriority()
+                                : byExpectedAmountDesc(expectedAmounts));
 
-        cards.sort(byStatusGroup.thenComparing(
-                DefaultBenefitService::expectedAmountOf,
-                Comparator.nullsLast(Comparator.reverseOrder())));
-        return assignRanks(cards);
-    }
-
-    private static BigDecimal expectedAmountOf(CardBenefitResponse card) {
-        return card.getBenefit() == null ? null : card.getBenefit().getExpectedAmount();
+        List<CardEvaluation> sorted = new ArrayList<>(evaluations);
+        sorted.sort(order);
+        return assignRanks(sorted, amount, expectedAmounts);
     }
 
     /**
-     * 정렬이 끝난 목록에 순위를 매긴다. <b>동점은 같은 순위를 주고 다음 순위를 건너뛴다</b>(1, 1, 3).
+     * 카드별 원화 기대혜택액을 <b>한 번만</b> 계산해 둔다. 정렬 키와 응답 DTO가 같은 값을 쓰게 하려는
+     * 것이므로, 금액을 모르는 조회면 계산할 것이 없어 빈 맵이다({@code expectedAmount}는 그대로 {@code null}).
+     */
+    private Map<Long, BigDecimal> resolveExpectedAmounts(List<CardEvaluation> evaluations, BigDecimal amount) {
+        if (amount == null) {
+            return Map.of();
+        }
+        return evaluations.stream()
+                .filter(evaluation -> evaluation.winner() != null)
+                .collect(Collectors.toMap(
+                        evaluation -> evaluation.card().getUserCardId(),
+                        evaluation -> benefitAmountCalculator.calculate(
+                                amount, evaluation.winner().candidate(), evaluation.winner().remainingKrw()).getKrw()));
+    }
+
+    /** 후보가 아예 없는 카드({@code NO_BENEFIT} 등)는 비교할 혜택이 없으므로 뒤로 보낸다. */
+    private static Comparator<CardEvaluation> byBenefitPriority() {
+        return Comparator.comparing(DefaultBenefitService::winnerCandidate,
+                Comparator.nullsLast(BENEFIT_PRIORITY));
+    }
+
+    private static Comparator<CardEvaluation> byExpectedAmountDesc(Map<Long, BigDecimal> expectedAmounts) {
+        return Comparator.comparing(
+                (CardEvaluation evaluation) -> expectedAmounts.get(evaluation.card().getUserCardId()),
+                Comparator.nullsLast(Comparator.reverseOrder()));
+    }
+
+    private static BenefitCandidateResponse winnerCandidate(CardEvaluation evaluation) {
+        return evaluation.winner() == null ? null : evaluation.winner().candidate();
+    }
+
+    /**
+     * 정렬이 끝난 목록을 응답 DTO로 바꾸면서 순위를 매긴다.
+     * <b>동점은 같은 순위를 주고 다음 순위를 건너뛴다</b>(1, 1, 3).
      * <p>
      * {@code AVAILABLE}이 아닌 카드는 순위를 세지도 부여하지도 않는다 — 받지 못하는 혜택에 등수를
      * 매기면 "3위 카드"가 실제로는 못 쓰는 카드가 된다.
      * <p>
      * {@code @Setter}를 쓰지 않으므로(§4) 순위가 붙는 카드만 {@code toBuilder()}로 새로 만든다.
      */
-    private List<CardBenefitResponse> assignRanks(List<CardBenefitResponse> cards) {
-        List<CardBenefitResponse> ranked = new ArrayList<>(cards.size());
+    private List<CardBenefitResponse> assignRanks(List<CardEvaluation> sorted, BigDecimal amount,
+                                                   Map<Long, BigDecimal> expectedAmounts) {
+        List<CardBenefitResponse> ranked = new ArrayList<>(sorted.size());
         int position = 0;
         int currentRank = 0;
-        BigDecimal previousAmount = null;
+        CardEvaluation previous = null;
 
-        for (CardBenefitResponse card : cards) {
-            BigDecimal expected = expectedAmountOf(card);
-            if (card.getStatus() != CardBenefitStatus.AVAILABLE || expected == null) {
+        for (CardEvaluation evaluation : sorted) {
+            CardBenefitResponse card = toCardResponse(evaluation, expectedAmounts);
+            if (evaluation.status() != CardBenefitStatus.AVAILABLE || evaluation.winner() == null) {
                 ranked.add(card);
                 continue;
             }
             position++;
-            if (previousAmount == null || previousAmount.compareTo(expected) != 0) {
+            if (previous == null || !sameRank(previous, evaluation, amount, expectedAmounts)) {
                 currentRank = position;
-                previousAmount = expected;
+                previous = evaluation;
             }
             ranked.add(card.toBuilder().rank(currentRank).build());
         }
         return ranked;
+    }
+
+    /**
+     * 두 카드가 같은 순위인지. 정렬 2단과 <b>같은 축으로</b> 판정해야 한다 —
+     * 금액을 알면 산출액이 같을 때, 모르면 혜택의 종류와 값이 모두 같을 때다.
+     * <p>
+     * {@code serviceId}는 정렬을 결정짓기만 할 뿐 동점 판정에 쓰지 않는다. 화면에 같아 보이는
+     * 두 혜택에 굳이 1위·2위를 갈라 줄 이유가 없다.
+     */
+    private boolean sameRank(CardEvaluation previous, CardEvaluation current, BigDecimal amount,
+                              Map<Long, BigDecimal> expectedAmounts) {
+        if (amount != null) {
+            return expectedAmounts.get(previous.card().getUserCardId())
+                    .compareTo(expectedAmounts.get(current.card().getUserCardId())) == 0;
+        }
+        BenefitCandidateResponse before = previous.winner().candidate();
+        BenefitCandidateResponse after = current.winner().candidate();
+        return before.getValueType() == after.getValueType()
+                && before.getBenefitType() == after.getBenefitType()
+                && before.getValueNumber().compareTo(after.getValueNumber()) == 0;
     }
 
     /** tie-break·소진 판정 계산용 내부 홀더. 응답 DTO가 아니므로 record 대신 일반 클래스로 둔다. */
