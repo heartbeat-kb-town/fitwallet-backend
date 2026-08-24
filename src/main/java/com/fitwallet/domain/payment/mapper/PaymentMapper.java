@@ -27,6 +27,7 @@ public interface PaymentMapper {
     void insertPaymentSession(@Param("userCardId") Long userCardId,
                               @Param("sessionToken") String sessionToken,
                               @Param("status") PaymentSessionStatus status,
+                              @Param("amount") BigDecimal amount,
                               @Param("expiresAt") LocalDateTime expiresAt);
 
     QrSessionInfo findQrSessionByToken(@Param("userId") Long userId, @Param("qrToken") String qrToken);
