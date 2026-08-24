@@ -1,5 +1,6 @@
 package com.fitwallet.domain.report.service;
 
+import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import com.fitwallet.domain.report.dto.BenefitType;
 import com.fitwallet.domain.report.dto.response.CardBenefitDetailResponse;
 import com.fitwallet.domain.report.dto.response.CardSummaryResponse;
@@ -72,13 +73,17 @@ public class DefaultCardBenefitService implements CardBenefitService {
             // 원화 할인과 포인트 적립은 단위가 달라 합계를 따로 낸다 (환산하지 않는다)
             BigDecimal discountSum = BigDecimal.ZERO;
             BigDecimal pointSum = BigDecimal.ZERO;
+            int usageCount = 0;
             List<TransactionDetailResponse> transactions = new ArrayList<>();
 
             for (CategoryTransactionRawResponse tx : txList) {
-                if (tx.getBenefitType() == BenefitType.ACCUMULATE) {
-                    pointSum = pointSum.add(tx.getBenefitAmount());
-                } else {
-                    discountSum = discountSum.add(tx.getBenefitAmount());
+                if (tx.getTransactionStatus() == CardTransactionStatus.APPROVED) {
+                    usageCount++;
+                    if (tx.getBenefitType() == BenefitType.ACCUMULATE) {
+                        pointSum = pointSum.add(tx.getBenefitAmount());
+                    } else {
+                        discountSum = discountSum.add(tx.getBenefitAmount());
+                    }
                 }
                 transactions.add(TransactionDetailResponse.builder()
                         .approvedAt(tx.getApprovedAt())
@@ -87,6 +92,7 @@ public class DefaultCardBenefitService implements CardBenefitService {
                         .benefitRate(tx.getBenefitRate())
                         .paidAmount(tx.getPaidAmount())
                         .benefitAmount(tx.getBenefitAmount())
+                        .transactionStatus(tx.getTransactionStatus())
                         .build());
             }
 
@@ -95,7 +101,7 @@ public class DefaultCardBenefitService implements CardBenefitService {
             result.add(CategoryTransactionGroupResponse.builder()
                     .categoryId(first.getCategoryId())
                     .categoryName(first.getCategoryName())
-                    .usageCount(txList.size())
+                    .usageCount(usageCount)
                     .discountAmount(discountSum)
                     .pointAmount(pointSum)
                     .transactions(transactions)

@@ -1,5 +1,6 @@
 package com.fitwallet.domain.report.mapper;
 
+import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import com.fitwallet.domain.report.dto.response.CardSummaryResponse;
 import com.fitwallet.domain.report.dto.response.CategoryTransactionRawResponse;
 import org.junit.jupiter.api.Test;
@@ -79,7 +80,7 @@ class CardBenefitMapperIntegrationTest {
     }
 
     @Test
-    void 취소거래는_카드별_혜택요약과_상세에서_제외한다() {
+    void 취소거래는_카드별_혜택요약에서_제외하고_상세에는_상태와_함께_포함한다() {
         new JdbcTemplate(dataSource).update("""
                 INSERT INTO payment_transaction
                     (user_card_id, store_id, amount, discount_amount, final_amount, paid_at,
@@ -95,6 +96,11 @@ class CardBenefitMapperIntegrationTest {
         assertThat(summary.getTotalDiscount()).isZero();
         assertThat(summary.getTotalPoint()).isZero();
         assertThat(summary.getTotalSpend()).isZero();
-        assertThat(transactions).isEmpty();
+        assertThat(transactions).singleElement().satisfies(transaction -> {
+            assertThat(transaction.getTransactionStatus())
+                    .isEqualTo(CardTransactionStatus.CANCELED);
+            assertThat(transaction.getBenefitAmount())
+                    .isEqualByComparingTo("1000");
+        });
     }
 }

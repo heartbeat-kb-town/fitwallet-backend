@@ -29,8 +29,9 @@
         GROUP BY cp.card_name, cp.card_image_url, uc.first4
     </select>
 
-    <!-- 받은 혜택 상세 목록. 실제로 혜택을 받은 결제만 노출하므로 benefit_service를
-         INNER JOIN 한다(applied_benefit_service_id가 있는 건만 남는다).
+    <!-- 받은 혜택 상세 목록. 승인 당시 혜택을 받은 결제만 노출하므로 benefit_service를
+         INNER JOIN 한다(applied_benefit_service_id가 있는 건만 남는다). 승인취소 건도
+         취소선 표시를 위해 상태와 함께 반환하되, 혜택 합계에서는 서비스가 제외한다.
          benefitType으로 원화/포인트를 구분하고, benefitRate는 정률(RATE) 혜택의 % 값이다.
          정액(FIXED) 혜택은 %가 없으므로 null로 내린다. -->
     <select id="getCategoryTransactions" resultType="com.fitwallet.domain.report.dto.response.CategoryTransactionRawResponse">
@@ -42,7 +43,8 @@
         bs.benefit_type AS benefitType,
         CASE WHEN bs.value_type = 'RATE' THEN bs.value_number ELSE NULL END AS benefitRate,
         pt.amount AS paidAmount,
-        pt.discount_amount AS benefitAmount
+        pt.discount_amount AS benefitAmount,
+        pt.transaction_status
         FROM payment_transaction pt
         JOIN user_card uc ON pt.user_card_id = uc.user_card_id
         JOIN store s ON pt.store_id = s.store_id
@@ -51,7 +53,7 @@
         LEFT JOIN brand br ON s.brand_id = br.brand_id
         WHERE pt.user_card_id = #{userCardId}
         AND uc.user_id = #{userId}
-        AND pt.transaction_status = 'APPROVED'
+        AND pt.transaction_status IN ('APPROVED', 'CANCELED')
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
         ORDER BY c.category_id, pt.paid_at DESC
     </select>

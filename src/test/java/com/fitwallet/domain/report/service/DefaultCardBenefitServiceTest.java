@@ -1,5 +1,6 @@
 package com.fitwallet.domain.report.service;
 
+import com.fitwallet.domain.card.dto.CardTransactionStatus;
 import com.fitwallet.domain.report.dto.BenefitType;
 import com.fitwallet.domain.report.dto.response.*;
 import com.fitwallet.domain.report.exception.CardBenefitErrorCode;
@@ -66,6 +67,7 @@ class DefaultCardBenefitServiceTest {
                 .benefitRate(BigDecimal.valueOf(7))
                 .paidAmount(BigDecimal.valueOf(32000))
                 .benefitAmount(BigDecimal.valueOf(2240))
+                .transactionStatus(CardTransactionStatus.APPROVED)
                 .build();
 
         CategoryTransactionRawResponse tx2 = CategoryTransactionRawResponse.builder()
@@ -77,6 +79,7 @@ class DefaultCardBenefitServiceTest {
                 .benefitRate(BigDecimal.valueOf(7))
                 .paidAmount(BigDecimal.valueOf(65000))
                 .benefitAmount(BigDecimal.valueOf(4550))
+                .transactionStatus(CardTransactionStatus.APPROVED)
                 .build();
 
         when(cardBenefitMapper.getCardSummary(userId, userCardId, yearMonth))
@@ -125,6 +128,7 @@ class DefaultCardBenefitServiceTest {
                 .benefitRate(BigDecimal.valueOf(5))
                 .paidAmount(BigDecimal.valueOf(82000))
                 .benefitAmount(BigDecimal.valueOf(1400))
+                .transactionStatus(CardTransactionStatus.APPROVED)
                 .build();
 
         CategoryTransactionRawResponse pointTx = CategoryTransactionRawResponse.builder()
@@ -136,6 +140,7 @@ class DefaultCardBenefitServiceTest {
                 .benefitRate(BigDecimal.valueOf(3))
                 .paidAmount(BigDecimal.valueOf(9000))
                 .benefitAmount(BigDecimal.valueOf(270))
+                .transactionStatus(CardTransactionStatus.APPROVED)
                 .build();
 
         when(cardBenefitMapper.getCardSummary(userId, userCardId, yearMonth))
@@ -177,6 +182,7 @@ class DefaultCardBenefitServiceTest {
                 .benefitRate(BigDecimal.valueOf(7))
                 .paidAmount(BigDecimal.valueOf(32000))
                 .benefitAmount(BigDecimal.valueOf(2240))
+                .transactionStatus(CardTransactionStatus.APPROVED)
                 .build();
 
         CategoryTransactionRawResponse martTx = CategoryTransactionRawResponse.builder()
@@ -188,6 +194,7 @@ class DefaultCardBenefitServiceTest {
                 .benefitRate(BigDecimal.valueOf(5))
                 .paidAmount(BigDecimal.valueOf(58000))
                 .benefitAmount(BigDecimal.valueOf(2900))
+                .transactionStatus(CardTransactionStatus.APPROVED)
                 .build();
 
         when(cardBenefitMapper.getCardSummary(userId, userCardId, yearMonth))
@@ -202,5 +209,58 @@ class DefaultCardBenefitServiceTest {
         assertThat(response.getCategories())
                 .extracting(CategoryTransactionGroupResponse::getCategoryName)
                 .containsExactly("외식", "마트");
+    }
+
+    @Test
+    void 승인취소_거래는_상세에_남기고_이용건수와_혜택합계에서는_제외한다() {
+        Long userId = 1L;
+        Long userCardId = 1L;
+        String yearMonth = "2026-08";
+
+        CardSummaryResponse summary = CardSummaryResponse.builder()
+                .cardName("KB Gold & More")
+                .totalDiscount(BigDecimal.valueOf(1000))
+                .totalPoint(BigDecimal.ZERO)
+                .totalSpend(BigDecimal.valueOf(10000))
+                .build();
+
+        CategoryTransactionRawResponse approved = CategoryTransactionRawResponse.builder()
+                .categoryId(1L)
+                .categoryName("카페/디저트")
+                .approvedAt(LocalDateTime.of(2026, 8, 10, 10, 0))
+                .storeName("스타벅스")
+                .benefitType(BenefitType.CASHBACK)
+                .benefitRate(BigDecimal.TEN)
+                .paidAmount(BigDecimal.valueOf(10000))
+                .benefitAmount(BigDecimal.valueOf(1000))
+                .transactionStatus(CardTransactionStatus.APPROVED)
+                .build();
+        CategoryTransactionRawResponse canceled = CategoryTransactionRawResponse.builder()
+                .categoryId(1L)
+                .categoryName("카페/디저트")
+                .approvedAt(LocalDateTime.of(2026, 8, 11, 10, 0))
+                .storeName("스타벅스")
+                .benefitType(BenefitType.CASHBACK)
+                .benefitRate(BigDecimal.TEN)
+                .paidAmount(BigDecimal.valueOf(20000))
+                .benefitAmount(BigDecimal.valueOf(2000))
+                .transactionStatus(CardTransactionStatus.CANCELED)
+                .build();
+
+        when(cardBenefitMapper.getCardSummary(userId, userCardId, yearMonth))
+                .thenReturn(summary);
+        when(cardBenefitMapper.getCategoryTransactions(userId, userCardId, yearMonth))
+                .thenReturn(List.of(canceled, approved));
+
+        CardBenefitDetailResponse response =
+                cardBenefitService.getCardBenefitDetail(userId, userCardId, yearMonth);
+
+        CategoryTransactionGroupResponse category = response.getCategories().get(0);
+        assertThat(category.getUsageCount()).isEqualTo(1);
+        assertThat(category.getDiscountAmount()).isEqualByComparingTo("1000");
+        assertThat(category.getPointAmount()).isZero();
+        assertThat(category.getTransactions())
+                .extracting(TransactionDetailResponse::getTransactionStatus)
+                .containsExactly(CardTransactionStatus.CANCELED, CardTransactionStatus.APPROVED);
     }
 }
