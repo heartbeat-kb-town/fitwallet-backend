@@ -20,25 +20,42 @@
 -- 노리가 후보에서 빠지고 "5,000원 이상 결제해야 받을 수 있는 혜택이에요"가 나온다.
 --
 -- ---------------------------------------------------------
+-- 이 파일은 고정 id를 하나도 쓰지 않는다
+-- ---------------------------------------------------------
+-- 첫 버전은 user_id를 2·3·4로, user_card_id를 10~24로, payment_transaction_id를 1000번대로
+-- 박아 두었다가 fitwallet-demo 배포에서 죽었다 — 그 DB에는 이미 user_id 2·3을 쓰는 실제
+-- 가입자가 있었고 user_card도 19번까지 차 있었다(Duplicate entry '2' for key 'users.PRIMARY').
+-- 마이그레이션이 실패하면 앱이 뜨지 않으므로 데모 환경이 통째로 내려갔다.
+--
+-- 그래서 모든 행을 **자연키로 조회해서** 넣는다. 계정은 login_id, 보유 카드는
+-- (user_id, card_product_id), 한도는 (tier_id, limit_basis, limit_period) — 셋 다 UNIQUE라
+-- INSERT IGNORE 한 번으로 멱등해진다. AGENTS §11의 "마이그레이션은 멱등하게 쓴다"가
+-- 로컬에서만 검증하면 지켜지지 않는다는 것을 이 파일이 실패로 배웠다.
+--
+-- ---------------------------------------------------------
+-- 삭제 범위는 시연 계정으로 좁힌다
+-- ---------------------------------------------------------
+-- 첫 버전은 리셋에서 payment_transaction_id >= 1000과 payment_session_id > 4를 통째로
+-- 지웠다. 로컬에서는 맞지만 공용 DB에서는 **다른 사람의 결제 내역을 지운다** —
+-- fitwallet-demo에는 실제 세션이 66건 있었다. 지금은 이렇게 나눈다.
+--
+--   demo1~3      합성 계정이라 거래를 통째로 지우고 다시 심는다
+--   fitwallet123 공용 계정이라 **오늘 것만**, 그중에서도 이 시나리오가 만든 행(tier 162)과
+--                시연 중 앱으로 만든 결제(payment_session_id IS NOT NULL)만 지운다
+--   그 밖의 계정  건드리지 않는다
+--
+-- ---------------------------------------------------------
 -- 왜 프로시저를 두는가
 -- ---------------------------------------------------------
 -- 이 시나리오는 "오늘"과 "지난달"에 매달려 있는데, Flyway는 한 번만 돈다. 마이그레이션이 심은
 -- "오늘"은 적용되던 날의 오늘이라 하루만 지나도 일 한도가 리셋되고, "지난달" 실적도 달이 바뀌면
--- 전월 창 밖으로 나간다. 게다가 한 번 결제한 계정은 소진 상태로 남아 같은 계정으로 다시
--- 시연할 수 없다.
+-- 전월 창 밖으로 나간다. 게다가 한 번 결제한 계정은 소진 상태로 남아 다시 시연할 수 없다.
 --
 -- 그래서 날짜에 매달린 부분을 demo_reset_scenario() 하나에 두고, 이 파일과
 -- scripts/demo-reset.sql이 둘 다 CALL 한다. 양쪽에 복제하면 반드시 어긋난다.
 --
 --   시연 직전에 실행:
 --   docker compose exec -T mysql mysql -ufitwallet -pfitwallet1234 fitwallet < scripts/demo-reset.sql
---
--- ---------------------------------------------------------
--- payment_transaction_id 1000번 이상은 이 시나리오 전용이다
--- ---------------------------------------------------------
--- demo_reset_scenario()는 1000번 이상을 통째로 지우고 다시 심는다. 시연 중 앱으로 만든 결제는
--- AUTO_INCREMENT를 타고 이 범위 위에 쌓이므로 같은 규칙 하나로 함께 청소된다.
--- **앞으로 추가되는 시드 마이그레이션은 1000번 이상을 쓰지 않는다** (V909까지의 최대값은 729).
 -- =========================================================
 
 SET NAMES utf8mb4;
@@ -49,87 +66,80 @@ SET NAMES utf8mb4;
 -- tier 162(service 133, KB국민 청춘대로 톡톡 - 스타벅스 50%)에는 지금 월 한도 30,000원만 있다.
 -- 일 한도가 없으면 하루에 몇 번을 결제해도 순위가 바뀌지 않는다.
 --
--- 월 한도는 이 시연에 걸리지 않는다 — fitwallet123의 이번 달 tier 162 사용액은 5,850원이고
--- 여기에 7,500원과 결제분 2,500원을 더해도 15,850원으로 30,000원 아래다. 따라서 소진 판정은
--- 항상 DAY 쪽에서 나고, EXHAUSTED_PRIORITY도 DAY를 먼저 고른다.
+-- limit_id를 주지 않는다 — AUTO_INCREMENT가 채우고, UNIQUE (tier_id, limit_basis, limit_period)가
+-- 재실행을 막는다.
 -- ---------------------------------------------------------
-INSERT INTO `benefit_limit` (`limit_id`, `tier_id`, `limit_basis`, `limit_period`, `limit_value`)
-VALUES (926, 162, 'AMOUNT', 'DAY', 10000.00);
+INSERT IGNORE INTO `benefit_limit` (`tier_id`, `limit_basis`, `limit_period`, `limit_value`)
+VALUES (162, 'AMOUNT', 'DAY', 10000.00);
 
 -- ---------------------------------------------------------
--- ② 카페 혜택 두 건에 "1만원 이상 결제 시" 조건을 건다
---
--- 실제 카드에 흔한 조건이고, 거래를 새로 심지 않으므로 다른 화면의 지출·실적 수치를 건드리지
--- 않는다. 둘 다 이 시연에 반드시 필요하다.
+-- ② 카페 혜택 두 건에 "1만원 이상 결제 시" 조건을 건다 (UPDATE라 그 자체로 멱등)
 --
 --   service 901 (톡톡 - Enjoy 서비스 - 카페 20%)
 --     톡톡의 예비 혜택이다. 이걸 두면 결제 후 스타벅스 50%(133)가 일 한도로 죽어도 901이
 --     살아남아 1,000원을 낸다. 노리와 동점이 되는데 display_order가 1번으로 5번인 노리보다
 --     앞서서, 정렬 3단(안정 정렬 = 기존 표시 순서)에 걸려 **톡톡이 그대로 1위로 남는다.**
---     5,000원에서 901을 후보에서 빼야 133 하나만 남아 순위가 뒤집힌다.
 --
 --   service 54 (All Pass - 일반 할인 - 커피전문점 20%)
---     "혜택 받을 수 없음" 카드를 만드는 장치다. 54를 그냥 두면 5,000원에서 1,000원이라
---     노리와 동점인데 display_order가 2번이라 노리의 2위를 빼앗는다.
---     같은 카드의 카페·디저트 혜택(902)은 이미 min_tx_amount가 10,000이라 함께 빠지고,
---     결과적으로 "10,000원 이상 결제해야 받을 수 있는 혜택이에요"가 나온다.
+--     "혜택 받을 수 없음" 카드를 만드는 장치다. 그냥 두면 5,000원에서 1,000원이라 노리와
+--     동점인데 display_order가 2번이라 노리의 2위를 빼앗는다. 같은 카드의 카페·디저트
+--     혜택(902)은 이미 min_tx_amount가 10,000이라 함께 빠지고, 결과적으로
+--     "10,000원 이상 결제해야 받을 수 있는 혜택이에요"가 나온다.
 --
--- ⚠️ All Pass를 "오늘 혜택 횟수 소진"으로 떨어뜨리려던 첫 설계는 동작하지 않는다.
+-- ⚠️ All Pass를 "오늘 혜택 횟수 소진"으로 떨어뜨리려던 설계는 동작하지 않는다.
 -- tier 58(service 54, COUNT DAY 1)은 BenefitMapper.findLimits가 도달할 수 없는 행이다 —
--- service 54는 plan_group_id가 10이라 findLimits의 조건이 plan_group 쪽 tier(21·22·23,
--- 월 통합 한도)만 고르고, service_id로 묶인 tier 58은 영영 선택되지 않는다.
--- (같은 이유로 tier 57도 죽어 있다. 이 시드가 만든 문제가 아니라 기존 참조 데이터의 상태다.)
+-- service 54는 plan_group_id가 10이라 findLimits가 plan_group 쪽 tier(21·22·23, 월 통합
+-- 한도)만 고르고, service_id로 묶인 tier 58은 영영 선택되지 않는다. tier 57도 같은 이유로
+-- 죽어 있다. 이 시드가 만든 문제가 아니라 기존 참조 데이터의 상태다.
 -- ---------------------------------------------------------
 UPDATE `benefit_service` SET `min_tx_amount` = 10000.00 WHERE `service_id` IN (54, 901);
 
 -- ---------------------------------------------------------
--- ③ 시연 계정 3개
+-- ③ 시연 계정 3개 — login_id가 UNIQUE라 INSERT IGNORE로 멱등하다
 --
 -- 비밀번호(11112222)와 결제 PIN(123456) 해시는 fitwallet123의 것을 그대로 재사용한다 —
 -- 네 계정의 자격증명이 같아야 시연자가 헷갈리지 않는다.
 -- ---------------------------------------------------------
-INSERT INTO `users` (`user_id`, `login_id`, `name`, `phone`, `password_hash`, `payment_pin_hash`,
-                     `is_location_agreed`, `is_marketing_agreed`)
-VALUES (2, 'demo1', '김데모', '010-1234-5679',
+INSERT IGNORE INTO `users` (`login_id`, `name`, `phone`, `password_hash`, `payment_pin_hash`,
+                            `is_location_agreed`, `is_marketing_agreed`)
+VALUES ('demo1', '김데모', '010-1234-5679',
         '$2a$10$fVOyYs72w2Bos1Yqg9kAzO5R7muqmDB65Q.ZnXFRIpnZ2LWyj8Fou',
         '$2a$10$VFxQaZFMVYRlbzkFiDmDuuMyKrT58iJNqNPlMzchKkOiMh4y7DlGq', 1, 0),
-       (3, 'demo2', '이데모', '010-1234-5680',
+       ('demo2', '이데모', '010-1234-5680',
         '$2a$10$fVOyYs72w2Bos1Yqg9kAzO5R7muqmDB65Q.ZnXFRIpnZ2LWyj8Fou',
         '$2a$10$VFxQaZFMVYRlbzkFiDmDuuMyKrT58iJNqNPlMzchKkOiMh4y7DlGq', 1, 0),
-       (4, 'demo3', '박데모', '010-1234-5681',
+       ('demo3', '박데모', '010-1234-5681',
         '$2a$10$fVOyYs72w2Bos1Yqg9kAzO5R7muqmDB65Q.ZnXFRIpnZ2LWyj8Fou',
         '$2a$10$VFxQaZFMVYRlbzkFiDmDuuMyKrT58iJNqNPlMzchKkOiMh4y7DlGq', 1, 0);
 
 -- ---------------------------------------------------------
--- ④ 보유 카드 — fitwallet123(user_card 1~5)과 같은 5장, 같은 display_order
+-- ④ 보유 카드 — fitwallet123과 같은 5장, 같은 display_order
 --
 -- display_order가 곧 정렬 3단(안정 정렬)의 재료라 순서를 바꾸면 동점 카드의 순위가 달라진다.
 --   1 청춘대로 톡톡(47) · 2 All Pass(15) · 3 Pick E 체크(20) · 4 Z everyday(21) · 5 노리 체크(43)
+--
+-- user_id를 조회해서 넣고, UNIQUE (user_id, card_product_id)가 재실행을 막는다.
+-- UNION ALL 첫 행의 NULL은 CAST로 타입을 못박는다 — 안 하면 뒤 행의 문자열이 잘릴 수 있다.
 -- ---------------------------------------------------------
-INSERT INTO `user_card` (`user_card_id`, `user_id`, `card_product_id`, `first4`, `last4`,
-                         `expiry_date`, `display_order`, `bank_name`, `balance`, `credit_limit`,
-                         `scheduled_payment_amount`)
-VALUES (10, 2, 47, '5327', '8115', '2028-09-30', 1, NULL, NULL, 3000000.00, 89800.00),
-       (11, 2, 15, '4092', '3477', '2027-11-30', 2, NULL, NULL, 2000000.00, 259200.00),
-       (12, 2, 20, '4092', '1258', '2029-03-31', 3, '신한은행', 340000.00, NULL, NULL),
-       (13, 2, 21, '4155', '6721', '2028-05-31', 4, NULL, NULL, 1500000.00, 202000.00),
-       (14, 2, 43, '5327', '4584', '2027-07-31', 5, 'KB국민은행', 1150000.00, NULL, NULL),
-       (15, 3, 47, '5327', '8216', '2028-09-30', 1, NULL, NULL, 3000000.00, 89800.00),
-       (16, 3, 15, '4092', '3578', '2027-11-30', 2, NULL, NULL, 2000000.00, 259200.00),
-       (17, 3, 20, '4092', '1359', '2029-03-31', 3, '신한은행', 340000.00, NULL, NULL),
-       (18, 3, 21, '4155', '6822', '2028-05-31', 4, NULL, NULL, 1500000.00, 202000.00),
-       (19, 3, 43, '5327', '4685', '2027-07-31', 5, 'KB국민은행', 1150000.00, NULL, NULL),
-       (20, 4, 47, '5327', '8317', '2028-09-30', 1, NULL, NULL, 3000000.00, 89800.00),
-       (21, 4, 15, '4092', '3679', '2027-11-30', 2, NULL, NULL, 2000000.00, 259200.00),
-       (22, 4, 20, '4092', '1460', '2029-03-31', 3, '신한은행', 340000.00, NULL, NULL),
-       (23, 4, 21, '4155', '6923', '2028-05-31', 4, NULL, NULL, 1500000.00, 202000.00),
-       (24, 4, 43, '5327', '4786', '2027-07-31', 5, 'KB국민은행', 1150000.00, NULL, NULL);
+INSERT IGNORE INTO `user_card` (`user_id`, `card_product_id`, `first4`, `last4`, `expiry_date`,
+                                `display_order`, `bank_name`, `balance`, `credit_limit`,
+                                `scheduled_payment_amount`)
+SELECT u.user_id, c.card_product_id, c.first4, c.last4, c.expiry_date,
+       c.display_order, c.bank_name, c.balance, c.credit_limit, c.scheduled_payment_amount
+FROM `users` u
+         JOIN (SELECT 47 AS card_product_id, '5327' AS first4, '8115' AS last4,
+                      DATE '2028-09-30' AS expiry_date, 1 AS display_order,
+                      CAST(NULL AS CHAR(50)) AS bank_name,
+                      CAST(NULL AS DECIMAL(15, 2)) AS balance,
+                      3000000.00 AS credit_limit, 89800.00 AS scheduled_payment_amount
+               UNION ALL SELECT 15, '4092', '3477', DATE '2027-11-30', 2, NULL, NULL, 2000000.00, 259200.00
+               UNION ALL SELECT 20, '4092', '1258', DATE '2029-03-31', 3, '신한은행', 340000.00, NULL, NULL
+               UNION ALL SELECT 21, '4155', '6721', DATE '2028-05-31', 4, NULL, NULL, 1500000.00, 202000.00
+               UNION ALL SELECT 43, '5327', '4584', DATE '2027-07-31', 5, 'KB국민은행', 1150000.00, NULL, NULL) c
+WHERE u.login_id IN ('demo1', 'demo2', 'demo3');
 
 -- ---------------------------------------------------------
 -- ⑤ demo_reset_scenario() — 날짜에 매달린 부분의 정본
---
--- 마이그레이션(이 파일 맨 아래)과 scripts/demo-reset.sql이 둘 다 이것을 CALL 한다.
--- 날짜는 전부 실행 시점 기준으로 다시 계산되므로, 며칠 뒤에 불러도 같은 화면이 나온다.
 -- ---------------------------------------------------------
 DROP PROCEDURE IF EXISTS `demo_reset_scenario`;
 
@@ -150,87 +160,63 @@ BEGIN
     -- 일 한도 창은 DefaultBenefitService.resolvePeriodStart 기준으로 오늘 00:00 이상이다.
     SET today_a = CONCAT(CURDATE(), ' 09:10:00');
 
-    -- 이전 시나리오 행과 시연 중 앱으로 만든 결제를 지운다.
-    -- payment_session_id > 4 조건이 함께 필요한 이유는, 이 마이그레이션이 적용되기 전에
-    -- 만들어진 앱 결제는 id가 1000 아래라 첫 조건에 안 걸리는데 그대로 두면 아래
-    -- payment_session DELETE가 FK에 막히기 때문이다. 세션 1~4는 V900이 심은 것이라 남긴다.
-    DELETE FROM payment_transaction
-     WHERE payment_transaction_id >= 1000
-        OR payment_session_id > 4;
-    DELETE FROM payment_session WHERE payment_session_id > 4;
+    -- demo1~3은 합성 계정이라 거래를 통째로 지운다.
+    DELETE pt FROM payment_transaction pt
+        JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+        JOIN users u ON u.user_id = uc.user_id
+    WHERE u.login_id IN ('demo1', 'demo2', 'demo3');
 
-    -- 전월 실적. 카드별 합계는 fitwallet123과 같은 값으로 맞췄다.
+    -- fitwallet123은 공용 계정이라 오늘 것만, 그중에서도 이 시나리오가 만든 행과
+    -- 시연 중 앱으로 만든 결제만 지운다. V900~V909의 과거 거래는 건드리지 않는다.
+    DELETE pt FROM payment_transaction pt
+        JOIN user_card uc ON uc.user_card_id = pt.user_card_id
+        JOIN users u ON u.user_id = uc.user_id
+    WHERE u.login_id = 'fitwallet123'
+      AND pt.paid_at >= CURDATE()
+      AND (pt.applied_tier_id = 162 OR pt.payment_session_id IS NOT NULL);
+
+    -- 전월 실적(demo1~3). 카드별 합계는 fitwallet123과 같은 값으로 맞췄다.
     --   톡톡 384,900 · All Pass 822,300 · Pick E 808,400 · Z everyday 900,900 · 노리 705,900
     -- 각 카드의 스타벅스/카페 혜택 문턱(min_payment_amount)을 전부 넘긴다.
     -- applied_tier_id는 NULL이다 — 한도 집계에 끼어들면 안 된다.
     INSERT INTO payment_transaction
-        (payment_transaction_id, user_card_id, store_id, payment_session_id, amount,
-         discount_amount, final_amount, paid_at, is_used_app, is_eligible,
-         applied_benefit_service_id, applied_tier_id)
-    VALUES
-        -- demo1
-        (1001, 10, 187, NULL, 152000.00, 0.00, 152000.00, pm_a, 0, 1, NULL, NULL),
-        (1002, 10, 195, NULL, 128900.00, 0.00, 128900.00, pm_b, 0, 1, NULL, NULL),
-        (1003, 10, 91, NULL, 104000.00, 0.00, 104000.00, pm_c, 0, 1, NULL, NULL),
-        (1004, 11, 187, NULL, 312000.00, 0.00, 312000.00, pm_a, 0, 1, NULL, NULL),
-        (1005, 11, 195, NULL, 268300.00, 0.00, 268300.00, pm_b, 0, 1, NULL, NULL),
-        (1006, 11, 91, NULL, 242000.00, 0.00, 242000.00, pm_c, 0, 1, NULL, NULL),
-        (1007, 12, 187, NULL, 305000.00, 0.00, 305000.00, pm_a, 0, 1, NULL, NULL),
-        (1008, 12, 195, NULL, 264400.00, 0.00, 264400.00, pm_b, 0, 1, NULL, NULL),
-        (1009, 12, 91, NULL, 239000.00, 0.00, 239000.00, pm_c, 0, 1, NULL, NULL),
-        (1010, 13, 187, NULL, 348000.00, 0.00, 348000.00, pm_a, 0, 1, NULL, NULL),
-        (1011, 13, 195, NULL, 296900.00, 0.00, 296900.00, pm_b, 0, 1, NULL, NULL),
-        (1012, 13, 91, NULL, 256000.00, 0.00, 256000.00, pm_c, 0, 1, NULL, NULL),
-        (1013, 14, 187, NULL, 268000.00, 0.00, 268000.00, pm_a, 0, 1, NULL, NULL),
-        (1014, 14, 195, NULL, 229900.00, 0.00, 229900.00, pm_b, 0, 1, NULL, NULL),
-        (1015, 14, 91, NULL, 208000.00, 0.00, 208000.00, pm_c, 0, 1, NULL, NULL),
-        -- demo2
-        (1031, 15, 187, NULL, 152000.00, 0.00, 152000.00, pm_a, 0, 1, NULL, NULL),
-        (1032, 15, 195, NULL, 128900.00, 0.00, 128900.00, pm_b, 0, 1, NULL, NULL),
-        (1033, 15, 91, NULL, 104000.00, 0.00, 104000.00, pm_c, 0, 1, NULL, NULL),
-        (1034, 16, 187, NULL, 312000.00, 0.00, 312000.00, pm_a, 0, 1, NULL, NULL),
-        (1035, 16, 195, NULL, 268300.00, 0.00, 268300.00, pm_b, 0, 1, NULL, NULL),
-        (1036, 16, 91, NULL, 242000.00, 0.00, 242000.00, pm_c, 0, 1, NULL, NULL),
-        (1037, 17, 187, NULL, 305000.00, 0.00, 305000.00, pm_a, 0, 1, NULL, NULL),
-        (1038, 17, 195, NULL, 264400.00, 0.00, 264400.00, pm_b, 0, 1, NULL, NULL),
-        (1039, 17, 91, NULL, 239000.00, 0.00, 239000.00, pm_c, 0, 1, NULL, NULL),
-        (1040, 18, 187, NULL, 348000.00, 0.00, 348000.00, pm_a, 0, 1, NULL, NULL),
-        (1041, 18, 195, NULL, 296900.00, 0.00, 296900.00, pm_b, 0, 1, NULL, NULL),
-        (1042, 18, 91, NULL, 256000.00, 0.00, 256000.00, pm_c, 0, 1, NULL, NULL),
-        (1043, 19, 187, NULL, 268000.00, 0.00, 268000.00, pm_a, 0, 1, NULL, NULL),
-        (1044, 19, 195, NULL, 229900.00, 0.00, 229900.00, pm_b, 0, 1, NULL, NULL),
-        (1045, 19, 91, NULL, 208000.00, 0.00, 208000.00, pm_c, 0, 1, NULL, NULL),
-        -- demo3
-        (1061, 20, 187, NULL, 152000.00, 0.00, 152000.00, pm_a, 0, 1, NULL, NULL),
-        (1062, 20, 195, NULL, 128900.00, 0.00, 128900.00, pm_b, 0, 1, NULL, NULL),
-        (1063, 20, 91, NULL, 104000.00, 0.00, 104000.00, pm_c, 0, 1, NULL, NULL),
-        (1064, 21, 187, NULL, 312000.00, 0.00, 312000.00, pm_a, 0, 1, NULL, NULL),
-        (1065, 21, 195, NULL, 268300.00, 0.00, 268300.00, pm_b, 0, 1, NULL, NULL),
-        (1066, 21, 91, NULL, 242000.00, 0.00, 242000.00, pm_c, 0, 1, NULL, NULL),
-        (1067, 22, 187, NULL, 305000.00, 0.00, 305000.00, pm_a, 0, 1, NULL, NULL),
-        (1068, 22, 195, NULL, 264400.00, 0.00, 264400.00, pm_b, 0, 1, NULL, NULL),
-        (1069, 22, 91, NULL, 239000.00, 0.00, 239000.00, pm_c, 0, 1, NULL, NULL),
-        (1070, 23, 187, NULL, 348000.00, 0.00, 348000.00, pm_a, 0, 1, NULL, NULL),
-        (1071, 23, 195, NULL, 296900.00, 0.00, 296900.00, pm_b, 0, 1, NULL, NULL),
-        (1072, 23, 91, NULL, 256000.00, 0.00, 256000.00, pm_c, 0, 1, NULL, NULL),
-        (1073, 24, 187, NULL, 268000.00, 0.00, 268000.00, pm_a, 0, 1, NULL, NULL),
-        (1074, 24, 195, NULL, 229900.00, 0.00, 229900.00, pm_b, 0, 1, NULL, NULL),
-        (1075, 24, 91, NULL, 208000.00, 0.00, 208000.00, pm_c, 0, 1, NULL, NULL);
+        (user_card_id, store_id, amount, discount_amount, final_amount, paid_at,
+         is_used_app, is_eligible, applied_benefit_service_id, applied_tier_id)
+    SELECT uc.user_card_id, h.store_id, h.amount, 0.00, h.amount, h.paid_at, 0, 1, NULL, NULL
+    FROM user_card uc
+             JOIN users u ON u.user_id = uc.user_id
+             JOIN (
+                  SELECT 47 AS card_product_id, 187 AS store_id, 152000.00 AS amount, pm_a AS paid_at
+                  UNION ALL SELECT 47, 195, 128900.00, pm_b
+                  UNION ALL SELECT 47, 91, 104000.00, pm_c
+                  UNION ALL SELECT 15, 187, 312000.00, pm_a
+                  UNION ALL SELECT 15, 195, 268300.00, pm_b
+                  UNION ALL SELECT 15, 91, 242000.00, pm_c
+                  UNION ALL SELECT 20, 187, 305000.00, pm_a
+                  UNION ALL SELECT 20, 195, 264400.00, pm_b
+                  UNION ALL SELECT 20, 91, 239000.00, pm_c
+                  UNION ALL SELECT 21, 187, 348000.00, pm_a
+                  UNION ALL SELECT 21, 195, 296900.00, pm_b
+                  UNION ALL SELECT 21, 91, 256000.00, pm_c
+                  UNION ALL SELECT 43, 187, 268000.00, pm_a
+                  UNION ALL SELECT 43, 195, 229900.00, pm_b
+                  UNION ALL SELECT 43, 91, 208000.00, pm_c) h ON h.card_product_id = uc.card_product_id
+    WHERE u.login_id IN ('demo1', 'demo2', 'demo3')
+      AND uc.is_deleted = 0;
 
     -- 오늘 소진분. 네 계정 모두 같은 1건이다.
-    --
     -- 톡톡(tier 162, 일 한도 10,000원): 스타벅스 화양삼거리점 15,000원 결제 → 50% = 7,500원 할인.
     -- 남은 일 한도가 2,500원이 되어, 5,000원 조회 시 정가 2,500원과 잔여가 같아진다.
     -- 여기서 5,000원을 더 결제하면 2,500원이 쌓여 10,000원이 전액 소진된다.
     INSERT INTO payment_transaction
-        (payment_transaction_id, user_card_id, store_id, payment_session_id, amount,
-         discount_amount, final_amount, paid_at, is_used_app, is_eligible,
-         applied_benefit_service_id, applied_tier_id)
-    VALUES
-        (1091,  1, 21, NULL, 15000.00, 7500.00, 7500.00, today_a, 0, 1, 133, 162),  -- fitwallet123
-        (1021, 10, 21, NULL, 15000.00, 7500.00, 7500.00, today_a, 0, 1, 133, 162),  -- demo1
-        (1051, 15, 21, NULL, 15000.00, 7500.00, 7500.00, today_a, 0, 1, 133, 162),  -- demo2
-        (1081, 20, 21, NULL, 15000.00, 7500.00, 7500.00, today_a, 0, 1, 133, 162);  -- demo3
+        (user_card_id, store_id, amount, discount_amount, final_amount, paid_at,
+         is_used_app, is_eligible, applied_benefit_service_id, applied_tier_id)
+    SELECT uc.user_card_id, 21, 15000.00, 7500.00, 7500.00, today_a, 0, 1, 133, 162
+    FROM user_card uc
+             JOIN users u ON u.user_id = uc.user_id
+    WHERE u.login_id IN ('fitwallet123', 'demo1', 'demo2', 'demo3')
+      AND uc.card_product_id = 47
+      AND uc.is_deleted = 0;
 END //
 DELIMITER ;
 
