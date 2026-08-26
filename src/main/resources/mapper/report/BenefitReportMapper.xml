@@ -36,14 +36,13 @@
         AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
     </select>
 
-    <!-- 1) 최근 N개월의 카테고리 × 월별 지출. 추천 엔진이 카테고리별 월 지출들의
-         중앙값으로 예상 월 지출을 만든다(일회성 과소비에 덜 휘둘리게). 승인 거래만 집계. -->
-    <select id="getMonthlyCategorySpends"
-            resultType="com.fitwallet.domain.report.dto.response.MonthlyCategorySpendRawResponse">
+    <!-- 1) 지정한 이번 달의 카테고리별 지출. 추천 엔진이 이 지출을 예상 지출로 삼는다.
+         승인 거래만 집계하고, 거래가 있는 카테고리만 행으로 나온다. -->
+    <select id="getCategorySpends"
+            resultType="com.fitwallet.domain.report.dto.response.CategorySpendResponse">
         SELECT
-        c.category_id,
-        c.category_name,
-        DATE_FORMAT(pt.paid_at, '%Y-%m') AS yearMonth,
+        c.category_id AS categoryId,
+        c.category_name AS categoryName,
         COALESCE(SUM(pt.amount), 0) AS spendAmount
         FROM payment_transaction pt
         JOIN user_card uc ON pt.user_card_id = uc.user_card_id
@@ -51,8 +50,8 @@
         JOIN category c ON s.category_id = c.category_id
         WHERE uc.user_id = #{userId}
         AND pt.transaction_status = 'APPROVED'
-        AND DATE_FORMAT(pt.paid_at, '%Y-%m') BETWEEN #{fromYearMonth} AND #{toYearMonth}
-        GROUP BY c.category_id, c.category_name, DATE_FORMAT(pt.paid_at, '%Y-%m')
+        AND DATE_FORMAT(pt.paid_at, '%Y-%m') = #{yearMonth}
+        GROUP BY c.category_id, c.category_name
     </select>
 
     <!-- 2) 그 카테고리에 혜택 있는, 아직 보유 안 한 카드 후보 조회 -->
